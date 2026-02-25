@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Models from './pages/Models';
 import Training from './pages/Training';
@@ -13,6 +13,7 @@ import Serving from './pages/Serving';
 import FineTuning from './pages/FineTuning';
 import Scanner from './pages/Scanner';
 import WebcamTest from './pages/WebcamTest';
+import DataIngestion from './pages/DataIngestion';
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -20,6 +21,7 @@ const navItems = [
     { path: '/models', icon: Box, label: 'Models' },
     { path: '/huggingface', icon: Globe, label: 'HuggingFace' },
     { path: '/datasets', icon: Database, label: 'Datasets' },
+    { path: '/ingestion', icon: Upload, label: 'Data Ingestion' },
     { path: '/serving', icon: Server, label: 'Serving' },
     { path: '/training', icon: GraduationCap, label: 'Training' },
     { path: '/finetuning', icon: Wrench, label: 'Fine-Tuning' },
@@ -111,6 +113,7 @@ export default function App() {
                         <Route path="/models" element={<Models />} />
                         <Route path="/huggingface" element={<HuggingFaceHub />} />
                         <Route path="/datasets" element={<Datasets />} />
+                        <Route path="/ingestion" element={<DataIngestion />} />
                         <Route path="/serving" element={<Serving />} />
                         <Route path="/training" element={<Training />} />
                         <Route path="/finetuning" element={<FineTuning />} />

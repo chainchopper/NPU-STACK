@@ -50,3 +50,6 @@ run-all.bat
 
 # Temp scripts
 backend/_create_test_model.py
+
+# Web folder's own git repo (deployed separately to Vercel)
+web/.git

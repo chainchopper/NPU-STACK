@@ -155,8 +155,8 @@ console.log(data.choices[0].message.content);`,
                     <p className="text-secondary" style={{ padding: '16px 0' }}>No models loaded. Load a model below to start serving.</p>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {loadedModels.map(m => (
-                            <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                        {loadedModels.map((m, index) => (
+                            <div key={`loaded-${m.name}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
                                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-green)', flexShrink: 0 }} />
                                 <span style={{ fontWeight: 600, flex: 1 }}>{m.name}</span>
                                 <span className="badge">{m.type}</span>
@@ -182,8 +182,8 @@ console.log(data.choices[0].message.content);`,
                         <p className="text-secondary">No models registered. Upload or download a model first.</p>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '400px', overflowY: 'auto' }}>
-                            {models.map(m => (
-                                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
+                            {models.map((m, index) => (
+                                <div key={`model-${m.id}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
                                     <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{m.id}</span>
                                     {loadedNames.has(m.id) ? (
                                         <span className="badge badge-green">Loaded</span>

@@ -33,6 +33,7 @@ from routers.finetuning import router as finetuning_router
 from routers.scanner import router as scanner_router
 from routers.webcam import router as webcam_router
 from routers.filebrowser import router as filebrowser_router
+from routers.ingest import router as ingest_router
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -76,6 +77,7 @@ app.include_router(finetuning_router)
 app.include_router(scanner_router)
 app.include_router(webcam_router)
 app.include_router(filebrowser_router)
+app.include_router(ingest_router)
 
 
 @app.on_event("startup")
