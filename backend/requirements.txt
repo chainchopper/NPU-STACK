@@ -1,0 +1,32 @@
+# FastAPI & Server
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.18
+aiofiles>=24.1.0
+websockets>=14.0
+
+# Database
+sqlalchemy>=2.0.30
+aiosqlite>=0.20.0
+
+# ML/DL Core
+torch>=2.0.0
+torchvision>=0.15.0
+onnx>=1.16.0
+onnxruntime>=1.18.0
+
+# Model Conversion & Optimization
+openvino>=2024.0.0
+nncf>=2.12.0
+
+# Utilities
+pydantic>=2.10.0
+numpy>=1.26.0
+pillow>=10.0.0
+psutil>=6.0.0
+
+# HuggingFace
+huggingface_hub>=0.27.0
+
+# Environment
+python-dotenv>=1.0.0

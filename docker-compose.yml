@@ -1,0 +1,53 @@
+###############################################
+# NPU-STACK — Full-Stack Docker Compose
+# Launch everything with: docker compose up --build
+###############################################
+
+services:
+  # ─── Backend: FastAPI + PyTorch + OpenVINO ─────
+  npu-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: npu-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - model-store:/app/data/models
+      - dataset-cache:/app/data/datasets
+      - db-data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  # ─── Frontend: React + Vite (Nginx) ────────────
+  npu-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: npu-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      npu-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:3000/" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  model-store:
+    driver: local
+  dataset-cache:
+    driver: local
+  db-data:
+    driver: local

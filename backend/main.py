@@ -1,0 +1,123 @@
+"""NPU-STACK Backend — FastAPI server for NPU/TPU model development platform."""
+
+import os
+import sys
+
+# Load environment variables from .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+except ImportError:
+    pass
+
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+# Ensure backend directory is importable
+sys.path.insert(0, os.path.dirname(__file__))
+
+from database import init_db
+from routers.models import router as models_router
+from routers.training import router as training_router, training_ws_endpoint
+from routers.conversion import router as conversion_router
+from routers.benchmark import router as benchmark_router
+from routers.inference import router as inference_router
+from routers.huggingface import router as huggingface_router
+from routers.datasets import router as datasets_router
+
+# Create directories
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+MODEL_STORE = os.path.join(DATA_DIR, "models")
+os.makedirs(MODEL_STORE, exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, "datasets"), exist_ok=True)
+
+app = FastAPI(
+    title="NPU-STACK API",
+    description="Full-stack platform for training, converting, quantizing, and benchmarking ML models on NPU/TPU hardware.",
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+)
+
+# CORS — allow frontend origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",   # Vite dev
+        "http://localhost:3000",   # Docker/nginx
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(models_router)
+app.include_router(training_router)
+app.include_router(conversion_router)
+app.include_router(benchmark_router)
+app.include_router(inference_router)
+app.include_router(huggingface_router)
+app.include_router(datasets_router)
+
+
+@app.on_event("startup")
+def startup():
+    """Initialize database on startup."""
+    init_db()
+    print("=" * 60)
+    print("  NPU-STACK Backend Server")
+    print("  API Docs: http://localhost:8000/api/docs")
+    print("=" * 60)
+
+
+@app.get("/api/health")
+def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "service": "npu-stack-backend",
+        "version": "1.0.0",
+    }
+
+
+@app.get("/api/status")
+def system_status():
+    """Get system status including model and job counts."""
+    from database import SessionLocal, ModelRecord, TrainingJob, BenchmarkResult
+
+    db = SessionLocal()
+    try:
+        model_count = db.query(ModelRecord).count()
+        job_count = db.query(TrainingJob).count()
+        running_jobs = db.query(TrainingJob).filter(TrainingJob.status == "running").count()
+        benchmark_count = db.query(BenchmarkResult).count()
+
+        return {
+            "models": model_count,
+            "training_jobs": job_count,
+            "running_jobs": running_jobs,
+            "benchmarks": benchmark_count,
+        }
+    finally:
+        db.close()
+
+
+# WebSocket endpoint for training progress
+@app.websocket("/ws/training/{job_id}")
+async def ws_training(websocket: WebSocket, job_id: int):
+    await training_ws_endpoint(websocket, job_id)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        reload_dirs=[os.path.dirname(__file__)],
+    )

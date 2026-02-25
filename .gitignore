@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+.npm
+
+# Build outputs
+frontend/dist/
+frontend/build/
+
+# Data (generated at runtime)
+backend/data/
+*.db
+
+# Docker
+.docker/
+
+# Logs
+*.log
+
+# Portable Python (downloaded by setup.bat)
+python/
+python-embed.zip
+
+# Generated launchers
+run-backend.bat
+run-frontend.bat
+run-all.bat
+
+# Environment config (contains secrets)
+.env
+
+# Temp scripts
+backend/_create_test_model.py
