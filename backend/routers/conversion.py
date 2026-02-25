@@ -14,6 +14,7 @@ from services.conversion_service import (
     quantize_onnx_static,
     compress_openvino_nncf,
     validate_onnx,
+    quantize_vitis,
 )
 
 router = APIRouter(prefix="/api/convert", tags=["conversion"])
@@ -164,8 +165,41 @@ def convert_model(req: ConvertRequest, db: Session = Depends(get_db)):
             "message": "Model converted to CoreML format",
         }
 
+    elif req.target_format == "vitis":
+        if record.format != "onnx":
+            raise HTTPException(400, "Vitis AI quantization requires an ONNX model as source")
+        try:
+            result = quantize_vitis(
+                model_path=record.file_path,
+                output_dir=MODEL_STORE,
+            )
+        except RuntimeError as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(500, f"Vitis AI quantization failed: {e}")
+
+        new_record = ModelRecord(
+            name=f"{record.name} (Vitis INT8)",
+            framework="vitis_ai",
+            format="onnx_int8",
+            file_path=result["output_path"],
+            file_size=result["file_size"],
+            description=f"Quantized from model {record.id} using {result['tool']}",
+        )
+        db.add(new_record)
+        db.commit()
+        db.refresh(new_record)
+        return {
+            "model_id": new_record.id,
+            "name": new_record.name,
+            "format": "onnx_int8",
+            "tool": result["tool"],
+            "size": result["file_size"],
+            "message": f"Model quantized using {result['tool']}",
+        }
+
     else:
-        raise HTTPException(400, f"Unsupported target format: {req.target_format}. Supported: openvino, tensorrt, coreml")
+        raise HTTPException(400, f"Unsupported target format: {req.target_format}. Supported: openvino, tensorrt, coreml, vitis")
 
 
 @router.get("/available-formats")
@@ -214,6 +248,20 @@ def scan_available_formats():
         formats.append({"id": "gguf", "name": "GGUF (llama.cpp)", "installed": True, "target": "CPU/GPU (LLM)", "source": ["gguf"]})
     except ImportError:
         formats.append({"id": "gguf", "name": "GGUF (llama.cpp)", "installed": False, "target": "CPU/GPU (LLM)", "source": ["gguf"], "install": "pip install llama-cpp-python"})
+
+    # AMD Vitis AI
+    try:
+        import vai_q_onnx  # noqa: F401
+        formats.append({"id": "vitis", "name": "AMD Vitis AI", "installed": True, "target": "AMD NPU/FPGA/Alveo", "source": ["onnx"]})
+    except ImportError:
+        formats.append({"id": "vitis", "name": "AMD Vitis AI", "installed": False, "target": "AMD NPU/FPGA/Alveo", "source": ["onnx"], "install": "pip install vai_q_onnx"})
+
+    # OpenCV DNN
+    try:
+        import cv2  # noqa: F401
+        formats.append({"id": "opencv", "name": "OpenCV DNN", "installed": True, "target": "CPU/OpenCL/CUDA", "source": ["onnx", "caffe", "darknet"], "version": cv2.__version__})
+    except ImportError:
+        formats.append({"id": "opencv", "name": "OpenCV DNN", "installed": False, "target": "CPU/OpenCL/CUDA", "source": ["onnx", "caffe", "darknet"], "install": "pip install opencv-python"})
 
     return {"formats": formats, "total": len(formats), "installed": sum(1 for f in formats if f["installed"])}
 

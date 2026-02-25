@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FolderSearch, Download, HardDrive, Filter, RefreshCw } from 'lucide-react';
+import { FolderSearch, Download, HardDrive, Filter, RefreshCw, FolderOpen } from 'lucide-react';
+import FolderBrowser from '../components/FolderBrowser';
 
 const API = 'http://localhost:8000';
 
@@ -12,6 +13,7 @@ export default function Scanner() {
     const [importing, setImporting] = useState(null);
     const [importResult, setImportResult] = useState(null);
     const [filterFormat, setFilterFormat] = useState('all');
+    const [browseOpen, setBrowseOpen] = useState(false);
 
     useEffect(() => {
         fetch(`${API}/api/scan/hints`)
@@ -100,7 +102,25 @@ export default function Scanner() {
                     {loading ? <RefreshCw size={16} className="spin" /> : <FolderSearch size={16} />}
                     {loading ? 'Scanning...' : 'Scan'}
                 </button>
+                <button
+                    onClick={() => setBrowseOpen(true)}
+                    style={{
+                        padding: '10px 16px', background: '#1a1a2e', color: '#6c63ff', border: '1px solid #333',
+                        borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        fontSize: 13,
+                    }}
+                >
+                    <FolderOpen size={16} /> Browse
+                </button>
             </div>
+
+            <FolderBrowser
+                open={browseOpen}
+                onClose={() => setBrowseOpen(false)}
+                onSelect={(path) => setDirectory(path)}
+                showFiles={true}
+                title="Browse for Models"
+            />
 
             {/* Quick Scan Hints */}
             {hints.length > 0 && (

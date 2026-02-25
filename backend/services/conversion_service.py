@@ -260,3 +260,59 @@ def get_onnx_model_info(model_path: str) -> dict:
         return info
     except Exception as e:
         return {"valid": False, "error": str(e)}
+
+
+def quantize_vitis(model_path: str, output_dir: str, calibration_data=None) -> dict:
+    """Quantize an ONNX model using AMD Vitis AI (vai_q_onnx) or Quark.
+    
+    Falls back gracefully if neither library is installed.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    base_name = os.path.splitext(os.path.basename(model_path))[0]
+    output_path = os.path.join(output_dir, f"{base_name}_vitis_int8.onnx")
+
+    # Try Quark first (AMD's newer quantizer)
+    try:
+        from quark.onnx import ModelQuantizer, QuantizationConfig
+        
+        config = QuantizationConfig(
+            calibrate_method="MinMax",
+            quantize_mode="static" if calibration_data else "dynamic",
+        )
+        quantizer = ModelQuantizer(config)
+        quantizer.quantize_model(model_path, output_path, calibration_data)
+        
+        return {
+            "output_path": output_path,
+            "tool": "quark",
+            "format": "onnx_int8",
+            "file_size": os.path.getsize(output_path),
+        }
+    except ImportError:
+        pass
+
+    # Fall back to vai_q_onnx (Vitis AI quantizer)
+    try:
+        import vai_q_onnx
+
+        vai_q_onnx.quantize_static(
+            model_input=model_path,
+            model_output=output_path,
+            calibration_data_reader=calibration_data,
+        ) if calibration_data else vai_q_onnx.quantize_dynamic(
+            model_input=model_path,
+            model_output=output_path,
+        )
+
+        return {
+            "output_path": output_path,
+            "tool": "vai_q_onnx",
+            "format": "onnx_int8",
+            "file_size": os.path.getsize(output_path),
+        }
+    except ImportError:
+        raise RuntimeError(
+            "Neither 'quark' nor 'vai_q_onnx' is installed. "
+            "Install with: pip install quark  OR  pip install vai_q_onnx"
+        )
+

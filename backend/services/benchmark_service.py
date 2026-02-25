@@ -189,6 +189,19 @@ def get_system_info() -> dict:
     try:
         import torch
         info["cuda_available"] = torch.cuda.is_available()
+        info["cuda_version"] = getattr(torch.version, "cuda", None)
+        info["torch_version"] = torch.__version__
+
+        # cuDNN
+        try:
+            if torch.backends.cudnn.is_available():
+                info["cudnn_version"] = str(torch.backends.cudnn.version())
+                info["cudnn_enabled"] = torch.backends.cudnn.enabled
+            else:
+                info["cudnn_version"] = None
+        except Exception:
+            info["cudnn_version"] = None
+
         if torch.cuda.is_available():
             gpu_count = torch.cuda.device_count()
             info["cuda_device_count"] = gpu_count
@@ -209,6 +222,30 @@ def get_system_info() -> dict:
             info["cuda_memory_gb"] = gpus[0]["memory_gb"] if gpus else 0
     except (ImportError, Exception):
         info["cuda_available"] = False
+        info["cuda_version"] = None
+
+    # ── NVIDIA driver version + live GPU stats via NVML ──
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version,temperature.gpu,utilization.gpu,power.draw",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            for idx, line in enumerate(result.stdout.strip().split("\n")):
+                parts = [p.strip() for p in line.split(",")]
+                if idx == 0:
+                    info["nvidia_driver_version"] = parts[0]
+                if idx < len(gpus):
+                    try:
+                        gpus[idx]["temperature_c"] = int(parts[1]) if len(parts) > 1 else None
+                        gpus[idx]["utilization_pct"] = int(parts[2]) if len(parts) > 2 else None
+                        gpus[idx]["power_draw_w"] = float(parts[3]) if len(parts) > 3 else None
+                    except (ValueError, IndexError):
+                        pass
+    except Exception:
+        pass
 
     # ── AMD ROCm / HIP detection ─────────────────────────
     info["rocm_available"] = False
@@ -236,12 +273,42 @@ def get_system_info() -> dict:
 
     info["gpus"] = gpus
 
+    # ── AMD Vitis AI / Alveo FPGA detection ──────────────
+    info["vitis_ai_available"] = False
+    try:
+        import vai_q_onnx
+        info["vitis_ai_available"] = True
+        info["vitis_ai_version"] = getattr(vai_q_onnx, "__version__", "installed")
+    except ImportError:
+        pass
+
+    info["alveo_available"] = False
+    try:
+        import subprocess
+        # Check for Xilinx runtime tools
+        result = subprocess.run(["xbutil", "examine"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            info["alveo_available"] = True
+            info["alveo_info"] = result.stdout[:500]
+    except Exception:
+        pass
+
+    # Check for Quark quantizer (AMD's newer quantization tool)
+    info["quark_available"] = False
+    try:
+        import quark
+        info["quark_available"] = True
+        info["quark_version"] = getattr(quark, "__version__", "installed")
+    except ImportError:
+        pass
+
     # ── OpenVINO devices (Intel NPU, GPU, GNA) ───────────
     try:
         import openvino as ov
         core = ov.Core()
         info["openvino_devices"] = core.available_devices
         info["npu_available"] = "NPU" in core.available_devices
+        info["openvino_version"] = ov.__version__
     except ImportError:
         info["openvino_devices"] = []
         info["npu_available"] = False
@@ -267,21 +334,51 @@ def get_system_info() -> dict:
     try:
         import onnxruntime as ort
         info["onnxruntime_providers"] = ort.get_available_providers()
+        info["onnxruntime_version"] = ort.__version__
     except ImportError:
         info["onnxruntime_providers"] = []
 
     # ── DirectML (Windows GPU fallback for AMD/Intel/NVIDIA) ──
     info["directml_available"] = "DmlExecutionProvider" in info.get("onnxruntime_providers", [])
 
+    # ── OpenCV detection ─────────────────────────────────
+    info["opencv_available"] = False
+    try:
+        import cv2
+        info["opencv_available"] = True
+        info["opencv_version"] = cv2.__version__
+
+        # Check for CUDA-enabled OpenCV
+        build_info = cv2.getBuildInformation()
+        info["opencv_cuda"] = "CUDA:  YES" in build_info
+        info["opencv_dnn_backends"] = []
+        if hasattr(cv2.dnn, 'getAvailableBackends'):
+            backends = cv2.dnn.getAvailableBackends()
+            info["opencv_dnn_backends"] = [
+                {"backend": str(b[0]), "target": str(b[1])} for b in backends
+            ]
+        # DNN inference targets
+        info["opencv_dnn_targets"] = []
+        for target_name in ["DNN_TARGET_CPU", "DNN_TARGET_OPENCL", "DNN_TARGET_CUDA",
+                            "DNN_TARGET_CUDA_FP16", "DNN_TARGET_MYRIAD", "DNN_TARGET_FPGA"]:
+            if hasattr(cv2.dnn, target_name):
+                info["opencv_dnn_targets"].append(target_name.replace("DNN_TARGET_", ""))
+    except ImportError:
+        pass
+
     # ── Capabilities summary with check/cross marks ──────
     info["capabilities"] = {
-        "cuda_gpu": {"available": info.get("cuda_available", False), "label": "NVIDIA CUDA GPU"},
+        "cuda_gpu": {"available": info.get("cuda_available", False), "label": f"NVIDIA CUDA GPU (CUDA {info.get('cuda_version', 'N/A')})"},
         "rocm_gpu": {"available": info.get("rocm_available", False), "label": "AMD ROCm GPU (RDNA/CDNA)"},
+        "vitis_ai": {"available": info.get("vitis_ai_available", False), "label": "AMD Vitis AI Quantization"},
+        "alveo_fpga": {"available": info.get("alveo_available", False), "label": "AMD/Xilinx Alveo FPGA"},
+        "quark": {"available": info.get("quark_available", False), "label": "AMD Quark Quantizer"},
         "intel_npu": {"available": info.get("npu_available", False), "label": "Intel NPU"},
         "coral_tpu": {"available": info.get("coral_tpu_available", False), "label": "Google Coral Edge TPU"},
         "directml": {"available": info.get("directml_available", False), "label": "DirectML (Windows GPU)"},
-        "openvino": {"available": len(info.get("openvino_devices", [])) > 0, "label": "OpenVINO Runtime"},
-        "onnxruntime": {"available": len(info.get("onnxruntime_providers", [])) > 0, "label": "ONNX Runtime"},
+        "openvino": {"available": len(info.get("openvino_devices", [])) > 0, "label": f"OpenVINO Runtime ({info.get('openvino_version', 'N/A')})"},
+        "onnxruntime": {"available": len(info.get("onnxruntime_providers", [])) > 0, "label": f"ONNX Runtime ({info.get('onnxruntime_version', 'N/A')})"},
+        "opencv": {"available": info.get("opencv_available", False), "label": f"OpenCV ({info.get('opencv_version', 'N/A')})"},
         "cpu": {"available": True, "label": "CPU Inference"},
     }
 
