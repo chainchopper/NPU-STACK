@@ -99,6 +99,24 @@ class _ModelManager:
             "loaded_at": time.time(),
         }
 
+        # ─── Try loading as GGUF (llama-cpp-python) ───
+        if fmt == "gguf" or file_path.endswith(".gguf"):
+            try:
+                from services.gguf_service import load_model as gguf_load, is_available as gguf_available
+                if not gguf_available():
+                    raise RuntimeError("llama-cpp-python not installed")
+                gguf_info = gguf_load(
+                    model_path=file_path,
+                    n_ctx=4096,
+                    n_gpu_layers=0,  # CPU by default; user can configure
+                )
+                entry["type"] = "gguf"
+                entry["gguf_path"] = file_path
+                self._loaded[name] = entry
+                return entry
+            except Exception as e:
+                raise HTTPException(500, f"Failed to load GGUF model: {e}")
+
         # ─── Try loading as text generation (transformers) ───
         if fmt in ("pt", "pth", "bin", "safetensors") or framework == "pytorch":
             try:
@@ -254,11 +272,36 @@ class LoadModelRequest(BaseModel):
 
 def _generate_text(model_entry: dict, prompt: str, max_tokens: int = 256,
                    temperature: float = 0.7, top_p: float = 1.0,
-                   stop: Optional[List[str]] = None) -> str:
-    """Generate text from a loaded model (supports transformers, ONNX+tokenizer)."""
+                   stop: Optional[List[str]] = None,
+                   messages: Optional[List[dict]] = None) -> str:
+    """Generate text from a loaded model (supports GGUF, transformers, ONNX+tokenizer)."""
     model_type = model_entry["type"]
 
-    if model_type == "causal_lm":
+    if model_type == "gguf":
+        from services.gguf_service import chat_completion as gguf_chat, text_completion as gguf_text
+        gguf_path = model_entry["gguf_path"]
+        if messages:
+            response = gguf_chat(
+                model_path=gguf_path,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                stop=stop,
+            )
+            return response["choices"][0]["message"]["content"]
+        else:
+            response = gguf_text(
+                model_path=gguf_path,
+                prompt=prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                stop=stop,
+            )
+            return response["choices"][0]["text"]
+
+    elif model_type == "causal_lm":
         import torch
         model = model_entry["pipeline"]
         tokenizer = model_entry["tokenizer"]
@@ -312,16 +355,40 @@ def _generate_text(model_entry: dict, prompt: str, max_tokens: int = 256,
 
     else:
         raise HTTPException(400, f"Model type '{model_type}' does not support text generation. "
-                                 f"Load a causal LM or text-generation model.")
+                                 f"Load a causal LM, GGUF, or text-generation model.")
 
 
 async def _generate_text_streaming(model_entry: dict, prompt: str, max_tokens: int = 256,
                                     temperature: float = 0.7, top_p: float = 1.0,
-                                    stop: Optional[List[str]] = None):
+                                    stop: Optional[List[str]] = None,
+                                    messages: Optional[List[dict]] = None):
     """Streaming text generation — yields SSE chunks."""
     model_type = model_entry["type"]
 
-    if model_type == "causal_lm":
+    if model_type == "gguf":
+        from services.gguf_service import chat_completion as gguf_chat, text_completion as gguf_text
+        gguf_path = model_entry["gguf_path"]
+        if messages:
+            gen = gguf_chat(
+                model_path=gguf_path, messages=messages,
+                temperature=temperature, max_tokens=max_tokens,
+                top_p=top_p, stop=stop, stream=True,
+            )
+        else:
+            gen = gguf_text(
+                model_path=gguf_path, prompt=prompt,
+                temperature=temperature, max_tokens=max_tokens,
+                top_p=top_p, stop=stop, stream=True,
+            )
+        for chunk in gen:
+            delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+            if not delta:
+                text = chunk.get("choices", [{}])[0].get("text", "")
+                delta = text
+            if delta:
+                yield delta
+
+    elif model_type == "causal_lm":
         import torch
         from transformers import TextIteratorStreamer
         from threading import Thread
@@ -431,7 +498,10 @@ async def chat_completions(body: ChatCompletionRequest, request: Request,
     if entry["type"] == "unsupported":
         raise HTTPException(400, f"Model '{body.model}' format is not supported for text generation.")
 
-    # Build prompt from messages
+    # For GGUF models, pass messages directly to llama-cpp-python
+    messages_dicts = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    # Build prompt from messages (for non-GGUF models)
     prompt_parts = []
     for msg in body.messages:
         if msg.role == "system":
@@ -462,7 +532,8 @@ async def chat_completions(body: ChatCompletionRequest, request: Request,
             completion_tokens = 0
 
             async for chunk in _generate_text_streaming(
-                entry, prompt, body.max_tokens, body.temperature, body.top_p, body.stop
+                entry, prompt, body.max_tokens, body.temperature, body.top_p, body.stop,
+                messages=messages_dicts,
             ):
                 completion_tokens += len(chunk.split())
                 data = {
@@ -498,7 +569,8 @@ async def chat_completions(body: ChatCompletionRequest, request: Request,
     else:
         # Non-streaming
         generated = _generate_text(
-            entry, prompt, body.max_tokens, body.temperature, body.top_p, body.stop
+            entry, prompt, body.max_tokens, body.temperature, body.top_p, body.stop,
+            messages=messages_dicts,
         )
 
         prompt_tokens = len(prompt.split())

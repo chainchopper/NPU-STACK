@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Models from './pages/Models';
 import Training from './pages/Training';
@@ -11,6 +11,8 @@ import HuggingFaceHub from './pages/HuggingFaceHub';
 import Datasets from './pages/Datasets';
 import Serving from './pages/Serving';
 import FineTuning from './pages/FineTuning';
+import Scanner from './pages/Scanner';
+import WebcamTest from './pages/WebcamTest';
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -22,6 +24,8 @@ const navItems = [
     { path: '/training', icon: GraduationCap, label: 'Training' },
     { path: '/finetuning', icon: Wrench, label: 'Fine-Tuning' },
     { path: '/conversion', icon: ArrowRightLeft, label: 'Conversion' },
+    { path: '/scanner', icon: FolderSearch, label: 'Scanner' },
+    { path: '/webcam', icon: Camera, label: 'Webcam' },
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
 ];
 
@@ -111,6 +115,8 @@ export default function App() {
                         <Route path="/training" element={<Training />} />
                         <Route path="/finetuning" element={<FineTuning />} />
                         <Route path="/conversion" element={<Conversion />} />
+                        <Route path="/scanner" element={<Scanner />} />
+                        <Route path="/webcam" element={<WebcamTest />} />
                         <Route path="/benchmark" element={<Benchmark />} />
                     </Routes>
                 </main>
