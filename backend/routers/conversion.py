@@ -378,3 +378,72 @@ def validate_model(model_id: int, db: Session = Depends(get_db)):
         return {"valid": True, **info}
     except Exception as e:
         return {"valid": False, "error": str(e)}
+
+
+# ── Cross-Format Conversion ────────────────────────────
+
+class CrossConvertRequest(BaseModel):
+    model_path: str = Field(..., description="Absolute path to source model file")
+    target_format: str = Field(..., description="Target format: onnx, pytorch, safetensors, tflite, tensorrt, keras, gguf, openvino, vitis")
+    output_dir: Optional[str] = Field(None, description="Output directory (defaults to source dir)")
+    output_name: Optional[str] = Field(None, description="Output filename (without extension)")
+    opset_version: int = Field(17, description="ONNX opset version")
+    fp16: bool = Field(False, description="Enable FP16 mode (TensorRT)")
+    quantize: bool = Field(False, description="Enable quantization (TFLite)")
+    input_shape: Optional[list] = Field(None, description="Input tensor shape for PyTorch→ONNX (e.g. [1,3,224,224])")
+
+
+class BatchConvertRequest(BaseModel):
+    model_paths: list = Field(..., description="List of model file paths")
+    target_format: str = Field(..., description="Target format")
+    output_dir: str = Field(..., description="Output directory")
+
+
+@router.get("/cross/paths")
+def list_cross_conversion_paths():
+    """List all available cross-format conversion paths."""
+    from services.cross_converter import get_conversion_paths
+    paths = get_conversion_paths()
+    available = [p for p in paths if p["available"]]
+    return {
+        "paths": paths,
+        "total": len(paths),
+        "available_count": len(available),
+    }
+
+
+@router.post("/cross")
+def cross_convert(req: CrossConvertRequest):
+    """Convert a model between any supported formats using the cross-converter."""
+    from services.cross_converter import convert_model as cross_convert_model
+
+    kwargs = {}
+    if req.opset_version:
+        kwargs["opset_version"] = req.opset_version
+    if req.fp16:
+        kwargs["fp16"] = True
+    if req.quantize:
+        kwargs["quantize"] = True
+    if req.input_shape:
+        kwargs["input_shape"] = req.input_shape
+
+    result = cross_convert_model(
+        model_path=req.model_path,
+        target_format=req.target_format,
+        output_dir=req.output_dir or MODEL_STORE,
+        output_name=req.output_name,
+        **kwargs,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(400, result.get("error", "Conversion failed"))
+
+    return result
+
+
+@router.post("/cross/batch")
+def cross_convert_batch(req: BatchConvertRequest):
+    """Batch convert multiple models to the same target format."""
+    from services.cross_converter import batch_convert
+    result = batch_convert(req.model_paths, req.target_format, req.output_dir)
+    return result

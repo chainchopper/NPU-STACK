@@ -32,7 +32,6 @@ def search_models(
     q: str = "",
     task: Optional[str] = None,
     sort: str = "downloads",
-    direction: str = "-1",
     limit: int = 20,
 ):
     """Search HuggingFace Hub for models.
@@ -44,23 +43,21 @@ def search_models(
     api = _get_api()
 
     try:
-        # Newer huggingface_hub uses pipeline_tag instead of task
+        # Build search params — avoid deprecated 'direction' parameter
         kwargs = {"limit": limit}
         if q:
             kwargs["search"] = q
         if task:
             kwargs["pipeline_tag"] = task
-        try:
+        if sort:
             kwargs["sort"] = sort
-            kwargs["direction"] = int(direction)
-        except Exception:
-            pass
 
         try:
             models = api.list_models(**kwargs)
         except TypeError:
             # Fallback for older API versions
             kwargs.pop("pipeline_tag", None)
+            kwargs.pop("sort", None)
             if task:
                 kwargs["task"] = task
             models = api.list_models(**kwargs)
@@ -153,24 +150,39 @@ def download_model(
             if not filename:
                 raise HTTPException(400, f"No model files found in {repo_id}. Files: {files[:20]}")
 
-        # Download directly to MODEL_STORE to bypass the deep caching structure which causes I/O tree errors on Windows
-        local_path = hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            revision=revision,
-            token=token,
-            local_dir=MODEL_STORE,
-            local_dir_use_symlinks=False,
-        )
+        # Download directly to MODEL_STORE
+        # Note: local_dir_use_symlinks is deprecated in newer huggingface_hub versions
+        try:
+            local_path = hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                revision=revision,
+                token=token,
+                local_dir=MODEL_STORE,
+            )
+        except Exception as dl_err:
+            raise HTTPException(500, f"Download failed for {repo_id}/{filename}: {str(dl_err)}")
 
         safe_name = f"{repo_id.replace('/', '_')}_{os.path.basename(filename)}"
         dest_path = os.path.join(MODEL_STORE, safe_name)
         
         # Rename to our safe name if it differs
-        if local_path != dest_path:
+        if os.path.abspath(local_path) != os.path.abspath(dest_path):
             if os.path.exists(dest_path):
                 os.remove(dest_path)
-            shutil.move(local_path, dest_path)
+            try:
+                shutil.move(local_path, dest_path)
+            except Exception:
+                # If move fails (e.g. cross-device), copy instead
+                shutil.copy2(local_path, dest_path)
+
+        # Clean up any nested directories hf_hub_download may have created
+        hf_nested = os.path.join(MODEL_STORE, repo_id.split('/')[0] if '/' in repo_id else '')
+        if hf_nested and os.path.isdir(hf_nested) and hf_nested != MODEL_STORE:
+            try:
+                shutil.rmtree(hf_nested, ignore_errors=True)
+            except Exception:
+                pass
 
         file_size = os.path.getsize(dest_path)
 

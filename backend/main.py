@@ -13,6 +13,8 @@ try:
 except ImportError:
     pass
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -41,12 +43,27 @@ MODEL_STORE = os.path.join(DATA_DIR, "models")
 os.makedirs(MODEL_STORE, exist_ok=True)
 os.makedirs(os.path.join(DATA_DIR, "datasets"), exist_ok=True)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern lifespan handler — replaces deprecated on_event('startup')."""
+    init_db()
+    print("=" * 60)
+    print("  NPU-STACK Backend Server")
+    print("  API Docs:    http://localhost:8000/api/docs")
+    print("  OpenAI API:  http://localhost:8000/v1")
+    print("=" * 60)
+    yield  # App runs here
+    print("NPU-STACK Backend shutting down...")
+
+
 app = FastAPI(
     title="NPU-STACK API",
     description="Full-stack platform for training, converting, quantizing, and benchmarking ML models on NPU/TPU hardware.",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
+    lifespan=lifespan,
 )
 
 # CORS — allow frontend origins
@@ -78,17 +95,6 @@ app.include_router(scanner_router)
 app.include_router(webcam_router)
 app.include_router(filebrowser_router)
 app.include_router(ingest_router)
-
-
-@app.on_event("startup")
-def startup():
-    """Initialize database on startup."""
-    init_db()
-    print("=" * 60)
-    print("  NPU-STACK Backend Server")
-    print("  API Docs:    http://localhost:8000/api/docs")
-    print("  OpenAI API:  http://localhost:8000/v1")
-    print("=" * 60)
 
 
 @app.get("/api/health")
