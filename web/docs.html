@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Documentation — NPU-STACK</title>
+    <meta name="description"
+        content="NPU-STACK documentation: setup, features, model serving, fine-tuning, and hardware support." />
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+    <nav class="nav">
+        <div class="nav-inner">
+            <a href="index.html" class="nav-brand"><span class="nav-logo">⚡</span> NPU-STACK</a>
+            <div class="nav-links">
+                <a href="index.html">Home</a>
+                <a href="docs.html" style="color:var(--accent-blue)">Docs</a>
+                <a href="api.html">API</a>
+                <a href="https://github.com/chainchopper/NPU-STACK" class="btn btn-nav" target="_blank"
+                    rel="noopener">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="docs-layout">
+        <aside class="docs-sidebar">
+            <h4>Getting Started</h4>
+            <a href="#installation">Installation</a>
+            <a href="#quickstart">Quick Start</a>
+            <a href="#configuration">Configuration</a>
+            <h4>Features</h4>
+            <a href="#serving">Model Serving</a>
+            <a href="#playground">Playground</a>
+            <a href="#huggingface">HuggingFace Hub</a>
+            <a href="#training">Training</a>
+            <a href="#finetuning">Fine-Tuning</a>
+            <a href="#conversion">Conversion</a>
+            <a href="#benchmark">Benchmark</a>
+            <a href="#datasets">Datasets</a>
+            <h4>Platform</h4>
+            <a href="#hardware">Hardware Support</a>
+            <a href="#docker">Docker</a>
+            <a href="#contributing">Contributing</a>
+        </aside>
+
+        <main class="docs-content">
+            <h2 id="installation">Installation</h2>
+            <h3>Windows (Recommended)</h3>
+            <p>The setup script handles everything automatically — Python, virtual environment, and all dependencies.
+            </p>
+            <pre>git clone https://github.com/chainchopper/NPU-STACK.git
+cd NPU-STACK
+setup.bat</pre>
+            <p>This will:</p>
+            <ul>
+                <li>Download portable Python 3.11 if no compatible Python is found</li>
+                <li>Create an isolated <code>.venv</code> virtual environment</li>
+                <li>Install all backend + frontend dependencies</li>
+                <li>Generate a <code>.env</code> configuration file</li>
+                <li>Create launcher scripts: <code>run-backend.bat</code>, <code>run-frontend.bat</code>,
+                    <code>run-all.bat</code></li>
+            </ul>
+
+            <h3>Manual Setup</h3>
+            <pre>pip install -r backend/requirements.txt
+cd frontend && npm install
+cp .env.example .env</pre>
+
+            <h2 id="quickstart">Quick Start</h2>
+            <p>After installation, launch both backend and frontend:</p>
+            <pre>run-all.bat</pre>
+            <p>This starts:</p>
+            <ul>
+                <li><strong>Backend</strong> — FastAPI on <code>http://localhost:8000</code></li>
+                <li><strong>Frontend</strong> — Vite dev server on <code>http://localhost:5173</code></li>
+                <li><strong>OpenAI API</strong> — Available at <code>http://localhost:8000/v1</code></li>
+                <li><strong>Swagger Docs</strong> — Interactive at <code>http://localhost:8000/api/docs</code></li>
+            </ul>
+
+            <h2 id="configuration">Configuration</h2>
+            <p>Edit <code>.env</code> in the project root to customize settings:</p>
+            <table>
+                <tr>
+                    <th>Variable</th>
+                    <th>Default</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>HOST</code></td>
+                    <td>0.0.0.0</td>
+                    <td>Server bind address</td>
+                </tr>
+                <tr>
+                    <td><code>PORT</code></td>
+                    <td>8000</td>
+                    <td>Server port</td>
+                </tr>
+                <tr>
+                    <td><code>HUGGINGFACE_TOKEN</code></td>
+                    <td>—</td>
+                    <td>HuggingFace API token for private models</td>
+                </tr>
+                <tr>
+                    <td><code>NPU_STACK_API_KEY</code></td>
+                    <td>—</td>
+                    <td>Optional API key for /v1 endpoints (empty = no auth)</td>
+                </tr>
+                <tr>
+                    <td><code>MODEL_STORAGE</code></td>
+                    <td>backend/data/models</td>
+                    <td>Where models are stored</td>
+                </tr>
+                <tr>
+                    <td><code>LOG_LEVEL</code></td>
+                    <td>info</td>
+                    <td>Logging level</td>
+                </tr>
+            </table>
+
+            <h2 id="serving">Model Serving</h2>
+            <p>NPU-STACK includes an <strong>OpenAI-compatible API server</strong>, acting as a local alternative to LM
+                Studio. Any tool or SDK that works with the OpenAI API works with NPU-STACK.</p>
+            <h3>Supported Endpoints</h3>
+            <table>
+                <tr>
+                    <th>Method</th>
+                    <th>Endpoint</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>GET</code></td>
+                    <td>/v1/models</td>
+                    <td>List all available models</td>
+                </tr>
+                <tr>
+                    <td><code>POST</code></td>
+                    <td>/v1/chat/completions</td>
+                    <td>Chat completion (streaming + non-streaming)</td>
+                </tr>
+                <tr>
+                    <td><code>POST</code></td>
+                    <td>/v1/completions</td>
+                    <td>Text completion (legacy)</td>
+                </tr>
+                <tr>
+                    <td><code>POST</code></td>
+                    <td>/v1/embeddings</td>
+                    <td>Generate text embeddings</td>
+                </tr>
+                <tr>
+                    <td><code>POST</code></td>
+                    <td>/v1/models/load</td>
+                    <td>Load a model into memory</td>
+                </tr>
+                <tr>
+                    <td><code>POST</code></td>
+                    <td>/v1/models/unload</td>
+                    <td>Unload a model from memory</td>
+                </tr>
+                <tr>
+                    <td><code>GET</code></td>
+                    <td>/v1/models/status</td>
+                    <td>Status of loaded models</td>
+                </tr>
+            </table>
+            <h3>Usage</h3>
+            <pre><span class="kw">from</span> openai <span class="kw">import</span> OpenAI
+
+client = OpenAI(base_url=<span class="str">"http://localhost:8000/v1"</span>, api_key=<span class="str">"any"</span>)
+response = client.chat.completions.create(
+    model=<span class="str">"my-model"</span>,
+    messages=[{<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"Hello!"</span>}]
+)
+print(response.choices[0].message.content)</pre>
+            <p>Models are auto-loaded on first request. You can also pre-load models via the
+                <code>/v1/models/load</code> endpoint or the Serving page in the UI.</p>
+
+            <h3>Compatibility</h3>
+            <p>Tested and compatible with: <strong>OpenAI Python/JS SDK</strong>, <strong>LangChain</strong>,
+                <strong>LlamaIndex</strong>, <strong>Open WebUI</strong>, <strong>Chatbot UI</strong>, <strong>Vercel AI
+                    SDK</strong>, <strong>cURL</strong>, <strong>Postman</strong>.</p>
+
+            <h2 id="playground">Playground</h2>
+            <p>The Playground provides an interactive UI for testing models without code:</p>
+            <ul>
+                <li><strong>Image Classification</strong> — Upload an image, get top-K predictions with confidence
+                    scores</li>
+                <li><strong>Object Detection</strong> — YOLO/SSD-style bounding box detection</li>
+                <li><strong>Text Generation</strong> — Prompt a language model and see streamed output</li>
+                <li><strong>Image Generation</strong> — Text-to-image with Stable Diffusion (ONNX)</li>
+            </ul>
+
+            <h2 id="huggingface">HuggingFace Hub</h2>
+            <p>Browse, search, and download models directly from HuggingFace:</p>
+            <ul>
+                <li>Search by query with task filtering (text-generation, image-classification, etc.)</li>
+                <li>View model details — downloads, likes, tags, file list</li>
+                <li>One-click download — auto-detects model format (ONNX, PyTorch, safetensors)</li>
+                <li>Downloaded models are automatically registered in the local model registry</li>
+            </ul>
+            <p>Set <code>HUGGINGFACE_TOKEN</code> in <code>.env</code> to access gated/private models.</p>
+
+            <h2 id="training">Training</h2>
+            <p>Train models from scratch with built-in architectures:</p>
+            <ul>
+                <li>Select architecture (ResNet, MobileNet, custom) and dataset</li>
+                <li>Configure hyperparameters: epochs, batch size, learning rate, optimizer</li>
+                <li>Real-time metrics via WebSocket — loss, accuracy, learning rate curves</li>
+                <li>Trained models are saved to the model registry</li>
+            </ul>
+
+            <h2 id="finetuning">Fine-Tuning</h2>
+            <p>Parameter-efficient fine-tuning using <strong>LoRA</strong> and <strong>QLoRA</strong>:</p>
+            <ul>
+                <li>Select a base model from the registry + a dataset from the Dataset Manager</li>
+                <li>Configure LoRA parameters: rank (r), alpha, dropout, target modules</li>
+                <li>Background training with real-time step/epoch/loss tracking</li>
+                <li>Fine-tuned adapters are saved alongside the base model</li>
+                <li><em>Requires:</em> <code>pip install peft datasets</code></li>
+            </ul>
+
+            <h2 id="conversion">Conversion &amp; Quantization</h2>
+            <p>Convert models between formats and apply quantization:</p>
+            <ul>
+                <li><strong>PyTorch → ONNX</strong> — Export with configurable input shapes</li>
+                <li><strong>ONNX → OpenVINO IR</strong> — Optimized for Intel hardware</li>
+                <li><strong>INT8 / INT4 Quantization</strong> — Via NNCF for smaller, faster models</li>
+                <li>Converted models are registered with original as parent</li>
+            </ul>
+
+            <h2 id="benchmark">Benchmark</h2>
+            <p>Benchmark inference performance across hardware:</p>
+            <ul>
+                <li>Measure latency (p50, p95, p99) and throughput (inferences/sec)</li>
+                <li>Compare CPU vs GPU vs NPU side-by-side</li>
+                <li>Compare quantization levels (FP32 vs INT8 vs INT4)</li>
+                <li>System info: detailed hardware detection with capabilities</li>
+            </ul>
+
+            <h2 id="datasets">Dataset Manager</h2>
+            <p>Manage training and evaluation datasets:</p>
+            <ul>
+                <li><strong>Upload</strong> — Drag and drop files; zip archives are auto-extracted</li>
+                <li><strong>Scan</strong> — Point to a local <code>datasets/</code> folder and auto-detect contents</li>
+                <li><strong>Auto-detect</strong> — Image datasets, CSVs, JSON/JSONL, Parquet, plain text</li>
+                <li><strong>Delete</strong> — Remove local datasets from the UI</li>
+            </ul>
+
+            <h2 id="hardware">Hardware Support</h2>
+            <p>NPU-STACK auto-detects and supports all major AI accelerators:</p>
+            <table>
+                <tr>
+                    <th>Hardware</th>
+                    <th>Backend</th>
+                    <th>Status</th>
+                </tr>
+                <tr>
+                    <td>NVIDIA CUDA GPUs</td>
+                    <td>PyTorch CUDA, ONNX Runtime CUDA</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>AMD ROCm GPUs</td>
+                    <td>PyTorch HIP, ONNX Runtime ROCm</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>Intel NPU (Core Ultra)</td>
+                    <td>OpenVINO NPU plugin</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>Google Coral Edge TPU</td>
+                    <td>TFLite Delegate</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>DirectML (Windows)</td>
+                    <td>ONNX Runtime DML Provider</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>CPU (x86/ARM)</td>
+                    <td>ONNX Runtime CPU, OpenVINO CPU</td>
+                    <td>✅</td>
+                </tr>
+            </table>
+
+            <h2 id="docker">Docker</h2>
+            <p>Run with Docker Compose for a containerized deployment:</p>
+            <pre>docker compose up --build</pre>
+            <p>Services:</p>
+            <ul>
+                <li><strong>backend</strong> — FastAPI + all ML dependencies on port 8000</li>
+                <li><strong>frontend</strong> — Nginx-served React build on port 3000</li>
+            </ul>
+
+            <h2 id="contributing">Contributing</h2>
+            <p>We welcome contributions! Here's the workflow:</p>
+            <pre>git clone https://github.com/chainchopper/NPU-STACK.git
+cd NPU-STACK
+git checkout dev
+<span class="cm"># make your changes</span>
+git push origin dev
+<span class="cm"># then open a Pull Request on GitHub</span></pre>
+            <p>All PRs should target the <code>dev</code> branch. See the
+                <a href="https://github.com/chainchopper/NPU-STACK/tree/dev" target="_blank" rel="noopener">dev
+                    branch</a> for the latest development code.
+            </p>
+        </main>
+    </div>
+
+    <footer class="footer">
+        <div class="container footer-inner">
+            <div class="footer-brand">
+                <span class="nav-logo">⚡</span> <strong>NPU-STACK</strong>
+                <span class="footer-sep">·</span> Made by <strong class="fanalogy">Fanalogy</strong>
+                <span class="footer-sep">·</span> Powered by <strong class="nirvana">Nirvana</strong>
+            </div>
+            <div class="footer-links">
+                <a href="https://github.com/chainchopper/NPU-STACK" target="_blank" rel="noopener">GitHub</a>
+                <a href="https://github.com/sponsors/chainchopper" target="_blank" rel="noopener">Sponsor</a>
+            </div>
+        </div>
+    </footer>
+
+</body>
+
+</html>

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Reference — NPU-STACK</title>
+    <meta name="description"
+        content="NPU-STACK OpenAI-compatible API reference with endpoints, schemas, and code examples." />
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+    <nav class="nav">
+        <div class="nav-inner">
+            <a href="index.html" class="nav-brand"><span class="nav-logo">⚡</span> NPU-STACK</a>
+            <div class="nav-links">
+                <a href="index.html">Home</a>
+                <a href="docs.html">Docs</a>
+                <a href="api.html" style="color:var(--accent-blue)">API</a>
+                <a href="https://github.com/chainchopper/NPU-STACK" class="btn btn-nav" target="_blank"
+                    rel="noopener">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="docs-layout">
+        <aside class="docs-sidebar">
+            <h4>OpenAI-Compatible</h4>
+            <a href="#models">List Models</a>
+            <a href="#chat">Chat Completions</a>
+            <a href="#completions">Completions</a>
+            <a href="#embeddings">Embeddings</a>
+            <h4>Model Management</h4>
+            <a href="#load">Load Model</a>
+            <a href="#unload">Unload Model</a>
+            <a href="#status">Model Status</a>
+            <h4>Fine-Tuning</h4>
+            <a href="#ft-start">Start Job</a>
+            <a href="#ft-list">List Jobs</a>
+            <a href="#ft-status">Job Status</a>
+            <h4>Code Examples</h4>
+            <a href="#ex-python">Python</a>
+            <a href="#ex-js">JavaScript</a>
+            <a href="#ex-curl">cURL</a>
+            <a href="#ex-langchain">LangChain</a>
+        </aside>
+
+        <main class="docs-content">
+            <h2 id="models">GET /v1/models</h2>
+            <p>List all available models — both loaded and registered. Response matches the OpenAI models list format.
+            </p>
+            <pre>curl http://localhost:8000/v1/models</pre>
+            <h3>Response</h3>
+            <pre>{
+  "object": "list",
+  "data": [
+    {
+      "id": "my-llama-7b",
+      "object": "model",
+      "created": 1708900000,
+      "owned_by": "npu-stack"
+    }
+  ]
+}</pre>
+
+            <h2 id="chat">POST /v1/chat/completions</h2>
+            <p>Generate chat completions. Supports streaming via Server-Sent Events (SSE). Models are auto-loaded on
+                first request.</p>
+            <h3>Request Body</h3>
+            <table>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Required</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>model</code></td>
+                    <td>string</td>
+                    <td>✅</td>
+                    <td>Model name (as registered)</td>
+                </tr>
+                <tr>
+                    <td><code>messages</code></td>
+                    <td>array</td>
+                    <td>✅</td>
+                    <td>Array of {role, content} objects</td>
+                </tr>
+                <tr>
+                    <td><code>temperature</code></td>
+                    <td>float</td>
+                    <td></td>
+                    <td>Sampling temperature (default: 0.7)</td>
+                </tr>
+                <tr>
+                    <td><code>max_tokens</code></td>
+                    <td>int</td>
+                    <td></td>
+                    <td>Max tokens to generate (default: 256)</td>
+                </tr>
+                <tr>
+                    <td><code>stream</code></td>
+                    <td>bool</td>
+                    <td></td>
+                    <td>Enable SSE streaming (default: false)</td>
+                </tr>
+                <tr>
+                    <td><code>top_p</code></td>
+                    <td>float</td>
+                    <td></td>
+                    <td>Nucleus sampling (default: 1.0)</td>
+                </tr>
+                <tr>
+                    <td><code>stop</code></td>
+                    <td>array</td>
+                    <td></td>
+                    <td>Stop sequences</td>
+                </tr>
+            </table>
+
+            <h3>Example Request</h3>
+            <pre>{
+  "model": "my-llama-7b",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": "What is an NPU?"}
+  ],
+  "temperature": 0.7,
+  "max_tokens": 256
+}</pre>
+
+            <h3>Response</h3>
+            <pre>{
+  "id": "chatcmpl-abc123def456",
+  "object": "chat.completion",
+  "created": 1708900000,
+  "model": "my-llama-7b",
+  "choices": [{
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "An NPU (Neural Processing Unit) is..."
+    },
+    "finish_reason": "stop"
+  }],
+  "usage": {
+    "prompt_tokens": 25,
+    "completion_tokens": 42,
+    "total_tokens": 67
+  }
+}</pre>
+
+            <h3>Streaming Response</h3>
+            <p>When <code>stream: true</code>, the response returns SSE events:</p>
+            <pre>data: {"id":"chatcmpl-abc","choices":[{"delta":{"role":"assistant","content":"An"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-abc","choices":[{"delta":{"content":" NPU"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-abc","choices":[{"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]</pre>
+
+            <h2 id="completions">POST /v1/completions</h2>
+            <p>Legacy text completion endpoint. Same parameters as chat completions but uses <code>prompt</code> instead
+                of <code>messages</code>.</p>
+            <table>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Required</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>model</code></td>
+                    <td>string</td>
+                    <td>✅</td>
+                    <td>Model name</td>
+                </tr>
+                <tr>
+                    <td><code>prompt</code></td>
+                    <td>string</td>
+                    <td>✅</td>
+                    <td>Text prompt to complete</td>
+                </tr>
+                <tr>
+                    <td><code>max_tokens</code></td>
+                    <td>int</td>
+                    <td></td>
+                    <td>Max tokens (default: 256)</td>
+                </tr>
+                <tr>
+                    <td><code>stream</code></td>
+                    <td>bool</td>
+                    <td></td>
+                    <td>Enable streaming</td>
+                </tr>
+            </table>
+
+            <h2 id="embeddings">POST /v1/embeddings</h2>
+            <p>Generate text embeddings for semantic search, RAG, and similarity matching.</p>
+            <table>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Required</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>model</code></td>
+                    <td>string</td>
+                    <td>✅</td>
+                    <td>Embedding model name</td>
+                </tr>
+                <tr>
+                    <td><code>input</code></td>
+                    <td>string | array</td>
+                    <td>✅</td>
+                    <td>Text or array of texts to embed</td>
+                </tr>
+            </table>
+            <h3>Response</h3>
+            <pre>{
+  "object": "list",
+  "data": [{
+    "object": "embedding",
+    "index": 0,
+    "embedding": [0.0023, -0.0091, 0.0152, ...]
+  }],
+  "usage": { "prompt_tokens": 8, "total_tokens": 8 }
+}</pre>
+
+            <h2 id="load">POST /v1/models/load</h2>
+            <p>Pre-load a model into memory. Useful for warming up before serving.</p>
+            <pre>curl -X POST http://localhost:8000/v1/models/load \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-model"}'</pre>
+
+            <h2 id="unload">POST /v1/models/unload</h2>
+            <p>Unload a model from memory to free resources.</p>
+            <pre>curl -X POST http://localhost:8000/v1/models/unload \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-model"}'</pre>
+
+            <h2 id="status">GET /v1/models/status</h2>
+            <p>Get status of all loaded models including uptime and type.</p>
+
+            <h2 id="ft-start">POST /api/finetune/start</h2>
+            <p>Start a fine-tuning job with LoRA/QLoRA. Requires <code>peft</code> and <code>datasets</code> packages.
+            </p>
+            <table>
+                <tr>
+                    <th>Field</th>
+                    <th>Type</th>
+                    <th>Default</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>model_id</code></td>
+                    <td>int</td>
+                    <td>—</td>
+                    <td>Base model ID from registry</td>
+                </tr>
+                <tr>
+                    <td><code>dataset</code></td>
+                    <td>string</td>
+                    <td>—</td>
+                    <td>Dataset name or path</td>
+                </tr>
+                <tr>
+                    <td><code>epochs</code></td>
+                    <td>int</td>
+                    <td>3</td>
+                    <td>Training epochs</td>
+                </tr>
+                <tr>
+                    <td><code>batch_size</code></td>
+                    <td>int</td>
+                    <td>4</td>
+                    <td>Batch size per device</td>
+                </tr>
+                <tr>
+                    <td><code>learning_rate</code></td>
+                    <td>float</td>
+                    <td>2e-4</td>
+                    <td>Learning rate</td>
+                </tr>
+                <tr>
+                    <td><code>use_lora</code></td>
+                    <td>bool</td>
+                    <td>true</td>
+                    <td>Enable LoRA adapters</td>
+                </tr>
+                <tr>
+                    <td><code>lora_r</code></td>
+                    <td>int</td>
+                    <td>16</td>
+                    <td>LoRA rank</td>
+                </tr>
+                <tr>
+                    <td><code>lora_alpha</code></td>
+                    <td>int</td>
+                    <td>32</td>
+                    <td>LoRA alpha</td>
+                </tr>
+            </table>
+
+            <h2 id="ft-list">GET /api/finetune/jobs</h2>
+            <p>List all fine-tuning jobs with their status (initializing, running, completed, failed).</p>
+
+            <h2 id="ft-status">GET /api/finetune/status/{job_id}</h2>
+            <p>Get detailed status, metrics (loss, learning rate per step), and log output.</p>
+
+            <h2 id="ex-python">Python Example</h2>
+            <pre><span class="cm"># Using the official OpenAI SDK</span>
+<span class="kw">from</span> openai <span class="kw">import</span> OpenAI
+
+client = OpenAI(
+    base_url=<span class="str">"http://localhost:8000/v1"</span>,
+    api_key=<span class="str">"any"</span>
+)
+
+<span class="cm"># Non-streaming</span>
+response = client.chat.completions.create(
+    model=<span class="str">"my-model"</span>,
+    messages=[{<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"Hello!"</span>}]
+)
+print(response.choices[0].message.content)
+
+<span class="cm"># Streaming</span>
+stream = client.chat.completions.create(
+    model=<span class="str">"my-model"</span>,
+    messages=[{<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"Tell me a story"</span>}],
+    stream=True
+)
+<span class="kw">for</span> chunk <span class="kw">in</span> stream:
+    <span class="kw">if</span> chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end=<span class="str">""</span>)
+
+<span class="cm"># Embeddings</span>
+embeddings = client.embeddings.create(
+    model=<span class="str">"my-embedding-model"</span>,
+    input=<span class="str">"Hello world"</span>
+)
+print(len(embeddings.data[0].embedding))</pre>
+
+            <h2 id="ex-js">JavaScript Example</h2>
+            <pre><span class="cm">// Using fetch (works in browser and Node.js)</span>
+<span class="kw">const</span> response = <span class="kw">await</span> fetch(<span class="str">"http://localhost:8000/v1/chat/completions"</span>, {
+  method: <span class="str">"POST"</span>,
+  headers: { <span class="str">"Content-Type"</span>: <span class="str">"application/json"</span> },
+  body: JSON.stringify({
+    model: <span class="str">"my-model"</span>,
+    messages: [{ role: <span class="str">"user"</span>, content: <span class="str">"Hello!"</span> }]
+  })
+});
+<span class="kw">const</span> data = <span class="kw">await</span> response.json();
+console.log(data.choices[0].message.content);
+
+<span class="cm">// Streaming with EventSource</span>
+<span class="kw">const</span> sse = <span class="kw">await</span> fetch(<span class="str">"http://localhost:8000/v1/chat/completions"</span>, {
+  method: <span class="str">"POST"</span>,
+  headers: { <span class="str">"Content-Type"</span>: <span class="str">"application/json"</span> },
+  body: JSON.stringify({
+    model: <span class="str">"my-model"</span>,
+    messages: [{ role: <span class="str">"user"</span>, content: <span class="str">"Hello!"</span> }],
+    stream: true
+  })
+});
+<span class="kw">const</span> reader = sse.body.getReader();
+<span class="kw">const</span> decoder = <span class="kw">new</span> TextDecoder();
+<span class="kw">while</span> (true) {
+  <span class="kw">const</span> { done, value } = <span class="kw">await</span> reader.read();
+  <span class="kw">if</span> (done) <span class="kw">break</span>;
+  console.log(decoder.decode(value));
+}</pre>
+
+            <h2 id="ex-curl">cURL Example</h2>
+            <pre><span class="cm"># Chat completion</span>
+curl http://localhost:8000/v1/chat/completions \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{
+    "model": "my-model",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'</span>
+
+<span class="cm"># With streaming</span>
+curl -N http://localhost:8000/v1/chat/completions \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{
+    "model": "my-model",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'</span>
+
+<span class="cm"># List models</span>
+curl http://localhost:8000/v1/models
+
+<span class="cm"># Load a model</span>
+curl -X POST http://localhost:8000/v1/models/load \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{"name": "my-model"}'</span></pre>
+
+            <h2 id="ex-langchain">LangChain Example</h2>
+            <pre><span class="kw">from</span> langchain_openai <span class="kw">import</span> ChatOpenAI
+
+llm = ChatOpenAI(
+    base_url=<span class="str">"http://localhost:8000/v1"</span>,
+    api_key=<span class="str">"any"</span>,
+    model=<span class="str">"my-model"</span>,
+    temperature=<span class="num">0.7</span>
+)
+
+response = llm.invoke(<span class="str">"What is an NPU?"</span>)
+print(response.content)</pre>
+        </main>
+    </div>
+
+    <footer class="footer">
+        <div class="container footer-inner">
+            <div class="footer-brand">
+                <span class="nav-logo">⚡</span> <strong>NPU-STACK</strong>
+                <span class="footer-sep">·</span> Made by <strong class="fanalogy">Fanalogy</strong>
+                <span class="footer-sep">·</span> Powered by <strong class="nirvana">Nirvana</strong>
+            </div>
+            <div class="footer-links">
+                <a href="https://github.com/chainchopper/NPU-STACK" target="_blank" rel="noopener">GitHub</a>
+                <a href="https://github.com/sponsors/chainchopper" target="_blank" rel="noopener">Sponsor</a>
+            </div>
+        </div>
+    </footer>
+
+</body>
+
+</html>

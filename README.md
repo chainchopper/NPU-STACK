@@ -2,14 +2,20 @@
 
 # ⚡ NPU-STACK
 
-### Full-Stack Neural Processor Model Toolkit
+### Full-Stack Neural Processor AI Toolkit
 
-**Train · Convert · Quantize · Benchmark** ML models for **NPU** & **TPU** hardware
+**Train · Fine-Tune · Convert · Quantize · Serve · Benchmark** AI models on **NPU · TPU · GPU · CPU**
 
-[![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)](https://python.org)
+[![GitHub Stars](https://img.shields.io/github/stars/chainchopper/NPU-STACK?style=for-the-badge&logo=github&color=0d1117&labelColor=1a1f2e)](https://github.com/chainchopper/NPU-STACK/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/chainchopper/NPU-STACK?style=for-the-badge&logo=git&color=0d1117&labelColor=1a1f2e)](https://github.com/chainchopper/NPU-STACK/network/members)
+[![License](https://img.shields.io/github/license/chainchopper/NPU-STACK?style=for-the-badge&color=0d1117&labelColor=1a1f2e)](LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/chainchopper/NPU-STACK?style=for-the-badge&logo=github&color=0d1117&labelColor=1a1f2e)](https://github.com/chainchopper/NPU-STACK/commits)
+
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)](https://docker.com)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![OpenAI Compatible](https://img.shields.io/badge/OpenAI%20API-Compatible-74aa9c?logo=openai&logoColor=white)](https://platform.openai.com/docs/api-reference)
 
 </div>
 
@@ -17,198 +23,210 @@
 
 ## 🎯 What is NPU-STACK?
 
-NPU-STACK is an **open-source, full-stack platform** for developing machine learning models that run on Neural Processing Units (NPUs) and Tensor Processing Units (TPUs). It fills a critical gap in the open-source ecosystem by providing a unified workflow from training to deployment.
+NPU-STACK is an **open-source, full-stack AI toolkit** for developing, serving, and deploying machine learning models on every hardware accelerator — NPUs, TPUs, GPUs, and CPUs. It ships with an **OpenAI-compatible API**, making it a self-hosted alternative to LM Studio, Ollama, and OpenAI.
 
-### Key Features
+### ✨ Key Features
 
 | Feature | Description |
 |---------|-------------|
-| 🏋️ **Model Training** | Real PyTorch training with CIFAR-10, MNIST, Fashion-MNIST + ResNet, MobileNet, EfficientNet architectures |
-| 📦 **Model Registry** | Upload, version, and manage ONNX, PyTorch, OpenVINO models |
-| 🔄 **Format Conversion** | ONNX → OpenVINO IR with FP16 compression for Intel NPU |
-| ⚡ **Quantization** | Dynamic INT8, Static INT8, NNCF INT8/INT4 for NPU-optimized inference |
-| 📊 **Benchmarking** | Real inference profiling: latency (p50/p95/p99), throughput, memory, device comparison |
+| 🖥️ **Model Serving** | OpenAI-compatible `/v1` API — chat completions, embeddings, streaming SSE. Works with LangChain, Open WebUI, and more |
+| 🏋️ **Fine-Tuning** | LoRA/QLoRA via PEFT. Custom datasets, hyperparameters, real-time metrics |
+| 🧪 **Playground** | Test models interactively — text generation, image classification, object detection, image synthesis |
+| 🤗 **HuggingFace Hub** | Search, browse, one-click download models from HuggingFace |
+| 🔄 **Convert & Quantize** | PyTorch → ONNX → OpenVINO IR. INT8/INT4 quantization with NNCF |
+| 📊 **Benchmark** | Latency (p50/p95/p99), throughput, memory profiling across CPU/GPU/NPU |
+| 📁 **Dataset Manager** | Upload, organize, auto-detect datasets (images, CSV, JSON, Parquet) |
 | 🌐 **Web Dashboard** | Premium React UI with real-time training charts via WebSocket |
-| 🐳 **One-Command Deploy** | Single `docker compose up` launches the full stack |
+| 🐳 **Docker Deploy** | Single `docker compose up` launches the full stack |
+
+---
+
+## 🖥️ OpenAI-Compatible Model Serving
+
+NPU-STACK includes a fully OpenAI-compatible API server. Use it as a drop-in replacement for OpenAI in any application.
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/v1/models` | List available models |
+| `POST` | `/v1/chat/completions` | Chat completion (streaming + non-streaming) |
+| `POST` | `/v1/completions` | Text completion |
+| `POST` | `/v1/embeddings` | Generate text embeddings |
+| `POST` | `/v1/models/load` | Load a model into memory |
+| `POST` | `/v1/models/unload` | Unload model from memory |
+
+### Usage
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="any"  # Not required for local
+)
+
+# Chat completion
+response = client.chat.completions.create(
+    model="my-model",
+    messages=[{"role": "user", "content": "Hello!"}],
+    stream=True
+)
+
+for chunk in response:
+    print(chunk.choices[0].delta.content, end="")
+```
+
+```bash
+# cURL
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "my-model", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+### Compatibility
+
+Works with: **OpenAI Python/JS SDK** · **LangChain** · **LlamaIndex** · **Open WebUI** · **Chatbot UI** · **Vercel AI SDK** · **cURL** · **Postman**
+
+---
+
+## 🏋️ Fine-Tuning (LoRA/QLoRA)
+
+Fine-tune any model in the registry with parameter-efficient methods:
+
+```python
+import requests
+
+requests.post("http://localhost:8000/api/finetune/start", json={
+    "model_id": 1,
+    "dataset": "my-dataset",
+    "epochs": 3,
+    "learning_rate": 2e-4,
+    "use_lora": True,
+    "lora_r": 16,
+    "lora_alpha": 32
+})
+```
+
+- Background training with real-time step/epoch/loss tracking
+- Supports custom uploaded datasets and HuggingFace datasets
+- Fine-tuned adapters saved to model registry
+
+---
+
+## 🚀 Quick Start
+
+### Windows (Recommended)
+
+```bash
+git clone https://github.com/chainchopper/NPU-STACK.git
+cd NPU-STACK
+setup.bat       # Downloads Python, creates venv, installs everything
+run-all.bat     # Launches backend + frontend + API
+```
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+### Manual
+
+```bash
+# Backend
+cd backend && pip install -r requirements.txt && python main.py
+
+# Frontend
+cd frontend && npm install && npm run dev
+```
+
+**Access:**
+- 🌐 Dashboard: `http://localhost:5173`
+- 📡 API Docs: `http://localhost:8000/api/docs`
+- 🤖 OpenAI API: `http://localhost:8000/v1`
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                    NPU-STACK Architecture                       │
-├────────────────────┬───────────────────────────────────────────┤
-│                    │                                           │
-│   React + Vite     │   FastAPI + Python                       │
-│   (:5173 / :3000)  │   (:8000)                                │
-│                    │                                           │
-│   ┌─Dashboard──┐   │   ┌─Models API──────────────────────┐   │
-│   │ Metrics    │   │   │ Upload / List / Download         │   │
-│   │ System Info│   │   └─────────────────────────────────┘   │
-│   └────────────┘   │                                           │
-│                    │   ┌─Training API─────────────────────┐   │
-│   ┌─Models─────┐   │   │ PyTorch Training Loop            │   │
-│   │ Upload     │───│──▶│ WebSocket Progress                │   │
-│   │ Registry   │   │   │ Auto ONNX Export                  │   │
-│   └────────────┘   │   └─────────────────────────────────┘   │
-│                    │                                           │
-│   ┌─Training───┐   │   ┌─Conversion API──────────────────┐   │
-│   │ Config     │   │   │ ONNX → OpenVINO IR               │   │
-│   │ Live Chart │───│──▶│ Dynamic/Static Quantization      │   │
-│   │ Logs       │   │   │ NNCF INT8/INT4 Compression       │   │
-│   └────────────┘   │   └─────────────────────────────────┘   │
-│                    │                                           │
-│   ┌─Conversion─┐   │   ┌─Benchmark API───────────────────┐   │
-│   │ Format     │   │   │ ONNX Runtime Inference            │   │
-│   │ Quantize   │───│──▶│ OpenVINO Runtime (CPU/NPU)       │   │
-│   └────────────┘   │   │ Statistical Profiling             │   │
-│                    │   └─────────────────────────────────┘   │
-│   ┌─Benchmark──┐   │                                           │
-│   │ Profile    │   │   ┌─Storage────────────────────────┐   │
-│   │ Compare    │───│──▶│ SQLite Metadata                   │   │
-│   │ Charts     │   │   │ File-based Model Store            │   │
-│   └────────────┘   │   └─────────────────────────────────┘   │
-│                    │                                           │
-└────────────────────┴───────────────────────────────────────────┘
-```
-
----
-
-## 🚀 Quick Start
-
-### Docker (Recommended)
-
-```bash
-# Clone the repo
-git clone <your-repo-url> NPU-STACK
-cd NPU-STACK
-
-# Launch the full stack
-docker compose up --build
-
-# Access:
-#   Dashboard:  http://localhost:3000
-#   API Docs:   http://localhost:8000/api/docs
-```
-
-### Local Development
-
-**Backend:**
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # Linux/Mac
-pip install -r requirements.txt
-python main.py
-# → http://localhost:8000/api/docs
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm install
-npm run dev
-# → http://localhost:5173
-```
-
----
-
-## 📂 Project Structure
-
-```
 NPU-STACK/
-├── docker-compose.yml          # One-command full-stack launch
 ├── backend/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── main.py                 # FastAPI entry point
-│   ├── database.py             # SQLAlchemy models
+│   ├── main.py                # FastAPI entry (9 routers)
+│   ├── database.py            # SQLAlchemy models
 │   ├── routers/
-│   │   ├── models.py           # Model registry CRUD
-│   │   ├── training.py         # Training job management
-│   │   ├── conversion.py       # Format conversion & quantization
-│   │   └── benchmark.py        # Inference benchmarking
-│   └── services/
-│       ├── training_service.py # Real PyTorch training loops
-│       ├── conversion_service.py # ONNX/OpenVINO/NNCF conversion
-│       └── benchmark_service.py  # ORT/OpenVINO benchmarking
+│   │   ├── models.py          # Model registry CRUD
+│   │   ├── training.py        # Training job management
+│   │   ├── inference.py       # Multi-task inference
+│   │   ├── conversion.py      # Format conversion & quantization
+│   │   ├── benchmark.py       # Performance benchmarking
+│   │   ├── serving.py         # OpenAI-compatible /v1 API
+│   │   ├── finetuning.py      # LoRA/QLoRA fine-tuning
+│   │   ├── huggingface.py     # HuggingFace Hub search & download
+│   │   └── datasets.py        # Dataset management
+│   └── services/              # Business logic
 ├── frontend/
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   ├── package.json
-│   ├── vite.config.js
 │   └── src/
-│       ├── App.jsx             # Router + sidebar layout
-│       ├── index.css           # Design system
-│       ├── api/client.js       # API + WebSocket client
+│       ├── App.jsx            # Router + sidebar (10 pages)
+│       ├── api/client.js      # API + WebSocket client
 │       └── pages/
-│           ├── Dashboard.jsx   # Overview + system info
-│           ├── Models.jsx      # Model registry
-│           ├── Training.jsx    # Training console
-│           ├── Conversion.jsx  # Conversion studio
-│           └── Benchmark.jsx   # Benchmark lab
-└── docs/
-    ├── BACKEND.md
-    ├── FRONTEND.md
-    ├── DOCKER.md
-    └── ARCHITECTURE.md
+│           ├── Dashboard.jsx  # Overview + system info
+│           ├── Playground.jsx # Interactive model testing
+│           ├── Models.jsx     # Model registry
+│           ├── HuggingFaceHub.jsx # Model discovery
+│           ├── Datasets.jsx   # Dataset manager
+│           ├── Serving.jsx    # Model serving UI
+│           ├── Training.jsx   # Training console
+│           ├── FineTuning.jsx # Fine-tuning config & jobs
+│           ├── Conversion.jsx # Format & quantization studio
+│           └── Benchmark.jsx  # Performance lab
+├── web/                       # Promotional website
+│   ├── index.html             # Landing page with GitHub badges
+│   ├── docs.html              # Full documentation
+│   ├── api.html               # API reference
+│   └── style.css              # Website styles
+└── docker-compose.yml
 ```
 
 ---
 
-## 🔧 Technology Stack
+## ⚙️ Hardware Support
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| Backend | FastAPI, Python 3.11 | REST API, WebSocket, async processing |
-| Training | PyTorch 2.x | Model training with multiple architectures |
-| Export | torch.onnx | Export to ONNX interchange format |
-| Conversion | OpenVINO | Convert ONNX → OpenVINO IR for NPU |
-| Quantization | ONNX Runtime, NNCF | INT8/INT4 for NPU-optimized inference |
-| Inference | ONNX Runtime, OpenVINO | Cross-platform CPU/NPU inference |
-| Frontend | React 18, Vite, Recharts | Modern SPA with real-time charts |
-| Database | SQLite, SQLAlchemy | Lightweight metadata storage |
-| Deploy | Docker Compose | Single-command full-stack launch |
+| Hardware | Backend | Status |
+|----------|---------|--------|
+| NVIDIA CUDA GPUs | PyTorch CUDA, ONNX Runtime CUDA | ✅ |
+| AMD ROCm GPUs | PyTorch HIP, ONNX Runtime ROCm | ✅ |
+| Intel NPU (Core Ultra) | OpenVINO NPU plugin | ✅ |
+| Google Coral Edge TPU | TFLite Delegate | ✅ |
+| DirectML (Windows) | ONNX Runtime DML Provider | ✅ |
+| CPU (x86/ARM) | ONNX Runtime, OpenVINO CPU | ✅ |
 
 ---
 
-## 📊 API Reference
+## 🔧 Configuration
 
-All endpoints are auto-documented at `http://localhost:8000/api/docs` (Swagger UI).
+Edit `.env` in the project root:
 
-### Core Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/status` | System status (counts) |
-| `POST` | `/api/models/upload` | Upload a model file |
-| `GET` | `/api/models` | List models |
-| `POST` | `/api/training/start` | Start training job |
-| `WS` | `/ws/training/{id}` | Real-time training progress |
-| `POST` | `/api/convert` | Convert model format |
-| `POST` | `/api/convert/quantize` | Quantize model |
-| `POST` | `/api/benchmark/run` | Run inference benchmark |
-| `GET` | `/api/benchmark/system-info` | System hardware detection |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NPU_STACK_API_KEY` | — | Optional API key for /v1 endpoints |
+| `HUGGINGFACE_TOKEN` | — | HuggingFace token for private models |
+| `HOST` | 0.0.0.0 | Server bind address |
+| `PORT` | 8000 | Server port |
+| `MODEL_STORAGE` | backend/data/models | Model storage path |
 
 ---
 
-## 🎛️ NPU/TPU Support
+## 🤝 Contributing
 
-### Intel NPU (OpenVINO)
-- Requires Intel Core Ultra processor with NPU 3720+
-- Models are converted to OpenVINO IR and quantized with NNCF
-- Benchmark with `device: "npu"` to run on NPU hardware
+We welcome contributions! All PRs should target the `dev` branch.
 
-### Google TPU (PyTorch/XLA)
-- Training supports TPU via PyTorch/XLA when running on Google Cloud
-- Models are exported as ONNX for cross-platform inference
-
-### CPU Fallback
-- All features work on CPU — NPU/TPU are optional accelerators
-- Great for development and testing before deploying to specialized hardware
+```bash
+git clone https://github.com/chainchopper/NPU-STACK.git
+cd NPU-STACK && git checkout dev
+# make your changes, then push and open a PR
+```
 
 ---
 
@@ -220,9 +238,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built with ❤️ for the NPU/TPU community**
+Made by **[Fanalogy](https://github.com/chainchopper)** · Powered by **Nirvana**
 
-*Filling the gap in open-source tooling for neural processor development*
+⭐ **Star this repo** to support the project!
 
 </div>
-# NPU-STACK

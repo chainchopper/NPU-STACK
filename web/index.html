@@ -1,23 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NPU-STACK — Neural Processor Toolkit for Edge AI</title>
-  <meta name="description" content="Open-source toolkit for training, converting, quantizing, and deploying AI models on NPU, TPU, GPU and CPU. Built by Fanalogy." />
+  <meta name="description"
+    content="Open-source toolkit for training, converting, quantizing, serving, and deploying AI models on NPU, TPU, GPU and CPU. Built by Fanalogy." />
   <meta name="author" content="Fanalogy" />
-  <meta name="keywords" content="NPU, TPU, GPU, AI, machine learning, ONNX, OpenVINO, quantization, inference, edge AI, HuggingFace, model deployment" />
+  <meta name="keywords"
+    content="NPU, TPU, GPU, AI, machine learning, ONNX, OpenVINO, quantization, inference, edge AI, HuggingFace, model deployment, LM Studio alternative, OpenAI compatible" />
   <meta name="theme-color" content="#0a0f1e" />
   <meta property="og:title" content="NPU-STACK — Neural Processor Toolkit" />
-  <meta property="og:description" content="Open-source toolkit for training, converting, and deploying AI models on hardware accelerators." />
+  <meta property="og:description"
+    content="Open-source toolkit for training, converting, serving, and deploying AI models on hardware accelerators." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://chainchopper.github.io/NPU-STACK/" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
 
   <!-- Navigation -->
@@ -28,10 +36,15 @@
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
+        <a href="#serving">Serving</a>
         <a href="#hardware">Hardware</a>
-        <a href="#get-started">Get Started</a>
+        <a href="docs.html">Docs</a>
+        <a href="api.html">API</a>
         <a href="https://github.com/chainchopper/NPU-STACK" class="btn btn-nav" target="_blank" rel="noopener">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+          </svg>
           GitHub
         </a>
       </div>
@@ -42,19 +55,63 @@
   <section class="hero">
     <div class="hero-bg"></div>
     <div class="hero-content">
-      <div class="hero-badge">Open Source · Edge AI Toolkit</div>
+      <div class="hero-badge">Open Source · Edge AI Toolkit · OpenAI-Compatible API</div>
       <h1>Deploy AI Models<br /><span class="gradient-text">On Any Hardware</span></h1>
       <p class="hero-sub">
-        Train, convert, quantize, and benchmark models for NPU, TPU, GPU, and CPU.
-        One toolkit — every accelerator.
+        Train, fine-tune, convert, quantize, serve, and benchmark models for NPU, TPU, GPU, and CPU.
+        One toolkit — every accelerator. OpenAI-compatible API included.
       </p>
       <div class="hero-buttons">
-        <a href="https://github.com/chainchopper/NPU-STACK" class="btn btn-primary btn-lg" target="_blank" rel="noopener">
-          <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <a href="https://github.com/chainchopper/NPU-STACK" class="btn btn-primary btn-lg" target="_blank"
+          rel="noopener">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+          </svg>
           View on GitHub
         </a>
         <a href="#get-started" class="btn btn-outline btn-lg">Quick Start ↓</a>
       </div>
+
+      <!-- GitHub Badges -->
+      <div class="github-badges">
+        <a href="https://github.com/chainchopper/NPU-STACK/stargazers" target="_blank" rel="noopener">
+          <img
+            src="https://img.shields.io/github/stars/chainchopper/NPU-STACK?style=for-the-badge&logo=github&logoColor=white&color=0d1117&labelColor=1a1f2e"
+            alt="Stars" />
+        </a>
+        <a href="https://github.com/chainchopper/NPU-STACK/network/members" target="_blank" rel="noopener">
+          <img
+            src="https://img.shields.io/github/forks/chainchopper/NPU-STACK?style=for-the-badge&logo=git&logoColor=white&color=0d1117&labelColor=1a1f2e"
+            alt="Forks" />
+        </a>
+        <a href="https://github.com/chainchopper/NPU-STACK/issues" target="_blank" rel="noopener">
+          <img
+            src="https://img.shields.io/github/issues/chainchopper/NPU-STACK?style=for-the-badge&logo=github&logoColor=white&color=0d1117&labelColor=1a1f2e"
+            alt="Issues" />
+        </a>
+        <a href="https://github.com/chainchopper/NPU-STACK" target="_blank" rel="noopener">
+          <img
+            src="https://img.shields.io/github/license/chainchopper/NPU-STACK?style=for-the-badge&color=0d1117&labelColor=1a1f2e"
+            alt="License" />
+        </a>
+        <a href="https://github.com/chainchopper/NPU-STACK/commits" target="_blank" rel="noopener">
+          <img
+            src="https://img.shields.io/github/last-commit/chainchopper/NPU-STACK?style=for-the-badge&logo=github&logoColor=white&color=0d1117&labelColor=1a1f2e"
+            alt="Last Commit" />
+        </a>
+      </div>
+
+      <!-- Star on GitHub -->
+      <div class="star-button">
+        <iframe
+          src="https://ghbtns.com/github-btn.html?user=chainchopper&repo=NPU-STACK&type=star&count=true&size=large"
+          frameborder="0" scrolling="0" width="170" height="30" title="GitHub Stars"></iframe>
+        <iframe
+          src="https://ghbtns.com/github-btn.html?user=chainchopper&repo=NPU-STACK&type=fork&count=true&size=large"
+          frameborder="0" scrolling="0" width="170" height="30" title="GitHub Forks"></iframe>
+      </div>
+
       <div class="hero-stats">
         <div class="stat"><span class="stat-value">8+</span><span class="stat-label">Accelerators</span></div>
         <div class="stat"><span class="stat-value">5</span><span class="stat-label">AI Frameworks</span></div>
@@ -70,9 +127,16 @@
       <p class="section-sub">From model discovery to production deployment — all in one place</p>
       <div class="features-grid">
         <div class="feature-card">
+          <div class="feature-icon">🖥️</div>
+          <h3>Model Serving</h3>
+          <p>OpenAI-compatible API. Serve any model via <code>/v1/chat/completions</code>. Drop-in replacement for
+            OpenAI, works with LangChain, Open WebUI, and more.</p>
+        </div>
+        <div class="feature-card">
           <div class="feature-icon">🧪</div>
           <h3>Playground</h3>
-          <p>Test models interactively — image classification, object detection, text generation, and image synthesis all in browser.</p>
+          <p>Test models interactively — image classification, object detection, text generation, and image synthesis
+            all in browser.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">🤗</div>
@@ -85,66 +149,155 @@
           <p>Convert PyTorch → ONNX → OpenVINO IR. Apply INT8/INT4 quantization with NNCF for hardware deployment.</p>
         </div>
         <div class="feature-card">
-          <div class="feature-icon">📊</div>
-          <h3>Benchmark</h3>
-          <p>Run latency and throughput benchmarks across CPU, GPU, and NPU. Compare quantization levels side-by-side.</p>
+          <div class="feature-icon">🏋️</div>
+          <h3>Train &amp; Fine-Tune</h3>
+          <p>Full training with WebSocket metrics, plus LoRA/QLoRA fine-tuning. Custom datasets, hyperparameters,
+            real-time loss tracking.</p>
         </div>
         <div class="feature-card">
-          <div class="feature-icon">🏋️</div>
-          <h3>Train Models</h3>
-          <p>Built-in training with real-time WebSocket metrics, customizable architectures, datasets and hyperparameters.</p>
+          <div class="feature-icon">📊</div>
+          <h3>Benchmark</h3>
+          <p>Run latency and throughput benchmarks across CPU, GPU, and NPU. Compare quantization levels side-by-side.
+          </p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">📁</div>
           <h3>Dataset Manager</h3>
-          <p>Upload, organize, and auto-detect dataset types. Supports images, CSVs, JSON, Parquet, and zip archives.</p>
+          <p>Upload, organize, and auto-detect dataset types. Supports images, CSVs, JSON, Parquet, and zip archives.
+          </p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📱</div>
+          <h3>Cross-Platform</h3>
+          <p>Web app, Electron desktop (coming soon), Android &amp; iOS (planned). One backend, every device.</p>
         </div>
       </div>
     </div>
   </section>
 
+  <!-- Model Serving -->
+  <section id="serving" class="section section-dark">
+    <div class="container">
+      <h2 class="section-title">OpenAI-Compatible <span class="gradient-text">Model Serving</span></h2>
+      <p class="section-sub">Use NPU-STACK as a drop-in replacement for OpenAI. Works with any SDK, framework, or tool.
+      </p>
+      <div class="api-grid">
+        <div class="api-card">
+          <div class="api-method get">GET</div>
+          <div class="api-path">/v1/models</div>
+          <p>List all available &amp; loaded models</p>
+        </div>
+        <div class="api-card">
+          <div class="api-method post">POST</div>
+          <div class="api-path">/v1/chat/completions</div>
+          <p>Chat completion with streaming SSE</p>
+        </div>
+        <div class="api-card">
+          <div class="api-method post">POST</div>
+          <div class="api-path">/v1/completions</div>
+          <p>Legacy text completion endpoint</p>
+        </div>
+        <div class="api-card">
+          <div class="api-method post">POST</div>
+          <div class="api-path">/v1/embeddings</div>
+          <p>Generate text embeddings</p>
+        </div>
+      </div>
+
+      <div class="code-tabs">
+        <div class="code-tab-header">
+          <button class="code-tab active" onclick="showTab('python')">Python</button>
+          <button class="code-tab" onclick="showTab('javascript')">JavaScript</button>
+          <button class="code-tab" onclick="showTab('curl')">cURL</button>
+        </div>
+        <div class="code-panel" id="panel-python">
+          <pre><code><span class="kw">from</span> openai <span class="kw">import</span> OpenAI
+
+client = OpenAI(
+    base_url=<span class="str">"http://localhost:8000/v1"</span>,
+    api_key=<span class="str">"any"</span>  <span class="cm"># Not required for local</span>
+)
+
+response = client.chat.completions.create(
+    model=<span class="str">"my-model"</span>,
+    messages=[{<span class="str">"role"</span>: <span class="str">"user"</span>, <span class="str">"content"</span>: <span class="str">"Hello!"</span>}],
+    stream=<span class="kw">True</span>
+)
+
+<span class="kw">for</span> chunk <span class="kw">in</span> response:
+    <span class="kw">print</span>(chunk.choices[<span class="num">0</span>].delta.content, end=<span class="str">""</span>)</code></pre>
+        </div>
+        <div class="code-panel" id="panel-javascript" style="display:none">
+          <pre><code><span class="kw">const</span> response = <span class="kw">await</span> fetch(<span class="str">"http://localhost:8000/v1/chat/completions"</span>, {
+  method: <span class="str">"POST"</span>,
+  headers: { <span class="str">"Content-Type"</span>: <span class="str">"application/json"</span> },
+  body: JSON.stringify({
+    model: <span class="str">"my-model"</span>,
+    messages: [{ role: <span class="str">"user"</span>, content: <span class="str">"Hello!"</span> }]
+  })
+});
+
+<span class="kw">const</span> data = <span class="kw">await</span> response.json();
+console.log(data.choices[<span class="num">0</span>].message.content);</code></pre>
+        </div>
+        <div class="code-panel" id="panel-curl" style="display:none">
+          <pre><code>curl http://localhost:8000/v1/chat/completions \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{
+    "model": "my-model",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'</span></code></pre>
+        </div>
+      </div>
+
+      <div class="compat-grid">
+        <div class="compat-item"><strong>OpenAI SDK</strong><span class="compat-check">✅</span></div>
+        <div class="compat-item"><strong>LangChain</strong><span class="compat-check">✅</span></div>
+        <div class="compat-item"><strong>Open WebUI</strong><span class="compat-check">✅</span></div>
+        <div class="compat-item"><strong>LlamaIndex</strong><span class="compat-check">✅</span></div>
+        <div class="compat-item"><strong>Chatbot UI</strong><span class="compat-check">✅</span></div>
+        <div class="compat-item"><strong>Vercel AI SDK</strong><span class="compat-check">✅</span></div>
+      </div>
+    </div>
+  </section>
+
   <!-- Hardware Support -->
-  <section id="hardware" class="section section-dark">
+  <section id="hardware" class="section">
     <div class="container">
       <h2 class="section-title">Universal Hardware Support</h2>
       <p class="section-sub">Deploy on any accelerator — auto-detected and ready to go</p>
       <div class="hardware-grid">
         <div class="hw-card hw-green">
           <h4>NVIDIA CUDA</h4>
-          <p>Full CUDA GPU support with multi-GPU enumeration. Benchmark across all your GPUs.</p>
-          <span class="hw-tag">✅ GPU</span>
+          <p>Full CUDA GPU support with multi-GPU enumeration.</p><span class="hw-tag">✅ GPU</span>
         </div>
         <div class="hw-card hw-red">
           <h4>AMD ROCm</h4>
-          <p>RDNA &amp; CDNA architectures via ROCm/HIP. Auto-detected alongside CUDA devices.</p>
-          <span class="hw-tag">✅ GPU</span>
+          <p>RDNA &amp; CDNA architectures via ROCm/HIP.</p><span class="hw-tag">✅ GPU</span>
         </div>
         <div class="hw-card hw-blue">
           <h4>Intel NPU</h4>
-          <p>Intel Core Ultra AI accelerators via OpenVINO. Optimized INT8/INT4 inference.</p>
-          <span class="hw-tag">✅ NPU</span>
+          <p>Intel Core Ultra AI accelerators via OpenVINO.</p><span class="hw-tag">✅ NPU</span>
         </div>
         <div class="hw-card hw-amber">
           <h4>Google Coral</h4>
-          <p>Edge TPU support via TFLite delegates. USB and M.2 accelerator modules.</p>
-          <span class="hw-tag">✅ TPU</span>
+          <p>Edge TPU support via TFLite delegates.</p><span class="hw-tag">✅ TPU</span>
         </div>
         <div class="hw-card hw-purple">
           <h4>DirectML</h4>
-          <p>Windows GPU fallback supporting NVIDIA, AMD, and Intel integrated GPUs via ONNX Runtime.</p>
-          <span class="hw-tag">✅ DML</span>
+          <p>Windows GPU fallback via ONNX Runtime.</p><span class="hw-tag">✅ DML</span>
         </div>
         <div class="hw-card hw-cyan">
           <h4>CPU / OpenVINO</h4>
-          <p>Highly optimized CPU inference via OpenVINO and ONNX Runtime. Always available.</p>
-          <span class="hw-tag">✅ CPU</span>
+          <p>Optimized CPU inference. Always available.</p><span class="hw-tag">✅ CPU</span>
         </div>
       </div>
     </div>
   </section>
 
   <!-- Get Started -->
-  <section id="get-started" class="section">
+  <section id="get-started" class="section section-dark">
     <div class="container">
       <h2 class="section-title">Get Started in 3 Steps</h2>
       <p class="section-sub">Clone, setup, run. It's that easy.</p>
@@ -152,46 +305,41 @@
         <div class="step">
           <div class="step-num">1</div>
           <div class="step-content">
-            <h4>Clone the repo</h4>
-            <code>git clone https://github.com/chainchopper/NPU-STACK.git && cd NPU-STACK</code>
+            <h4>Clone the repo</h4><code>git clone https://github.com/chainchopper/NPU-STACK.git && cd NPU-STACK</code>
           </div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
           <div class="step-content">
-            <h4>Run setup</h4>
-            <code>setup.bat</code>
-            <p>Downloads portable Python, creates venv, installs all dependencies, generates `.env`</p>
+            <h4>Run setup</h4><code>setup.bat</code>
+            <p>Downloads portable Python, creates venv, installs all dependencies, generates <code>.env</code></p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">3</div>
           <div class="step-content">
-            <h4>Launch</h4>
-            <code>run-all.bat</code>
-            <p>Starts both backend (FastAPI on :8000) and frontend (Vite on :5173)</p>
+            <h4>Launch</h4><code>run-all.bat</code>
+            <p>Backend (FastAPI :8000) + Frontend (Vite :5173) + OpenAI API (/v1)</p>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Contribute / Sponsor -->
-  <section class="section section-dark">
+  <!-- Contribute -->
+  <section class="section">
     <div class="container" style="text-align: center;">
       <h2 class="section-title">Contribute &amp; Support</h2>
       <p class="section-sub">NPU-STACK is free and open source. Help us build the future of edge AI.</p>
       <div class="cta-buttons">
-        <a href="https://github.com/chainchopper/NPU-STACK/tree/dev" class="btn btn-primary btn-lg" target="_blank" rel="noopener">
-          🛠️ Contribute (dev branch)
-        </a>
-        <a href="https://github.com/sponsors/chainchopper" class="btn btn-sponsor btn-lg" target="_blank" rel="noopener">
-          💖 Sponsor on GitHub
-        </a>
+        <a href="https://github.com/chainchopper/NPU-STACK/tree/dev" class="btn btn-primary btn-lg" target="_blank"
+          rel="noopener">🛠️ Contribute (dev branch)</a>
+        <a href="https://github.com/sponsors/chainchopper" class="btn btn-sponsor btn-lg" target="_blank"
+          rel="noopener">💖 Sponsor on GitHub</a>
       </div>
-      <p style="margin-top:24px; font-size:13px; color:#6b7280;">
-        Fork the repo → checkout <code style="background:rgba(255,255,255,0.1);padding:2px 6px;border-radius:4px;">dev</code> → make changes → submit PR
-      </p>
+      <p style="margin-top:24px; font-size:13px; color:#6b7280;">Fork → checkout <code
+          style="background:rgba(255,255,255,0.1);padding:2px 6px;border-radius:4px;">dev</code> → make changes → submit
+        PR</p>
     </div>
   </section>
 
@@ -200,18 +348,27 @@
     <div class="container footer-inner">
       <div class="footer-brand">
         <span class="nav-logo">⚡</span> <strong>NPU-STACK</strong>
-        <span class="footer-sep">·</span>
-        Made by <strong class="fanalogy">Fanalogy</strong>
-        <span class="footer-sep">·</span>
-        Powered by <strong class="nirvana">Nirvana</strong>
+        <span class="footer-sep">·</span> Made by <strong class="fanalogy">Fanalogy</strong>
+        <span class="footer-sep">·</span> Powered by <strong class="nirvana">Nirvana</strong>
       </div>
       <div class="footer-links">
         <a href="https://github.com/chainchopper/NPU-STACK" target="_blank" rel="noopener">GitHub</a>
+        <a href="docs.html">Docs</a>
+        <a href="api.html">API</a>
         <a href="https://github.com/chainchopper/NPU-STACK/issues" target="_blank" rel="noopener">Issues</a>
         <a href="https://github.com/sponsors/chainchopper" target="_blank" rel="noopener">Sponsor</a>
       </div>
     </div>
   </footer>
 
+  <script>
+    function showTab(lang) {
+      document.querySelectorAll('.code-panel').forEach(p => p.style.display = 'none');
+      document.querySelectorAll('.code-tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('panel-' + lang).style.display = 'block';
+      event.target.classList.add('active');
+    }
+  </script>
 </body>
+
 </html>

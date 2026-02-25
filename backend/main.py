@@ -25,6 +25,8 @@ from routers.benchmark import router as benchmark_router
 from routers.inference import router as inference_router
 from routers.huggingface import router as huggingface_router
 from routers.datasets import router as datasets_router
+from routers.serving import router as serving_router
+from routers.finetuning import router as finetuning_router
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -48,6 +50,7 @@ app.add_middleware(
         "http://localhost:3000",   # Docker/nginx
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
+        "*",                       # Allow any origin for /v1 API clients
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -62,6 +65,8 @@ app.include_router(benchmark_router)
 app.include_router(inference_router)
 app.include_router(huggingface_router)
 app.include_router(datasets_router)
+app.include_router(serving_router)
+app.include_router(finetuning_router)
 
 
 @app.on_event("startup")
@@ -70,7 +75,8 @@ def startup():
     init_db()
     print("=" * 60)
     print("  NPU-STACK Backend Server")
-    print("  API Docs: http://localhost:8000/api/docs")
+    print("  API Docs:    http://localhost:8000/api/docs")
+    print("  OpenAI API:  http://localhost:8000/v1")
     print("=" * 60)
 
 

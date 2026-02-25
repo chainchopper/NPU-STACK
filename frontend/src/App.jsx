@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Models from './pages/Models';
 import Training from './pages/Training';
@@ -9,6 +9,8 @@ import Benchmark from './pages/Benchmark';
 import Playground from './pages/Playground';
 import HuggingFaceHub from './pages/HuggingFaceHub';
 import Datasets from './pages/Datasets';
+import Serving from './pages/Serving';
+import FineTuning from './pages/FineTuning';
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -16,7 +18,9 @@ const navItems = [
     { path: '/models', icon: Box, label: 'Models' },
     { path: '/huggingface', icon: Globe, label: 'HuggingFace' },
     { path: '/datasets', icon: Database, label: 'Datasets' },
+    { path: '/serving', icon: Server, label: 'Serving' },
     { path: '/training', icon: GraduationCap, label: 'Training' },
+    { path: '/finetuning', icon: Wrench, label: 'Fine-Tuning' },
     { path: '/conversion', icon: ArrowRightLeft, label: 'Conversion' },
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
 ];
@@ -103,7 +107,9 @@ export default function App() {
                         <Route path="/models" element={<Models />} />
                         <Route path="/huggingface" element={<HuggingFaceHub />} />
                         <Route path="/datasets" element={<Datasets />} />
+                        <Route path="/serving" element={<Serving />} />
                         <Route path="/training" element={<Training />} />
+                        <Route path="/finetuning" element={<FineTuning />} />
                         <Route path="/conversion" element={<Conversion />} />
                         <Route path="/benchmark" element={<Benchmark />} />
                     </Routes>
