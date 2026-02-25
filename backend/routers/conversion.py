@@ -263,6 +263,21 @@ def scan_available_formats():
     except ImportError:
         formats.append({"id": "opencv", "name": "OpenCV DNN", "installed": False, "target": "CPU/OpenCL/CUDA", "source": ["onnx", "caffe", "darknet"], "install": "pip install opencv-python"})
 
+    # Rockchip RKNN
+    try:
+        from rknn.api import RKNN as _  # noqa: F401
+        formats.append({"id": "rknn", "name": "Rockchip RKNN", "installed": True, "target": "RK3588/RK3566/RV1106 NPU", "source": ["onnx"]})
+    except ImportError:
+        formats.append({"id": "rknn", "name": "Rockchip RKNN", "installed": False, "target": "RK3588/RK3566/RV1106 NPU", "source": ["onnx"], "install": "pip install rknn_toolkit2"})
+
+    # rk-llama.cpp (Rockchip NPU GGML backend)
+    try:
+        from services.rknn_service import detect_rk_llama_cpp
+        rk_info = detect_rk_llama_cpp()
+        formats.append({"id": "rk_llama", "name": "rk-llama.cpp (NPU)", "installed": rk_info["available"], "target": "RK3588 NPU (LLM)", "source": ["gguf"], "backends": rk_info.get("backends", [])})
+    except Exception:
+        formats.append({"id": "rk_llama", "name": "rk-llama.cpp (NPU)", "installed": False, "target": "RK3588 NPU (LLM)", "source": ["gguf"], "install": "https://github.com/invisiofficial/rk-llama.cpp"})
+
     return {"formats": formats, "total": len(formats), "installed": sum(1 for f in formats if f["installed"])}
 
 

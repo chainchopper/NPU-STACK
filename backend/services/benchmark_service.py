@@ -330,6 +330,23 @@ def get_system_info() -> dict:
         except Exception:
             pass
 
+    # ── Rockchip RKNN NPU (RK3588, RV1103, etc.) ────────
+    info["rknn_available"] = False
+    try:
+        from services.rknn_service import detect_rknn_environment, detect_rk_llama_cpp
+        rknn_env = detect_rknn_environment()
+        info["rknn_available"] = rknn_env["rknn_toolkit2_available"] or rknn_env["rknn_lite2_available"]
+        info["rknn_toolkit2_version"] = rknn_env.get("rknn_toolkit2_version")
+        info["rknn_soc"] = rknn_env.get("soc_detected")
+        info["rknn_npu_driver"] = rknn_env.get("npu_driver_version")
+        info["rknn_supported_platforms"] = rknn_env.get("supported_platforms", [])
+
+        rk_llama = detect_rk_llama_cpp()
+        info["rk_llama_cpp_available"] = rk_llama["available"]
+        info["rk_llama_cpp_backends"] = rk_llama.get("backends", [])
+    except Exception:
+        pass
+
     # ── ONNX Runtime providers ───────────────────────────
     try:
         import onnxruntime as ort

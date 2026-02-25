@@ -1,6 +1,6 @@
 """Cross-Format Model Converter — Convert between any two model formats.
 
-Supports: PyTorch ↔ ONNX ↔ SafeTensors ↔ GGUF ↔ TFLite ↔ OpenVINO ↔ TensorRT ↔ Keras
+Supports: PyTorch ↔ ONNX ↔ SafeTensors ↔ GGUF ↔ TFLite ↔ OpenVINO ↔ TensorRT ↔ Keras ↔ RKNN
 All conversions degrade gracefully when libraries are missing.
 """
 
@@ -23,6 +23,7 @@ CONVERSION_PATHS = {
     "gguf_to_onnx": {"from": "GGUF", "to": "ONNX", "extensions": [".gguf"]},
     "onnx_to_openvino": {"from": "ONNX", "to": "OpenVINO", "extensions": [".onnx"]},
     "onnx_to_vitis": {"from": "ONNX", "to": "Vitis AI", "extensions": [".onnx"]},
+    "onnx_to_rknn": {"from": "ONNX", "to": "RKNN", "extensions": [".onnx"]},
 }
 
 
@@ -128,6 +129,12 @@ def convert_model(
                 return _onnx_to_vitis(model_path, output_dir, output_name, **kwargs)
             else:
                 return {"success": False, "error": f"Cannot convert {src_ext} to Vitis AI. Convert to ONNX first."}
+
+        elif target == "rknn":
+            if src_ext == ".onnx":
+                return _onnx_to_rknn(model_path, output_dir, output_name, **kwargs)
+            else:
+                return {"success": False, "error": f"Cannot convert {src_ext} to RKNN. Convert to ONNX first."}
 
         else:
             return {"success": False, "error": f"Unknown target format: {target_format}"}
@@ -493,6 +500,23 @@ def _onnx_to_vitis(model_path, output_dir, output_name, **kwargs):
         return {"success": False, "error": str(e)}
 
 
+def _onnx_to_rknn(model_path, output_dir, output_name, **kwargs):
+    """Use rknn_service for Rockchip NPU conversion."""
+    try:
+        from services.rknn_service import convert_onnx_to_rknn
+        return convert_onnx_to_rknn(
+            onnx_path=model_path,
+            output_dir=output_dir,
+            output_name=output_name,
+            target_platform=kwargs.get("target_platform", "rk3588"),
+            quantization=kwargs.get("quantization", "int8"),
+        )
+    except ImportError:
+        return {"success": False, "error": "rknn_toolkit2 not installed: pip install rknn_toolkit2"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ── Availability Checker ────────────────────────────────
 
 def _check_availability(conversion_key: str) -> tuple:
@@ -510,6 +534,7 @@ def _check_availability(conversion_key: str) -> tuple:
         "gguf_to_onnx": (None, "llama.cpp CLI"),
         "onnx_to_openvino": ("openvino", "openvino-dev"),
         "onnx_to_vitis": (None, "Vitis AI tools"),
+        "onnx_to_rknn": ("rknn", "rknn_toolkit2"),
     }
 
     entry = checks.get(conversion_key)
