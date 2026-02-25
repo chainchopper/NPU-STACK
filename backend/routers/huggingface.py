@@ -144,8 +144,8 @@ def download_model(
     try:
         if not filename:
             files = list_repo_files(repo_id, revision=revision, token=token)
-            # Priority: .onnx > .safetensors > .pt > .pth > .bin
-            for ext in [".onnx", ".safetensors", ".pt", ".pth", ".bin"]:
+            # Priority: .gguf > .onnx > .safetensors > .pt > .pth > .bin
+            for ext in [".gguf", ".onnx", ".safetensors", ".pt", ".pth", ".bin"]:
                 matches = [f for f in files if f.endswith(ext)]
                 if matches:
                     filename = matches[0]
@@ -153,23 +153,31 @@ def download_model(
             if not filename:
                 raise HTTPException(400, f"No model files found in {repo_id}. Files: {files[:20]}")
 
+        # Download directly to MODEL_STORE to bypass the deep caching structure which causes I/O tree errors on Windows
         local_path = hf_hub_download(
             repo_id=repo_id,
             filename=filename,
             revision=revision,
             token=token,
-            cache_dir=os.path.join(os.path.dirname(MODEL_STORE), "hf_cache"),
+            local_dir=MODEL_STORE,
+            local_dir_use_symlinks=False,
         )
 
         safe_name = f"{repo_id.replace('/', '_')}_{os.path.basename(filename)}"
         dest_path = os.path.join(MODEL_STORE, safe_name)
-        shutil.copy2(local_path, dest_path)
+        
+        # Rename to our safe name if it differs
+        if local_path != dest_path:
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            shutil.move(local_path, dest_path)
 
         file_size = os.path.getsize(dest_path)
 
         # Detect framework
         ext = os.path.splitext(filename)[1].lower()
         fw_map = {
+            ".gguf": ("llama.cpp", "gguf"),
             ".onnx": ("onnx", "onnx"),
             ".pt": ("pytorch", "pt"),
             ".pth": ("pytorch", "pth"),

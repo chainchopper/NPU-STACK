@@ -3,6 +3,9 @@
 import os
 import sys
 
+# Disable hf_transfer globally to prevent Windows I/O cache errors during model downloads
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+
 # Load environment variables from .env
 try:
     from dotenv import load_dotenv

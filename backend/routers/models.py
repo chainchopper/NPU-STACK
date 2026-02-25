@@ -204,36 +204,43 @@ def download_from_huggingface(
     token = os.environ.get("HUGGINGFACE_TOKEN") or None
 
     try:
-        # If no filename specified, find the first ONNX file
+        # If no filename specified, find the first ONNX or GGUF file
         if not filename:
             files = list_repo_files(repo_id, revision=revision, token=token)
-            onnx_files = [f for f in files if f.endswith(".onnx")]
-            if onnx_files:
-                filename = onnx_files[0]
-            else:
-                # Try .pt or .bin
-                pt_files = [f for f in files if f.endswith((".pt", ".pth", ".bin"))]
-                if pt_files:
-                    filename = pt_files[0]
-                else:
-                    raise HTTPException(400, f"No model files found in {repo_id}. Available: {files[:20]}")
+            for ext in [".gguf", ".onnx", ".safetensors", ".pt", ".pth", ".bin"]:
+                matches = [f for f in files if f.endswith(ext)]
+                if matches:
+                    filename = matches[0]
+                    break
+            if not filename:
+                raise HTTPException(400, f"No model files found in {repo_id}. Available: {files[:20]}")
 
-        # Download
+        # Download directly to MODEL_STORE to bypass the deep caching structure which causes I/O tree errors on Windows
         local_path = hf_hub_download(
             repo_id=repo_id,
             filename=filename,
             revision=revision,
             token=token,
-            cache_dir=os.path.join(os.path.dirname(MODEL_STORE), "hf_cache"),
+            local_dir=MODEL_STORE,
+            local_dir_use_symlinks=False,
         )
 
-        # Copy to model store
+        # Rename to our safe name if it differs
         safe_name = f"{repo_id.replace('/', '_')}_{os.path.basename(filename)}"
         dest_path = os.path.join(MODEL_STORE, safe_name)
-        shutil.copy2(local_path, dest_path)
+        
+        if local_path != dest_path:
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            shutil.move(local_path, dest_path)
 
         file_size = os.path.getsize(dest_path)
-        framework, fmt = _detect_framework(filename)
+        
+        ext = os.path.splitext(filename)[1].lower()
+        if ext == ".gguf":
+            framework, fmt = "llama.cpp", "gguf"
+        else:
+            framework, fmt = _detect_framework(filename)
 
         # Get metadata if ONNX
         metadata = None
