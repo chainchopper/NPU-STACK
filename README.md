@@ -38,8 +38,24 @@ NPU-STACK is an **open-source, full-stack AI toolkit** for developing, serving, 
 | 📁 **Dataset Manager** | Upload, organize, auto-detect datasets (images, CSV, JSON, Parquet) |
 | 🌐 **Web Dashboard** | Premium React UI with real-time training charts via WebSocket |
 | 🐳 **Docker Deploy** | Single `docker compose up` launches the full stack |
+| 📷 **Webcam Detection** | Real-time object detection with bounding box overlays |
+| 🔍 **Model Scanner** | Discover model files on your PC (12+ formats) with interactive folder browser |
 
 ---
+
+## 📸 Screenshots
+
+<div align="center">
+
+| Dashboard | Model Scanner |
+|:-:|:-:|
+| <img src="docs/screenshots/dashboard.png" width="400"> | <img src="docs/screenshots/scanner.png" width="400"> |
+
+| Model Registry | Conversion Studio |
+|:-:|:-:|
+| <img src="docs/screenshots/models.png" width="400"> | <img src="docs/screenshots/conversion.png" width="400"> |
+
+</div>
 
 ## 🖥️ OpenAI-Compatible Model Serving
 
@@ -151,9 +167,8 @@ cd frontend && npm install && npm run dev
 ## 🏗️ Architecture
 
 ```
-NPU-STACK/
 ├── backend/
-│   ├── main.py                # FastAPI entry (9 routers)
+│   ├── main.py                # FastAPI entry (11 routers)
 │   ├── database.py            # SQLAlchemy models
 │   ├── routers/
 │   │   ├── models.py          # Model registry CRUD
@@ -164,12 +179,20 @@ NPU-STACK/
 │   │   ├── serving.py         # OpenAI-compatible /v1 API
 │   │   ├── finetuning.py      # LoRA/QLoRA fine-tuning
 │   │   ├── huggingface.py     # HuggingFace Hub search & download
-│   │   └── datasets.py        # Dataset management
+│   │   ├── datasets.py        # Dataset management
+│   │   ├── scanner.py         # Local model scanner (12+ formats)
+│   │   ├── webcam.py          # WebSocket webcam inference
+│   │   └── filebrowser.py     # Interactive file/folder browser
 │   └── services/              # Business logic
+│       ├── benchmark_service.py  # 12-capability hardware detection
+│       ├── conversion_service.py # OpenVINO/NNCF/Vitis conversion
+│       ├── opencv_service.py     # cv2.dnn inference & preprocessing
+│       └── gguf_service.py       # llama.cpp GGUF inference
 ├── frontend/
 │   └── src/
-│       ├── App.jsx            # Router + sidebar (10 pages)
-│       ├── api/client.js      # API + WebSocket client
+│       ├── App.jsx            # Router + sidebar (12 pages)
+│       ├── components/
+│       │   └── FolderBrowser.jsx  # Modal folder picker
 │       └── pages/
 │           ├── Dashboard.jsx  # Overview + system info
 │           ├── Playground.jsx # Interactive model testing
@@ -180,12 +203,11 @@ NPU-STACK/
 │           ├── Training.jsx   # Training console
 │           ├── FineTuning.jsx # Fine-tuning config & jobs
 │           ├── Conversion.jsx # Format & quantization studio
+│           ├── Scanner.jsx    # Model file scanner
+│           ├── WebcamTest.jsx # Real-time object detection
 │           └── Benchmark.jsx  # Performance lab
+├── docs/screenshots/          # App screenshots
 ├── web/                       # Promotional website
-│   ├── index.html             # Landing page with GitHub badges
-│   ├── docs.html              # Full documentation
-│   ├── api.html               # API reference
-│   └── style.css              # Website styles
 └── docker-compose.yml
 ```
 
@@ -195,11 +217,13 @@ NPU-STACK/
 
 | Hardware | Backend | Status |
 |----------|---------|--------|
-| NVIDIA CUDA GPUs | PyTorch CUDA, ONNX Runtime CUDA | ✅ |
+| NVIDIA CUDA GPUs | PyTorch CUDA, ONNX Runtime CUDA, TensorRT | ✅ |
 | AMD ROCm GPUs | PyTorch HIP, ONNX Runtime ROCm | ✅ |
+| AMD Vitis AI / Alveo FPGA | vai_q_onnx, Quark quantizer, xbutil | ✅ |
 | Intel NPU (Core Ultra) | OpenVINO NPU plugin | ✅ |
 | Google Coral Edge TPU | TFLite Delegate | ✅ |
 | DirectML (Windows) | ONNX Runtime DML Provider | ✅ |
+| OpenCV DNN | cv2.dnn with CPU/OpenCL/CUDA targets | ✅ |
 | CPU (x86/ARM) | ONNX Runtime, OpenVINO CPU | ✅ |
 
 ---
