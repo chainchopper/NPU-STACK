@@ -5,6 +5,8 @@ import sys
 
 # Disable hf_transfer globally to prevent Windows I/O cache errors during model downloads
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+# Disable symlinks warning on Windows for non-admin users
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 # Load environment variables from .env
 try:
@@ -12,6 +14,10 @@ try:
     load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 except ImportError:
     pass
+
+# Ensure HF cache is in a safe place if not specified in .env
+if not os.getenv("HUGGINGFACE_HUB_CACHE") and not os.getenv("HUGGINGFACE_CACHE_DIR"):
+    os.environ["HUGGINGFACE_HUB_CACHE"] = os.path.join(os.path.dirname(__file__), "data", "hf_cache")
 
 from contextlib import asynccontextmanager
 

@@ -1,10 +1,18 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-:: ============================================
 ::  NPU-STACK Setup Script
 ::  Made by Fanalogy - Powered by Nirvana
 :: ============================================
+
+:: Check for Administrative privileges for Long Path support
+>nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
+if %errorlevel% neq 0 (
+    echo.
+    echo  [!!] This script works best with Administrator privileges
+    echo       (Required to enable Windows Long Path support)
+    echo.
+)
 
 title NPU-STACK Setup
 color 0A
@@ -25,6 +33,28 @@ set "PYTHON_URL=https://www.python.org/ftp/python/%PYTHON_VER%/python-%PYTHON_VE
 set "GET_PIP_URL=https://bootstrap.pypa.io/get-pip.py"
 set "PYTHON_ZIP=%ROOT%\python-embed.zip"
 set "ENV_FILE=%ROOT%\.env"
+
+:: =============================================
+:: STEP 0: Enable Windows Long Paths (Optional)
+:: =============================================
+echo [0/6] Checking Windows Long Path support...
+reg query "HKLM\System\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled >nul 2>&1
+if %errorlevel% equ 0 (
+    for /f "tokens=3" %%a in ('reg query "HKLM\System\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled') do set "LP_VAL=%%a"
+    if "!LP_VAL!"=="0x1" (
+        echo   [OK] Long Paths already enabled.
+    ) else (
+        echo   [!!] Long Paths are disabled. This can cause model download errors.
+        echo   Attempting to enable...
+        reg add "HKLM\System\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f >nul 2>&1
+        if !errorlevel! equ 0 (
+            echo   [OK] Long Paths enabled successfully.
+        ) else (
+            echo   [WARN] Failed to enable Long Paths. Please run as Administrator or
+            echo          edit the registry manually if you see I/O errors.
+        )
+    )
+)
 
 :: =============================================
 :: STEP 1: Check / Download Portable Python
@@ -64,11 +94,8 @@ if %errorlevel% equ 0 (
 :: Download portable Python
 echo.
 echo   Downloading Python %PYTHON_VER% portable...
-echo   URL: %PYTHON_URL%
-echo   This may take a minute...
-echo.
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; Write-Host '   Downloading...' -ForegroundColor Cyan; Invoke-WebRequest -Uri '%PYTHON_URL%' -OutFile '%PYTHON_ZIP%' -UseBasicParsing; Write-Host '   Extracting...' -ForegroundColor Cyan; Expand-Archive -Path '%PYTHON_ZIP%' -DestinationPath '%PYTHON_DIR%' -Force; Remove-Item '%PYTHON_ZIP%' -Force; Write-Host '   Done!' -ForegroundColor Green"
+    echo   URL: !PYTHON_URL!
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $ProgressPreference = 'SilentlyContinue'; Write-Host '   Downloading Python...' -ForegroundColor Cyan; (New-Object System.Net.WebClient).DownloadFile('!PYTHON_URL!', '!PYTHON_ZIP!'); Write-Host '   Extracting...' -ForegroundColor Cyan; Expand-Archive -Path '!PYTHON_ZIP!' -DestinationPath '!PYTHON_DIR!' -Force; Remove-Item '!PYTHON_ZIP!' -Force; Write-Host '   Done!' -ForegroundColor Green"
 
 if not exist "%PYTHON_DIR%\python.exe" (
     echo.
@@ -92,7 +119,7 @@ for %%f in ("%PYTHON_DIR%\python*._pth") do (
 
 :: Download and install pip
 echo   Installing pip into portable Python...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '%GET_PIP_URL%' -OutFile '%PYTHON_DIR%\get-pip.py' -UseBasicParsing"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; (New-Object System.Net.WebClient).DownloadFile('%GET_PIP_URL%', '%PYTHON_DIR%\get-pip.py')"
 
 "%PYTHON_DIR%\python.exe" "%PYTHON_DIR%\get-pip.py" --no-warn-script-location >nul 2>&1
 if %errorlevel% neq 0 (
@@ -262,9 +289,9 @@ echo [6/6] Creating launcher scripts...
 >> "%ROOT%\run-all.bat" echo echo Frontend: http://localhost:5173
 >> "%ROOT%\run-all.bat" echo echo API Docs: http://localhost:8000/docs
 >> "%ROOT%\run-all.bat" echo echo.
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "cd /d %%~dp0 && call .venv\Scripts\activate.bat && cd backend && python main.py"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "cd /d \"%%~dp0\" && call .venv\Scripts\activate.bat && cd backend && python main.py"
 >> "%ROOT%\run-all.bat" echo timeout /t 3 /nobreak ^>nul
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d %%~dp0frontend && npm run dev"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d \"%%~dp0frontend\" && npm run dev"
 >> "%ROOT%\run-all.bat" echo echo Both services started in separate windows.
 >> "%ROOT%\run-all.bat" echo pause
 

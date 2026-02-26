@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, X, Send, Bot, User, Settings, Database, Play } from "lucide-react";
+import { MessageSquare, X, Send, User, Settings, Database, Play } from "lucide-react";
+import AgentVisual from "./AgentVisual";
 
 export default function SystemAgent() {
     const [isOpen, setIsOpen] = useState(false);
@@ -139,9 +140,10 @@ export default function SystemAgent() {
         <>
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-6 right-6 p-4 rounded-full bg-primary text-white shadow-lg hover:shadow-primary/50 transition-all z-50 flex items-center justify-center animate-pulse"
+                className="fixed bottom-6 right-6 p-2 rounded-full bg-primary/20 backdrop-blur-md border border-primary/30 text-white shadow-2xl hover:shadow-primary/50 transition-all z-50 flex items-center justify-center hover:scale-110 active:scale-95 group"
             >
-                <Bot size={28} />
+                <AgentVisual size={56} status={agentStatus.is_running ? "online" : "offline"} />
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full border-2 border-[#060a14] animate-pulse"></div>
             </button>
 
             {isOpen && (
@@ -149,9 +151,7 @@ export default function SystemAgent() {
                     {/* Header */}
                     <div className="p-4 border-b border-border flex justify-between items-center bg-[#1a1c23]">
                         <div className="flex items-center gap-3">
-                            <div className="p-2 bg-primary/20 text-primary rounded-lg">
-                                <Bot size={20} />
-                            </div>
+                            <AgentVisual size={32} status={agentStatus.is_running ? "online" : "offline"} />
                             <div>
                                 <h3 className="font-semibold text-white">NPU-STACK Agent</h3>
                                 <p className="text-xs text-secondary-text">
@@ -177,7 +177,7 @@ export default function SystemAgent() {
 
                     {!agentStatus.is_running ? (
                         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                            <Bot size={48} className="text-secondary-text mb-4" />
+                            <AgentVisual size={80} status="offline" />
                             <h4 className="text-lg font-medium text-white mb-2">Agent is Offline</h4>
                             <p className="text-sm text-secondary-text mb-6">
                                 The NPU-STACK local orchestrator model is not currently running.
@@ -221,7 +221,7 @@ export default function SystemAgent() {
                                                 }`}
                                         >
                                             <div className="flex items-center gap-2 mb-1">
-                                                {msg.role === "user" ? <User size={14} /> : <Bot size={14} />}
+                                                {msg.role === "user" ? <User size={14} /> : <AgentVisual size={16} status={agentStatus.is_running ? "online" : "offline"} />}
                                                 <span className="text-xs opacity-75">{msg.role === "user" ? "You" : "Agent"}</span>
                                             </div>
                                             <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>

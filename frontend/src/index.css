@@ -247,15 +247,30 @@ body::before {
 }
 
 @keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
 
-  0%,
-  100% {
-    transform: translateY(0);
-  }
+@keyframes spin-3d-x {
+  from { transform: rotateX(60deg) rotateZ(0deg); }
+  to { transform: rotateX(60deg) rotateZ(360deg); }
+}
 
-  50% {
-    transform: translateY(-4px);
-  }
+@keyframes spin-3d-y {
+  from { transform: rotateY(60deg) rotateZ(0deg); }
+  to { transform: rotateY(60deg) rotateZ(-360deg); }
+}
+
+.animate-spin-3d-x {
+  animation: spin-3d-x 3s linear infinite;
+}
+
+.animate-spin-3d-y {
+  animation: spin-3d-y 2s linear infinite;
+}
+
+.animate-spin-slow {
+  animation: spin 10s linear infinite;
 }
 
 @keyframes glow-pulse {
