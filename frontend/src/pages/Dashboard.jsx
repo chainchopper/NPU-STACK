@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, GraduationCap, Gauge, Cpu, HardDrive, Monitor, Zap, Database, Activity } from 'lucide-react';
+import { Box, GraduationCap, Gauge, Cpu, HardDrive, Monitor, Zap, Database, Activity, ArrowRight, Server, Cloud, Layers } from 'lucide-react';
 import { getStatus, getSystemInfo } from '../api/client';
 
 export default function Dashboard() {
@@ -230,6 +230,9 @@ export default function Dashboard() {
                     <QuickAction step="4" title="Benchmark & Compare" description="Run inference benchmarks across CPU, GPU, NPU at different precisions." />
                 </div>
             </div>
+
+            <PipelineFlow />
+            <HardwareMatrix />
         </div>
     );
 }
@@ -261,6 +264,94 @@ function QuickAction({ step, title, description }) {
             </div>
             <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '6px' }}>{title}</h4>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{description}</p>
+        </div>
+    );
+}
+
+function PipelineFlow() {
+    return (
+        <div className="card mt-6">
+            <div className="card-header">
+                <h3 className="card-title">NPU-STACK Architecture Pipeline</h3>
+                <Layers size={18} className="text-secondary" />
+            </div>
+            <div style={{ padding: '24px', overflowX: 'auto' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minWidth: '800px', gap: '16px' }}>
+                    {/* Ingestion */}
+                    <div style={{ flex: 1, background: 'var(--bg-tertiary)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                        <Database size={28} style={{ color: 'var(--accent-blue)', marginBottom: '12px' }} />
+                        <h4 style={{ fontWeight: 600, fontSize: '14px', marginBottom: '8px' }}>1. Ingestion</h4>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>HuggingFace Hub<br />Local Models<br />Custom Datasets</div>
+                    </div>
+                    <ArrowRight size={24} style={{ color: 'var(--text-muted)' }} />
+
+                    {/* Processing */}
+                    <div style={{ flex: 1, background: 'var(--bg-tertiary)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                        <Box size={28} style={{ color: 'var(--accent-purple)', marginBottom: '12px' }} />
+                        <h4 style={{ fontWeight: 600, fontSize: '14px', marginBottom: '8px' }}>2. Processing</h4>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>ONNX / OpenVINO<br />GGUF / LiteRT<br />Unsloth QLoRA</div>
+                    </div>
+                    <ArrowRight size={24} style={{ color: 'var(--text-muted)' }} />
+
+                    {/* Hardware Execution */}
+                    <div style={{ flex: 1, background: 'var(--bg-tertiary)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                        <Cpu size={28} style={{ color: 'var(--accent-amber)', marginBottom: '12px' }} />
+                        <h4 style={{ fontWeight: 600, fontSize: '14px', marginBottom: '8px' }}>3. Hardware</h4>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>NVIDIA / AMD / Intel<br />Rockchip / Coral TPU<br />Xilinx Vitis DPU</div>
+                    </div>
+                    <ArrowRight size={24} style={{ color: 'var(--text-muted)' }} />
+
+                    {/* Deployment */}
+                    <div style={{ flex: 1, background: 'var(--bg-tertiary)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                        <Cloud size={28} style={{ color: 'var(--accent-green)', marginBottom: '12px' }} />
+                        <h4 style={{ fontWeight: 600, fontSize: '14px', marginBottom: '8px' }}>4. Deployment</h4>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>FastAPI Server<br />NVIDIA NIM Cloud<br />CVEDIA-RT Edge</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function HardwareMatrix() {
+    const hwData = [
+        { name: 'NVIDIA CUDA GPU', formats: 'PyTorch, ONNX, GGUF', deploy: 'API, NIM, CVEDIA', status: '✅ Ready' },
+        { name: 'AMD ROCm GPU', formats: 'PyTorch, ONNX, GGUF', deploy: 'API, CVEDIA', status: '✅ Ready' },
+        { name: 'Intel NPU / Arc', formats: 'OpenVINO, ONNX', deploy: 'API, CVEDIA', status: '✅ Ready' },
+        { name: 'Google Coral TPU', formats: 'LiteRT (TFLite)', deploy: 'MediaPipe, CVEDIA', status: '✅ Ready' },
+        { name: 'Rockchip NPU', formats: 'RKNN, rk-llama GGUF', deploy: 'API, Edge', status: '✅ Ready' },
+        { name: 'Xilinx/AMD Alveo', formats: 'vitis_xmodel', deploy: 'Vitis DPU API', status: '✅ Ready' },
+        { name: 'Apple Silicon', formats: 'MLX, ONNX, GGUF', deploy: 'API', status: '⚠️ CPU/MPS ONLY' }
+    ];
+
+    return (
+        <div className="card mt-6">
+            <div className="card-header">
+                <h3 className="card-title">Hardware Compatibility Matrix</h3>
+                <Server size={18} className="text-secondary" />
+            </div>
+            <div className="table-responsive">
+                <table className="props-table">
+                    <thead>
+                        <tr>
+                            <th>Hardware Target</th>
+                            <th>Supported Formats & Runtimes</th>
+                            <th>Deployment Targets</th>
+                            <th>Platform Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {hwData.map((row, i) => (
+                            <tr key={i}>
+                                <td style={{ fontWeight: 600 }}>{row.name}</td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}>{row.formats}</td>
+                                <td style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{row.deploy}</td>
+                                <td style={{ fontSize: '13px' }}>{row.status}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
