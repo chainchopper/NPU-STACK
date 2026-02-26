@@ -37,6 +37,7 @@ NPU-STACK is an **open-source, full-stack AI toolkit** for developing, serving, 
 | 📊 **Benchmark** | Latency (p50/p95/p99), throughput, memory profiling across CPU/GPU/NPU |
 | 📁 **Dataset Manager** | Upload, organize, auto-detect datasets (images, CSV, JSON, Parquet) |
 | 🌐 **Web Dashboard** | Premium React UI with real-time training charts via WebSocket |
+| ☁️ **Edge & Cloud** | Connect to NVIDIA NIM APIs, compile Vitis AI `.xmodel`s, and manage CVEDIA-RT |
 | 🐳 **Docker Deploy** | Single `docker compose up` launches the full stack |
 | 📷 **Webcam Detection** | Real-time object detection with bounding box overlays |
 | 🔍 **Model Scanner** | Discover model files on your PC (12+ formats) with interactive folder browser |

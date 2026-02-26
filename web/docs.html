@@ -50,6 +50,7 @@
             <a href="#gguf-pipeline">GGUF Pipeline</a>
             <a href="#publishing">HF Publishing</a>
             <a href="#assets">Model Catalog</a>
+            <a href="#edge-cloud">Edge & Cloud (Sprint 12)</a>
             <h4>Platform</h4>
             <a href="#hardware">Hardware Support</a>
             <a href="#docker">Docker</a>
@@ -287,6 +288,19 @@ print(response.choices[0].message.content)</pre>
                 <li>One-click download of over 20+ optimized edge models (YOLO, ResNet, MobileNet, Gemma)</li>
                 <li>Curated test datasets for benchmarking and fine-tuning</li>
                 <li>Pre-configured for RKNN, MediaPipe, LiteRT, and ONNX Runtime</li>
+            </ul>
+
+            <h2 id="edge-cloud">Edge & Cloud Deployments</h2>
+            <p>Sprint 12 introduces enterprise-grade deployment targets:</p>
+            <ul>
+                <li><strong>NVIDIA NIM Cloud API</strong> — Instantly test and bench against NVIDIA's ultra-optimized
+                    serverless LLMs and Vision models via `NVIDIA_API_KEY`.</li>
+                <li><strong>NVIDIA NIM Local Docker</strong> — Spin up and control localized NIM containers directly
+                    from the API.</li>
+                <li><strong>Vitis DPU Compilation</strong> — Compile `.xmodel` files for AMD Alveo FPGAs and Xilinx edge
+                    silicon via the `vai_c_xir` compiler hook.</li>
+                <li><strong>CVEDIA-RT Analytics</strong> — Bind RTSP/video feeds securely through the CVEDIA-RT SecuRT
+                    engine.</li>
             </ul>
 
             <h2 id="hardware">Hardware Support</h2>
