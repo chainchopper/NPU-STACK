@@ -224,26 +224,74 @@ def get_system_info() -> dict:
         info["cuda_available"] = False
         info["cuda_version"] = None
 
-    # ── NVIDIA driver version + live GPU stats via NVML ──
+    # ── NVIDIA driver version + live GPU stats via nvidia-smi ──
+    # Also serves as fallback GPU discovery when torch is not installed
     try:
         import subprocess
+        # First, get full GPU info (name, memory, driver, temp, util, power, CUDA version)
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=driver_version,temperature.gpu,utilization.gpu,power.draw",
+            ["nvidia-smi", "--query-gpu=name,memory.total,driver_version,temperature.gpu,utilization.gpu,power.draw",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
             for idx, line in enumerate(result.stdout.strip().split("\n")):
                 parts = [p.strip() for p in line.split(",")]
+                gpu_name = parts[0] if len(parts) > 0 else f"GPU {idx}"
+                gpu_mem_mb = float(parts[1]) if len(parts) > 1 else 0
                 if idx == 0:
-                    info["nvidia_driver_version"] = parts[0]
+                    info["nvidia_driver_version"] = parts[2] if len(parts) > 2 else None
+
+                # If torch already found this GPU, just enrich with live stats
                 if idx < len(gpus):
                     try:
-                        gpus[idx]["temperature_c"] = int(parts[1]) if len(parts) > 1 else None
-                        gpus[idx]["utilization_pct"] = int(parts[2]) if len(parts) > 2 else None
-                        gpus[idx]["power_draw_w"] = float(parts[3]) if len(parts) > 3 else None
+                        gpus[idx]["temperature_c"] = int(parts[3]) if len(parts) > 3 else None
+                        gpus[idx]["utilization_pct"] = int(parts[4]) if len(parts) > 4 else None
+                        gpus[idx]["power_draw_w"] = float(parts[5]) if len(parts) > 5 else None
                     except (ValueError, IndexError):
                         pass
+                else:
+                    # Fallback: torch didn't find GPUs, create entry from nvidia-smi
+                    gpu_entry = {
+                        "index": idx,
+                        "name": gpu_name,
+                        "type": "CUDA",
+                        "memory_gb": round(gpu_mem_mb / 1024, 1) if gpu_mem_mb else 0,
+                        "compute_capability": "N/A (torch not installed)",
+                        "status": "online",
+                    }
+                    try:
+                        gpu_entry["temperature_c"] = int(parts[3]) if len(parts) > 3 else None
+                        gpu_entry["utilization_pct"] = int(parts[4]) if len(parts) > 4 else None
+                        gpu_entry["power_draw_w"] = float(parts[5]) if len(parts) > 5 else None
+                    except (ValueError, IndexError):
+                        pass
+                    gpus.append(gpu_entry)
+                    info["cuda_available"] = True
+
+            # Get CUDA version from nvidia-smi if torch didn't provide it
+            if not info.get("cuda_version"):
+                try:
+                    ver_result = subprocess.run(
+                        ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    # nvidia-smi header contains CUDA version
+                    header_result = subprocess.run(
+                        ["nvidia-smi"], capture_output=True, text=True, timeout=5,
+                    )
+                    if header_result.returncode == 0:
+                        import re
+                        cuda_match = re.search(r"CUDA Version:\s+([\d.]+)", header_result.stdout)
+                        if cuda_match:
+                            info["cuda_version"] = cuda_match.group(1)
+                except Exception:
+                    pass
+
+            if gpus:
+                info["cuda_device"] = gpus[0]["name"]
+                info["cuda_memory_gb"] = gpus[0]["memory_gb"]
+                info["cuda_device_count"] = len([g for g in gpus if g["type"] == "CUDA"])
     except Exception:
         pass
 
@@ -309,6 +357,36 @@ def get_system_info() -> dict:
         info["openvino_devices"] = core.available_devices
         info["npu_available"] = "NPU" in core.available_devices
         info["openvino_version"] = ov.__version__
+
+        # Enumerate OpenVINO GPU sub-devices to find AMD iGPU, Intel Arc, etc.
+        ov_gpu_names = set()
+        for dev in core.available_devices:
+            if dev.startswith("GPU"):
+                try:
+                    full_name = core.get_property(dev, "FULL_DEVICE_NAME")
+                    ov_gpu_names.add((dev, full_name))
+                except Exception:
+                    pass
+
+        # Add non-NVIDIA GPUs (AMD iGPU, Intel Arc, etc.) that aren't already in gpus list
+        existing_gpu_names = {g["name"] for g in gpus}
+        for dev_id, dev_name in ov_gpu_names:
+            # Skip if this is already detected (e.g. NVIDIA via nvidia-smi/torch)
+            if any(existing in dev_name for existing in ["NVIDIA", "GeForce", "RTX", "GTX", "Quadro", "Tesla"]):
+                continue
+            if dev_name in existing_gpu_names:
+                continue
+            # This is likely an AMD iGPU, Intel Arc, or other non-NVIDIA GPU
+            gpu_type = "AMD iGPU" if "AMD" in dev_name or "Radeon" in dev_name else "Intel Arc" if "Intel" in dev_name else "OpenVINO GPU"
+            gpus.append({
+                "index": len(gpus),
+                "name": dev_name,
+                "type": gpu_type,
+                "memory_gb": 0,  # iGPU shares system memory
+                "compute_capability": f"OpenVINO ({dev_id})",
+                "status": "online",
+            })
+            existing_gpu_names.add(dev_name)
     except ImportError:
         info["openvino_devices"] = []
         info["npu_available"] = False

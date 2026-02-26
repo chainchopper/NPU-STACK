@@ -21,6 +21,24 @@ export default function FineTuning() {
     const [useLora, setUseLora] = useState(true);
     const [loraR, setLoraR] = useState(16);
     const [loraAlpha, setLoraAlpha] = useState(32);
+    const [outputName, setOutputName] = useState('');
+
+    const humanSize = (bytes) => {
+        if (!bytes) return '—';
+        if (bytes > 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+        if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+        return `${(bytes / 1e3).toFixed(0)} KB`;
+    };
+
+    // Auto-generate output name when model/dataset/config changes
+    const selectedModelObj = models.find(m => m.id === parseInt(selectedModel));
+    React.useEffect(() => {
+        if (selectedModelObj && selectedDataset) {
+            const base = selectedModelObj.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const suffix = useLora ? `lora_r${loraR}_e${epochs}` : `full_e${epochs}`;
+            setOutputName(`${base}_${suffix}`);
+        }
+    }, [selectedModel, selectedDataset, useLora, loraR, epochs]);
 
     const fetchData = async () => {
         try {
@@ -117,9 +135,16 @@ export default function FineTuning() {
                         <div>
                             <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Base Model</label>
                             <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="form-select">
-                                <option value="">Select a model…</option>
-                                {models.map(m => <option key={m.id} value={m.id}>{m.name} ({m.framework})</option>)}
+                                <option value="">Select a model ({models.length} available)…</option>
+                                {models.map(m => <option key={m.id} value={m.id}>{m.name} ({m.format?.toUpperCase()} — {humanSize(m.file_size)})</option>)}
                             </select>
+                            {selectedModelObj && (
+                                <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 6, background: 'var(--bg-input)', fontSize: 11, color: 'var(--text-muted)', display: 'flex', gap: 12 }}>
+                                    <span>{selectedModelObj.format?.toUpperCase()}</span>
+                                    <span>{selectedModelObj.framework}</span>
+                                    <span>{humanSize(selectedModelObj.file_size)}</span>
+                                </div>
+                            )}
                         </div>
                         <div>
                             <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Dataset</label>
@@ -159,6 +184,13 @@ export default function FineTuning() {
                                     </div>
                                 </div>
                             )}
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Output Model Name</label>
+                            <input type="text" className="form-input" style={{ width: '100%' }}
+                                value={outputName} onChange={e => setOutputName(e.target.value)}
+                                placeholder="Auto-generated" />
                         </div>
 
                         <button className="btn btn-primary" onClick={startJob} disabled={starting || !selectedModel || !selectedDataset}>

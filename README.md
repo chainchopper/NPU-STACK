@@ -37,6 +37,8 @@ NPU-STACK is an **open-source, full-stack AI toolkit** for developing, serving, 
 | 📊 **Benchmark** | Latency (p50/p95/p99), throughput, memory profiling across CPU/GPU/NPU |
 | 📁 **Dataset Manager** | Upload, organize, auto-detect datasets (images, CSV, JSON, Parquet) |
 | 🌐 **Web Dashboard** | Premium React UI with real-time training charts via WebSocket |
+| 🦙 **GGUF Studio** | 5-tab studio for inspecting, quantizing (21 formats), converting, and LoRA merging |
+| 🪄 **Onboarding Wizard** | Interactive 5-step tour guiding new users from import to deployment |
 | ☁️ **Edge & Cloud** | Connect to NVIDIA NIM APIs, compile Vitis AI `.xmodel`s, and manage CVEDIA-RT |
 | 🐳 **Docker Deploy** | Single `docker compose up` launches the full stack |
 | 📷 **Webcam Detection** | Real-time object detection with bounding box overlays |
@@ -165,6 +167,16 @@ setup.bat       # Downloads Python, creates venv, installs everything
 run-all.bat     # Launches backend + frontend + API
 ```
 
+### Linux / macOS
+
+```bash
+git clone https://github.com/chainchopper/NPU-STACK.git
+cd NPU-STACK
+chmod +x *.sh
+./setup.sh      # Creates venv, installs dependencies, generates `.env`
+./run-all.sh    # Launches backend + frontend with proper SIGINT handling
+```
+
 ### Docker
 
 ```bash
@@ -227,6 +239,7 @@ cd frontend && npm install && npm run dev
 │           ├── Training.jsx   # Training console
 │           ├── FineTuning.jsx # Fine-tuning config & jobs
 │           ├── Conversion.jsx # Format & quantization studio
+│           ├── GGUFStudio.jsx # llama.cpp GGUF tooling suite
 │           ├── Scanner.jsx    # Model file scanner
 │           ├── WebcamTest.jsx # Real-time object detection
 │           └── Benchmark.jsx  # Performance lab
@@ -246,6 +259,7 @@ cd frontend && npm install && npm run dev
 | AMD Vitis AI / Alveo FPGA | vai_q_onnx, Quark quantizer, xbutil | ✅ |
 | Intel NPU (Core Ultra) | OpenVINO NPU plugin | ✅ |
 | Google Coral Edge TPU | TFLite Delegate | ✅ |
+| Rockchip NPU (RK3588, RV1103) | RKNN Toolkit 2, RKNN Lite 2, rk-llama.cpp | ✅ |
 | DirectML (Windows) | ONNX Runtime DML Provider | ✅ |
 | OpenCV DNN | cv2.dnn with CPU/OpenCL/CUDA targets | ✅ |
 | CPU (x86/ARM) | ONNX Runtime, OpenVINO CPU | ✅ |

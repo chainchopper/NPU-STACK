@@ -149,12 +149,26 @@ export default function DataIngestion() {
                 }}
             >
                 <Upload size={36} color="#6c63ff" style={{ marginBottom: 10 }} />
-                <p style={{ margin: 0, fontSize: 16 }}>
-                    {loading ? 'Uploading & extracting...' : 'Drop files here or click to upload'}
-                </p>
-                <p style={{ margin: '6px 0 0', color: '#666', fontSize: 13 }}>
-                    PDF, DOCX, PPTX, JSON, CSV, images, audio, and more
-                </p>
+                {loading ? (
+                    <>
+                        <p style={{ margin: 0, fontSize: 16, color: 'var(--accent-blue)' }}>Processing files — extracting text & metadata…</p>
+                        <div style={{ width: '80%', maxWidth: 300, height: 4, background: '#222', borderRadius: 4, margin: '12px auto 0', overflow: 'hidden' }}>
+                            <div style={{
+                                width: '40%', height: '100%', background: 'var(--accent-blue)', borderRadius: 4,
+                                animation: 'progress-pulse 1.5s ease-in-out infinite',
+                            }} />
+                        </div>
+                        <style>{`@keyframes progress-pulse { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }`}</style>
+                        <p style={{ margin: '8px 0 0', color: '#666', fontSize: 12 }}>This may take a moment for large or complex files</p>
+                    </>
+                ) : (
+                    <>
+                        <p style={{ margin: 0, fontSize: 16 }}>Drop files here or click to upload</p>
+                        <p style={{ margin: '6px 0 0', color: '#666', fontSize: 13 }}>
+                            PDF, DOCX, PPTX, JSON, TXT, CSV, images, audio, and more
+                        </p>
+                    </>
+                )}
                 <input
                     ref={fileInputRef}
                     type="file"
