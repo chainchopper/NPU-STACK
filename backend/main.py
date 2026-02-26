@@ -42,6 +42,7 @@ from routers.finetune_publish import router as finetune_publish_router
 from routers.nim import router as nim_router
 from routers.cvedia import router as cvedia_router
 from routers.vitis_compiler import router as vitis_compiler_router
+from routers.agent import router as agent_router
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -107,6 +108,7 @@ app.include_router(finetune_publish_router)
 app.include_router(nim_router)
 app.include_router(cvedia_router)
 app.include_router(vitis_compiler_router)
+app.include_router(agent_router)
 
 
 @app.get("/api/health")

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, GraduationCap, Gauge, Cpu, HardDrive, Monitor, Zap, Database, Activity, ArrowRight, Server, Cloud, Layers } from 'lucide-react';
 import { getStatus, getSystemInfo } from '../api/client';
+import SystemAgent from '../components/SystemAgent';
 
 export default function Dashboard() {
     const [status, setStatus] = useState(null);
@@ -233,6 +234,7 @@ export default function Dashboard() {
 
             <PipelineFlow />
             <HardwareMatrix />
+            <SystemAgent />
         </div>
     );
 }
