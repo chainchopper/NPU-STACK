@@ -131,6 +131,29 @@ requests.post("http://localhost:8000/api/finetune/start", json={
 
 ---
 
+## 🤖 AI Context Protocol (MCP) Server
+
+Expose NPU-STACK directly to **Claude Desktop**, **Cursor**, or any MCP-compatible AI Assistant! This gives your AI the ability to compile models to NPU formats and query your system hardware.
+
+Add the following to your `claude_desktop_config.json` (or equivalent client config):
+
+```json
+{
+  "mcpServers": {
+    "npu-stack": {
+      "command": "python",
+      "args": [
+        "J:\\NPU-STACK\\backend\\mcp_server.py"
+      ]
+    }
+  }
+}
+```
+
+*Note: Update the path to `mcp_server.py` and ensure the `python` command resolves to your local NPU-STACK `venv` if you aren't installing globally.*
+
+---
+
 ## 🚀 Quick Start
 
 ### Windows (Recommended)

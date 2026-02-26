@@ -30,3 +30,6 @@ huggingface_hub>=0.27.0
 
 # Environment
 python-dotenv>=1.0.0
+
+# MCP (Model Context Protocol) Server Integration
+mcp[cli]>=1.2.0
