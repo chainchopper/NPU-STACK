@@ -383,6 +383,33 @@ def get_system_info() -> dict:
     except ImportError:
         pass
 
+    # ── MediaPipe (Google AI Edge) ────────────────────────
+    info["mediapipe_available"] = False
+    try:
+        from services.mediapipe_service import detect_mediapipe
+        mp_info = detect_mediapipe()
+        info["mediapipe_available"] = mp_info["available"]
+        info["mediapipe_version"] = mp_info.get("version")
+        info["mediapipe_gpu"] = mp_info.get("gpu_available", False)
+        info["mediapipe_tasks"] = mp_info.get("tasks", [])
+    except Exception:
+        pass
+
+    # ── GPU Compute: CUPTI, NVCC, OpenGL ES, MESA, Vulkan ──
+    try:
+        from services.mediapipe_service import detect_gpu_compute
+        gpu_info = detect_gpu_compute()
+        info["opengl_es_version"] = gpu_info.get("opengl_es_version")
+        info["mesa_version"] = gpu_info.get("mesa_version")
+        info["vulkan_available"] = gpu_info.get("vulkan_available", False)
+        info["vulkan_version"] = gpu_info.get("vulkan_version")
+        info["cupti_available"] = gpu_info.get("cupti_available", False)
+        info["cupti_version"] = gpu_info.get("cupti_version")
+        info["nvcc_available"] = gpu_info.get("nvcc_available", False)
+        info["nvcc_version"] = gpu_info.get("nvcc_version")
+    except Exception:
+        pass
+
     # ── Capabilities summary with check/cross marks ──────
     info["capabilities"] = {
         "cuda_gpu": {"available": info.get("cuda_available", False), "label": f"NVIDIA CUDA GPU (CUDA {info.get('cuda_version', 'N/A')})"},
@@ -392,10 +419,16 @@ def get_system_info() -> dict:
         "quark": {"available": info.get("quark_available", False), "label": "AMD Quark Quantizer"},
         "intel_npu": {"available": info.get("npu_available", False), "label": "Intel NPU"},
         "coral_tpu": {"available": info.get("coral_tpu_available", False), "label": "Google Coral Edge TPU"},
+        "rknn_npu": {"available": info.get("rknn_available", False), "label": "Rockchip RKNN NPU"},
+        "rk_llama": {"available": info.get("rk_llama_cpp_available", False), "label": "rk-llama.cpp (NPU LLM)"},
+        "mediapipe": {"available": info.get("mediapipe_available", False), "label": f"MediaPipe ({info.get('mediapipe_version', 'N/A')})"},
         "directml": {"available": info.get("directml_available", False), "label": "DirectML (Windows GPU)"},
         "openvino": {"available": len(info.get("openvino_devices", [])) > 0, "label": f"OpenVINO Runtime ({info.get('openvino_version', 'N/A')})"},
         "onnxruntime": {"available": len(info.get("onnxruntime_providers", [])) > 0, "label": f"ONNX Runtime ({info.get('onnxruntime_version', 'N/A')})"},
         "opencv": {"available": info.get("opencv_available", False), "label": f"OpenCV ({info.get('opencv_version', 'N/A')})"},
+        "cupti": {"available": info.get("cupti_available", False), "label": "NVIDIA CUPTI (Profiling)"},
+        "nvcc": {"available": info.get("nvcc_available", False), "label": f"NVCC Compiler ({info.get('nvcc_version', 'N/A')})"},
+        "vulkan": {"available": info.get("vulkan_available", False), "label": f"Vulkan ({info.get('vulkan_version', 'N/A')})"},
         "cpu": {"available": True, "label": "CPU Inference"},
     }
 

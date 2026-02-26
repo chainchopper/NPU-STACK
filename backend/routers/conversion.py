@@ -278,6 +278,13 @@ def scan_available_formats():
     except Exception:
         formats.append({"id": "rk_llama", "name": "rk-llama.cpp (NPU)", "installed": False, "target": "RK3588 NPU (LLM)", "source": ["gguf"], "install": "https://github.com/invisiofficial/rk-llama.cpp"})
 
+    # MediaPipe (Google AI Edge)
+    try:
+        import mediapipe as mp  # noqa: F401
+        formats.append({"id": "mediapipe", "name": "MediaPipe (AI Edge)", "installed": True, "target": "CPU/GPU (OpenGL ES)", "source": ["tflite"], "version": mp.__version__})
+    except ImportError:
+        formats.append({"id": "mediapipe", "name": "MediaPipe (AI Edge)", "installed": False, "target": "CPU/GPU (OpenGL ES)", "source": ["tflite"], "install": "pip install mediapipe"})
+
     return {"formats": formats, "total": len(formats), "installed": sum(1 for f in formats if f["installed"])}
 
 
