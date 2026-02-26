@@ -285,6 +285,21 @@ def scan_available_formats():
     except ImportError:
         formats.append({"id": "mediapipe", "name": "MediaPipe (AI Edge)", "installed": False, "target": "CPU/GPU (OpenGL ES)", "source": ["tflite"], "install": "pip install mediapipe"})
 
+    # LiteRT / TFLite (Google AI Edge)
+    try:
+        from services.litert_service import detect_litert
+        lt = detect_litert()
+        if lt["litert_available"] or lt["tflite_available"]:
+            formats.append({"id": "litert", "name": "LiteRT / TFLite", "installed": True, "target": "CPU/GPU/NPU", "source": ["pytorch", "onnx"], "version": lt.get("litert_version") or lt.get("tflite_version"), "delegates": lt.get("delegates", [])})
+        else:
+            formats.append({"id": "litert", "name": "LiteRT / TFLite", "installed": False, "target": "CPU/GPU/NPU", "source": ["pytorch", "onnx"], "install": "pip install ai-edge-litert"})
+        if lt["litert_torch_available"]:
+            formats.append({"id": "litert_torch", "name": "litert-torch (PyTorch→TFLite)", "installed": True, "target": "TFLite export", "source": ["pytorch"]})
+        else:
+            formats.append({"id": "litert_torch", "name": "litert-torch (PyTorch→TFLite)", "installed": False, "target": "TFLite export", "source": ["pytorch"], "install": "pip install ai-edge-litert-torch"})
+    except Exception:
+        formats.append({"id": "litert", "name": "LiteRT / TFLite", "installed": False, "target": "CPU/GPU/NPU", "source": ["pytorch", "onnx"], "install": "pip install ai-edge-litert"})
+
     return {"formats": formats, "total": len(formats), "installed": sum(1 for f in formats if f["installed"])}
 
 

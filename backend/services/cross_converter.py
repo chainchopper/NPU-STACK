@@ -1,6 +1,6 @@
 """Cross-Format Model Converter — Convert between any two model formats.
 
-Supports: PyTorch ↔ ONNX ↔ SafeTensors ↔ GGUF ↔ TFLite ↔ OpenVINO ↔ TensorRT ↔ Keras ↔ RKNN
+Supports: PyTorch ↔ ONNX ↔ SafeTensors ↔ GGUF ↔ TFLite ↔ OpenVINO ↔ TensorRT ↔ Keras ↔ RKNN ↔ LiteRT
 All conversions degrade gracefully when libraries are missing.
 """
 
@@ -24,6 +24,7 @@ CONVERSION_PATHS = {
     "onnx_to_openvino": {"from": "ONNX", "to": "OpenVINO", "extensions": [".onnx"]},
     "onnx_to_vitis": {"from": "ONNX", "to": "Vitis AI", "extensions": [".onnx"]},
     "onnx_to_rknn": {"from": "ONNX", "to": "RKNN", "extensions": [".onnx"]},
+    "pytorch_to_tflite_litert": {"from": "PyTorch", "to": "TFLite (LiteRT)", "extensions": [".pt", ".pth", ".bin"]},
 }
 
 
@@ -135,6 +136,12 @@ def convert_model(
                 return _onnx_to_rknn(model_path, output_dir, output_name, **kwargs)
             else:
                 return {"success": False, "error": f"Cannot convert {src_ext} to RKNN. Convert to ONNX first."}
+
+        elif target in ("tflite_litert", "tflite (litert)"):
+            if src_ext in (".pt", ".pth", ".bin"):
+                return _pytorch_to_tflite_litert(model_path, output_dir, output_name, **kwargs)
+            else:
+                return {"success": False, "error": f"Cannot convert {src_ext} to TFLite via LiteRT. Needs PyTorch model."}
 
         else:
             return {"success": False, "error": f"Unknown target format: {target_format}"}
@@ -517,6 +524,22 @@ def _onnx_to_rknn(model_path, output_dir, output_name, **kwargs):
         return {"success": False, "error": str(e)}
 
 
+def _pytorch_to_tflite_litert(model_path, output_dir, output_name, **kwargs):
+    """Use litert-torch for direct PyTorch → TFLite conversion."""
+    try:
+        from services.litert_service import convert_pytorch_to_tflite
+        return convert_pytorch_to_tflite(
+            model_path=model_path,
+            output_dir=output_dir,
+            output_name=output_name,
+            sample_input_shape=kwargs.get("sample_input_shape", [1, 3, 224, 224]),
+        )
+    except ImportError:
+        return {"success": False, "error": "litert-torch not installed: pip install ai-edge-litert-torch"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ── Availability Checker ────────────────────────────────
 
 def _check_availability(conversion_key: str) -> tuple:
@@ -535,6 +558,7 @@ def _check_availability(conversion_key: str) -> tuple:
         "onnx_to_openvino": ("openvino", "openvino-dev"),
         "onnx_to_vitis": (None, "Vitis AI tools"),
         "onnx_to_rknn": ("rknn", "rknn_toolkit2"),
+        "pytorch_to_tflite_litert": ("litert_torch", "ai-edge-litert-torch"),
     }
 
     entry = checks.get(conversion_key)

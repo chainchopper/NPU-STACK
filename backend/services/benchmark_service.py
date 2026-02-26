@@ -410,6 +410,29 @@ def get_system_info() -> dict:
     except Exception:
         pass
 
+    # ── LiteRT / TFLite Ecosystem ────────────────────────
+    try:
+        from services.litert_service import detect_litert
+        lt_info = detect_litert()
+        info["litert_available"] = lt_info.get("litert_available", False)
+        info["litert_version"] = lt_info.get("litert_version")
+        info["tflite_available"] = lt_info.get("tflite_available", False)
+        info["litert_torch_available"] = lt_info.get("litert_torch_available", False)
+        info["litert_lm_available"] = lt_info.get("litert_lm_available", False)
+        info["xnnpack_available"] = lt_info.get("xnnpack_available", False)
+        info["litert_delegates"] = lt_info.get("delegates", [])
+    except Exception:
+        pass
+
+    # ── Pre-bundled Assets ────────────────────────────────
+    try:
+        from services.model_registry import get_catalog
+        cat = get_catalog("all")
+        info["bundled_models_available"] = cat.get("total_models", 0)
+        info["bundled_models_downloaded"] = cat.get("downloaded_models", 0)
+    except Exception:
+        pass
+
     # ── Capabilities summary with check/cross marks ──────
     info["capabilities"] = {
         "cuda_gpu": {"available": info.get("cuda_available", False), "label": f"NVIDIA CUDA GPU (CUDA {info.get('cuda_version', 'N/A')})"},
@@ -429,6 +452,11 @@ def get_system_info() -> dict:
         "cupti": {"available": info.get("cupti_available", False), "label": "NVIDIA CUPTI (Profiling)"},
         "nvcc": {"available": info.get("nvcc_available", False), "label": f"NVCC Compiler ({info.get('nvcc_version', 'N/A')})"},
         "vulkan": {"available": info.get("vulkan_available", False), "label": f"Vulkan ({info.get('vulkan_version', 'N/A')})"},
+        "litert": {"available": info.get("litert_available", False) or info.get("tflite_available", False), "label": f"LiteRT/TFLite ({info.get('litert_version') or info.get('tflite_version', 'N/A')})"},
+        "litert_torch": {"available": info.get("litert_torch_available", False), "label": "litert-torch (PyTorch→TFLite)"},
+        "litert_lm": {"available": info.get("litert_lm_available", False), "label": "LiteRT-LM (On-Device LLM)"},
+        "xnnpack": {"available": info.get("xnnpack_available", False), "label": "XNNPACK (CPU Acceleration)"},
+        "bundled_models": {"available": info.get("bundled_models_downloaded", 0) > 0, "label": f"Pre-bundled Models ({info.get('bundled_models_downloaded', 0)}/{info.get('bundled_models_available', 0)})"},
         "cpu": {"available": True, "label": "CPU Inference"},
     }
 
