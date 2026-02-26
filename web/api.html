@@ -43,10 +43,17 @@
             <a href="#load">Load Model</a>
             <a href="#unload">Unload Model</a>
             <a href="#status">Model Status</a>
-            <h4>Fine-Tuning</h4>
-            <a href="#ft-start">Start Job</a>
-            <a href="#ft-list">List Jobs</a>
-            <a href="#ft-status">Job Status</a>
+            <h4>Fine-Tuning & Publishing</h4>
+            <a href="#ft-status">Ecosystem Status</a>
+            <a href="#ft-train">QLoRA Training</a>
+            <a href="#ft-publish">HF Hub Publishing</a>
+            <h4>GGUF Pipeline</h4>
+            <a href="#gguf-status">Pipeline Status</a>
+            <a href="#gguf-quantize">Quantization</a>
+            <a href="#gguf-convert">HF to GGUF</a>
+            <h4>Assets & LiteRT</h4>
+            <a href="#assets-catalog">Model Catalog</a>
+            <a href="#litert-convert">TFLite Conversion</a>
             <h4>Code Examples</h4>
             <a href="#ex-python">Python</a>
             <a href="#ex-js">JavaScript</a>
@@ -253,71 +260,51 @@ data: [DONE]</pre>
             <h2 id="status">GET /v1/models/status</h2>
             <p>Get status of all loaded models including uptime and type.</p>
 
-            <h2 id="ft-start">POST /api/finetune/start</h2>
-            <p>Start a fine-tuning job with LoRA/QLoRA. Requires <code>peft</code> and <code>datasets</code> packages.
-            </p>
+            <h2 id="ft-status">GET /api/finetune/status</h2>
+            <p>Get Unsloth & HuggingFace Hub ecosystem status.</p>
+
+            <h2 id="ft-train">POST /api/finetune/train</h2>
+            <p>Start a QLoRA fine-tuning job with Unsloth. Exports to GGUF, SafeTensors, or LoRA.</p>
             <table>
                 <tr>
                     <th>Field</th>
-                    <th>Type</th>
-                    <th>Default</th>
                     <th>Description</th>
                 </tr>
                 <tr>
-                    <td><code>model_id</code></td>
-                    <td>int</td>
-                    <td>—</td>
-                    <td>Base model ID from registry</td>
+                    <td><code>model_name</code></td>
+                    <td>HuggingFace model name or path</td>
                 </tr>
                 <tr>
-                    <td><code>dataset</code></td>
-                    <td>string</td>
-                    <td>—</td>
+                    <td><code>dataset_source</code></td>
                     <td>Dataset name or path</td>
                 </tr>
                 <tr>
-                    <td><code>epochs</code></td>
-                    <td>int</td>
-                    <td>3</td>
-                    <td>Training epochs</td>
-                </tr>
-                <tr>
-                    <td><code>batch_size</code></td>
-                    <td>int</td>
-                    <td>4</td>
-                    <td>Batch size per device</td>
-                </tr>
-                <tr>
-                    <td><code>learning_rate</code></td>
-                    <td>float</td>
-                    <td>2e-4</td>
-                    <td>Learning rate</td>
-                </tr>
-                <tr>
-                    <td><code>use_lora</code></td>
-                    <td>bool</td>
-                    <td>true</td>
-                    <td>Enable LoRA adapters</td>
+                    <td><code>use_4bit</code></td>
+                    <td>Use 4-bit quantization (default: true)</td>
                 </tr>
                 <tr>
                     <td><code>lora_r</code></td>
-                    <td>int</td>
-                    <td>16</td>
-                    <td>LoRA rank</td>
-                </tr>
-                <tr>
-                    <td><code>lora_alpha</code></td>
-                    <td>int</td>
-                    <td>32</td>
-                    <td>LoRA alpha</td>
+                    <td>LoRA rank (default: 16)</td>
                 </tr>
             </table>
 
-            <h2 id="ft-list">GET /api/finetune/jobs</h2>
-            <p>List all fine-tuning jobs with their status (initializing, running, completed, failed).</p>
+            <h2 id="ft-publish">POST /api/finetune/publish/*</h2>
+            <p>Push a model directory, GGUF file, or dataset to the HuggingFace Hub with auto-generated model cards.</p>
 
-            <h2 id="ft-status">GET /api/finetune/status/{job_id}</h2>
-            <p>Get detailed status, metrics (loss, learning rate per step), and log output.</p>
+            <h2 id="gguf-status">GET /api/gguf/pipeline/status</h2>
+            <p>Check available GGUF tools, quant types (21 supported), and architectures (39 supported).</p>
+
+            <h2 id="gguf-quantize">POST /api/gguf/quantize</h2>
+            <p>Quantize a GGUF model using <code>llama.cpp</code>. Supports IQ variants with imatrix.</p>
+
+            <h2 id="gguf-convert">POST /api/gguf/convert/hf-to-gguf</h2>
+            <p>Convert HuggingFace/SafeTensors models to GGUF format.</p>
+
+            <h2 id="assets-catalog">GET /api/assets/catalog</h2>
+            <p>Retrieve the registry of pre-bundled curated models and datasets.</p>
+
+            <h2 id="litert-convert">POST /api/litert/convert/pytorch-to-tflite</h2>
+            <p>Convert PyTorch models to TFLite format using the Google LiteRT ecosystem.</p>
 
             <h2 id="ex-python">Python Example</h2>
             <pre><span class="cm"># Using the official OpenAI SDK</span>

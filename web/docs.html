@@ -47,6 +47,9 @@
             <a href="#conversion">Conversion</a>
             <a href="#benchmark">Benchmark</a>
             <a href="#datasets">Datasets</a>
+            <a href="#gguf-pipeline">GGUF Pipeline</a>
+            <a href="#publishing">HF Publishing</a>
+            <a href="#assets">Model Catalog</a>
             <h4>Platform</h4>
             <a href="#hardware">Hardware Support</a>
             <a href="#docker">Docker</a>
@@ -68,7 +71,8 @@ setup.bat</pre>
                 <li>Install all backend + frontend dependencies</li>
                 <li>Generate a <code>.env</code> configuration file</li>
                 <li>Create launcher scripts: <code>run-backend.bat</code>, <code>run-frontend.bat</code>,
-                    <code>run-all.bat</code></li>
+                    <code>run-all.bat</code>
+                </li>
             </ul>
 
             <h3>Manual Setup</h3>
@@ -183,12 +187,14 @@ response = client.chat.completions.create(
 )
 print(response.choices[0].message.content)</pre>
             <p>Models are auto-loaded on first request. You can also pre-load models via the
-                <code>/v1/models/load</code> endpoint or the Serving page in the UI.</p>
+                <code>/v1/models/load</code> endpoint or the Serving page in the UI.
+            </p>
 
             <h3>Compatibility</h3>
             <p>Tested and compatible with: <strong>OpenAI Python/JS SDK</strong>, <strong>LangChain</strong>,
                 <strong>LlamaIndex</strong>, <strong>Open WebUI</strong>, <strong>Chatbot UI</strong>, <strong>Vercel AI
-                    SDK</strong>, <strong>cURL</strong>, <strong>Postman</strong>.</p>
+                    SDK</strong>, <strong>cURL</strong>, <strong>Postman</strong>.
+            </p>
 
             <h2 id="playground">Playground</h2>
             <p>The Playground provides an interactive UI for testing models without code:</p>
@@ -256,6 +262,33 @@ print(response.choices[0].message.content)</pre>
                 <li><strong>Delete</strong> — Remove local datasets from the UI</li>
             </ul>
 
+            <h2 id="gguf-pipeline">GGUF Pipeline</h2>
+            <p>End-to-end tooling for the <code>llama.cpp</code> ecosystem:</p>
+            <ul>
+                <li><strong>Convert</strong> HuggingFace and SafeTensors models to GGUF format</li>
+                <li><strong>Quantize</strong> models to 21 different types (Q4_K_M, Q8_0, IQ variants with imatrix)</li>
+                <li><strong>Edit Metadata</strong> inside GGUF files dynamically</li>
+                <li><strong>LoRA Merging</strong> fold adapter weights into base GGUF models</li>
+                <li><strong>Split/Join</strong> large GGUF files into smaller chunks</li>
+            </ul>
+
+            <h2 id="publishing">HuggingFace Publishing</h2>
+            <p>Publish directly to the HuggingFace Hub:</p>
+            <ul>
+                <li>Upload model directories (PyTorch, SafeTensors)</li>
+                <li>Publish single GGUF files to new or existing repos</li>
+                <li>Upload datasets directly to HF Datasets</li>
+                <li>Auto-generate rich Model Cards with README metadata</li>
+            </ul>
+
+            <h2 id="assets">Embedded Model Catalog</h2>
+            <p>Quick-start with pre-bundled curated assets:</p>
+            <ul>
+                <li>One-click download of over 20+ optimized edge models (YOLO, ResNet, MobileNet, Gemma)</li>
+                <li>Curated test datasets for benchmarking and fine-tuning</li>
+                <li>Pre-configured for RKNN, MediaPipe, LiteRT, and ONNX Runtime</li>
+            </ul>
+
             <h2 id="hardware">Hardware Support</h2>
             <p>NPU-STACK auto-detects and supports all major AI accelerators:</p>
             <table>
@@ -287,6 +320,21 @@ print(response.choices[0].message.content)</pre>
                 <tr>
                     <td>DirectML (Windows)</td>
                     <td>ONNX Runtime DML Provider</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>Rockchip RK3588/RV110x</td>
+                    <td>RKNN-Toolkit2 (.rknn)</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>Rockchip RK3588 LLM</td>
+                    <td>rk-llama.cpp (GGUF+NPU)</td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td>Google Edge &amp; Mobile</td>
+                    <td>MediaPipe / LiteRT (TFLite)</td>
                     <td>✅</td>
                 </tr>
                 <tr>

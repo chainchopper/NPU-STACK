@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Models from './pages/Models';
 import Training from './pages/Training';
@@ -14,17 +14,21 @@ import FineTuning from './pages/FineTuning';
 import Scanner from './pages/Scanner';
 import WebcamTest from './pages/WebcamTest';
 import DataIngestion from './pages/DataIngestion';
+import GGUFStudio from './pages/GGUFStudio';
+import HubPublisher from './pages/HubPublisher';
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/playground', icon: Play, label: 'Playground' },
     { path: '/models', icon: Box, label: 'Models' },
     { path: '/huggingface', icon: Globe, label: 'HuggingFace' },
+    { path: '/hf-publisher', icon: CloudUpload, label: 'HF Publisher' },
     { path: '/datasets', icon: Database, label: 'Datasets' },
     { path: '/ingestion', icon: Upload, label: 'Data Ingestion' },
     { path: '/serving', icon: Server, label: 'Serving' },
     { path: '/training', icon: GraduationCap, label: 'Training' },
     { path: '/finetuning', icon: Wrench, label: 'Fine-Tuning' },
+    { path: '/gguf-studio', icon: Cpu, label: 'GGUF Studio' },
     { path: '/conversion', icon: ArrowRightLeft, label: 'Conversion' },
     { path: '/scanner', icon: FolderSearch, label: 'Scanner' },
     { path: '/webcam', icon: Camera, label: 'Webcam' },
@@ -112,11 +116,13 @@ export default function App() {
                         <Route path="/playground" element={<Playground />} />
                         <Route path="/models" element={<Models />} />
                         <Route path="/huggingface" element={<HuggingFaceHub />} />
+                        <Route path="/hf-publisher" element={<HubPublisher />} />
                         <Route path="/datasets" element={<Datasets />} />
                         <Route path="/ingestion" element={<DataIngestion />} />
                         <Route path="/serving" element={<Serving />} />
                         <Route path="/training" element={<Training />} />
                         <Route path="/finetuning" element={<FineTuning />} />
+                        <Route path="/gguf-studio" element={<GGUFStudio />} />
                         <Route path="/conversion" element={<Conversion />} />
                         <Route path="/scanner" element={<Scanner />} />
                         <Route path="/webcam" element={<WebcamTest />} />
