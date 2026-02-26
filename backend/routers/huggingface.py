@@ -15,6 +15,22 @@ MODEL_STORE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "
 os.makedirs(MODEL_STORE, exist_ok=True)
 
 
+def _detect_quant(filename: str) -> Optional[str]:
+    """Detect quantization level from filename."""
+    name_lower = filename.lower()
+    quants = [
+        "q2_k", "q3_k_s", "q3_k_m", "q3_k_l",
+        "q4_0", "q4_1", "q4_k_s", "q4_k_m",
+        "q5_0", "q5_1", "q5_k_s", "q5_k_m",
+        "q6_k", "q8_0", "f16", "f32",
+        "iq1_s", "iq2_xxs", "iq2_xs", "iq3_xxs", "iq4_nl",
+    ]
+    for q in quants:
+        if q in name_lower:
+            return q.upper()
+    return None
+
+
 def _get_token():
     return os.environ.get("HUGGINGFACE_TOKEN") or None
 
@@ -222,6 +238,8 @@ def download_model(
             format=fmt,
             file_path=dest_path,
             file_size=file_size,
+            size_mb=file_size / (1024 * 1024),
+            quant_type=(_detect_quant(filename) if fmt == "gguf" else None),
             input_shape=input_shape,
             output_shape=output_shape,
             description=f"Downloaded from HuggingFace: {repo_id}/{filename}",

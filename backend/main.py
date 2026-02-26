@@ -22,6 +22,12 @@ if not os.getenv("HF_HOME"):
 if not os.getenv("HUGGINGFACE_HUB_CACHE"):
     os.environ["HUGGINGFACE_HUB_CACHE"] = os.path.join(base_data_dir, "hf_cache")
 
+# Suppress Xet-core logging errors on Windows (often tries to write to H:\ or D:\)
+os.environ["XET_LOG_LEVEL"] = "off"
+if not os.getenv("XET_TMP_DIR"):
+    os.environ["XET_TMP_DIR"] = os.path.join(base_data_dir, "xet_tmp")
+    os.makedirs(os.environ["XET_TMP_DIR"], exist_ok=True)
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
