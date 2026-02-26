@@ -82,7 +82,7 @@ export default function FineTuning() {
         }
         setExpandedJob(jobId);
         try {
-            const res = await fetch(`${API_BASE}/api/finetune/status/${jobId}`);
+            const res = await fetch(`${API_BASE}/api/finetune/jobs/${jobId}`);
             const data = await res.json();
             setJobDetails(prev => ({ ...prev, [jobId]: data }));
         } catch (e) { console.error(e); }

@@ -5,7 +5,7 @@ export default function HubPublisher() {
     const [status, setStatus] = useState(null);
 
     useEffect(() => {
-        fetch('http://localhost:8000/api/finetune/status')
+        fetch('http://localhost:8000/api/finetune/jobs')
             .then(res => res.json())
             .then(data => setStatus(data))
             .catch(err => console.error(err));
