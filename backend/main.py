@@ -38,6 +38,7 @@ from routers.filebrowser import router as filebrowser_router
 from routers.ingest import router as ingest_router
 from routers.assets import router as assets_router
 from routers.gguf_pipeline import router as gguf_pipeline_router
+from routers.finetune_publish import router as finetune_publish_router
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -99,6 +100,7 @@ app.include_router(filebrowser_router)
 app.include_router(ingest_router)
 app.include_router(assets_router)
 app.include_router(gguf_pipeline_router)
+app.include_router(finetune_publish_router)
 
 
 @app.get("/api/health")

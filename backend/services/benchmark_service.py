@@ -459,6 +459,8 @@ def get_system_info() -> dict:
         "bundled_models": {"available": info.get("bundled_models_downloaded", 0) > 0, "label": f"Pre-bundled Models ({info.get('bundled_models_downloaded', 0)}/{info.get('bundled_models_available', 0)})"},
         "gguf_pipeline": {"available": _check_gguf_pipeline(), "label": "GGUF Pipeline (Quantize/Convert/Merge)"},
         "llama_cpp_inference": {"available": _check_llama_cpp(), "label": "llama.cpp (GGUF Inference)"},
+        "unsloth": {"available": _check_unsloth(), "label": "Unsloth (QLoRA Fine-Tuning)"},
+        "hf_hub": {"available": _check_hf_hub(), "label": "HuggingFace Hub (Publish)"},
         "cpu": {"available": True, "label": "CPU Inference"},
     }
 
@@ -481,3 +483,22 @@ def _check_llama_cpp() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _check_unsloth() -> bool:
+    """Check if Unsloth fine-tuning is available."""
+    try:
+        import unsloth  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _check_hf_hub() -> bool:
+    """Check if HuggingFace Hub is available and authenticated."""
+    try:
+        from services.hub_publisher import detect_hub
+        return detect_hub()["authenticated"]
+    except Exception:
+        return False
+
