@@ -289,9 +289,9 @@ echo [6/6] Creating launcher scripts...
 >> "%ROOT%\run-all.bat" echo echo Frontend: http://localhost:5173
 >> "%ROOT%\run-all.bat" echo echo API Docs: http://localhost:8000/docs
 >> "%ROOT%\run-all.bat" echo echo.
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "cd /d \"%%~dp0\" && call .venv\Scripts\activate.bat && cd backend && python main.py"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "cd /d "%%~dp0." && call .venv\Scripts\activate.bat && cd backend && python main.py"
 >> "%ROOT%\run-all.bat" echo timeout /t 3 /nobreak ^>nul
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d \"%%~dp0frontend\" && npm run dev"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d "%%~dp0frontend" && npm run dev"
 >> "%ROOT%\run-all.bat" echo echo Both services started in separate windows.
 >> "%ROOT%\run-all.bat" echo pause
 
