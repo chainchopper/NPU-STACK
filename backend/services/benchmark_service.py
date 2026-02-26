@@ -457,7 +457,27 @@ def get_system_info() -> dict:
         "litert_lm": {"available": info.get("litert_lm_available", False), "label": "LiteRT-LM (On-Device LLM)"},
         "xnnpack": {"available": info.get("xnnpack_available", False), "label": "XNNPACK (CPU Acceleration)"},
         "bundled_models": {"available": info.get("bundled_models_downloaded", 0) > 0, "label": f"Pre-bundled Models ({info.get('bundled_models_downloaded', 0)}/{info.get('bundled_models_available', 0)})"},
+        "gguf_pipeline": {"available": _check_gguf_pipeline(), "label": "GGUF Pipeline (Quantize/Convert/Merge)"},
+        "llama_cpp_inference": {"available": _check_llama_cpp(), "label": "llama.cpp (GGUF Inference)"},
         "cpu": {"available": True, "label": "CPU Inference"},
     }
 
     return info
+
+
+def _check_gguf_pipeline() -> bool:
+    """Check if any GGUF pipeline tools are available."""
+    try:
+        from services.gguf_pipeline import detect_llama_cpp_tools
+        return detect_llama_cpp_tools()["any_available"]
+    except Exception:
+        return False
+
+
+def _check_llama_cpp() -> bool:
+    """Check if llama-cpp-python inference is available."""
+    try:
+        from llama_cpp import Llama  # noqa: F401
+        return True
+    except ImportError:
+        return False
