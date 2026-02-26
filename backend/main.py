@@ -15,9 +15,12 @@ try:
 except ImportError:
     pass
 
-# Ensure HF cache is in a safe place if not specified in .env
-if not os.getenv("HUGGINGFACE_HUB_CACHE") and not os.getenv("HUGGINGFACE_CACHE_DIR"):
-    os.environ["HUGGINGFACE_HUB_CACHE"] = os.path.join(os.path.dirname(__file__), "data", "hf_cache")
+# Ensure HF cache and home are in a safe place inside the project to avoid Windows path/permission errors
+base_data_dir = os.path.join(os.path.dirname(__file__), "data")
+if not os.getenv("HF_HOME"):
+    os.environ["HF_HOME"] = os.path.join(base_data_dir, "hf_home")
+if not os.getenv("HUGGINGFACE_HUB_CACHE"):
+    os.environ["HUGGINGFACE_HUB_CACHE"] = os.path.join(base_data_dir, "hf_cache")
 
 from contextlib import asynccontextmanager
 

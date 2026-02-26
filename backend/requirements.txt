@@ -25,8 +25,9 @@ numpy>=1.26.0
 pillow>=10.0.0
 psutil>=6.0.0
 
-# HuggingFace
+# HuggingFace & GGUF
 huggingface_hub>=0.27.0
+llama-cpp-python>=0.3.0
 
 # Environment
 python-dotenv>=1.0.0
