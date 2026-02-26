@@ -59,6 +59,7 @@
 
         <main class="docs-content">
             <h2 id="installation">Installation</h2>
+            <h2 id="installation">Installation</h2>
             <h3>Windows (Recommended)</h3>
             <p>The setup script handles everything automatically — Python, virtual environment, and all dependencies.
             </p>
@@ -76,8 +77,19 @@ setup.bat</pre>
                 </li>
             </ul>
 
+            <h3>Linux / macOS</h3>
+            <p>We provide full bash scripts for Unix-like systems:</p>
+            <pre>git clone https://github.com/chainchopper/NPU-STACK.git
+cd NPU-STACK
+chmod +x *.sh
+./setup.sh</pre>
+            <p>This will detect Python 3.10+, create a venv, install all requirements, and generate launcher scripts
+                (<code>run-all.sh</code>, <code>run-backend.sh</code>, <code>run-frontend.sh</code>).</p>
+
             <h3>Manual Setup</h3>
-            <pre>pip install -r backend/requirements.txt
+            <pre>python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -r backend/requirements.txt
 cd frontend && npm install
 cp .env.example .env</pre>
 

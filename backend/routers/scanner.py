@@ -247,6 +247,8 @@ def import_model(req: ImportRequest, db: Session = Depends(get_db)):
         format=fmt_info["format"],
         file_path=target_path,
         file_size=file_size,
+        size_mb=file_size / (1024 * 1024),
+        quant_type=quant,
         description=f"Imported from {req.file_path}. "
                     f"Format: {fmt_info['format']}. "
                     f"Category: {fmt_info['category']}."

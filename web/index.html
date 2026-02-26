@@ -135,8 +135,14 @@
         <div class="feature-card">
           <div class="feature-icon">🧪</div>
           <h3>Playground</h3>
-          <p>Test models interactively — image classification, object detection, text generation, and image synthesis
+          <p>Test models interactively — text generation, image classification, object detection, image synthesis
             all in browser.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🪄</div>
+          <h3>Onboarding Wizard</h3>
+          <p>Interactive 5-step onboarding wizard for first-time users, guiding you from importing your first model to
+            serving it.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">🤗</div>
@@ -146,8 +152,8 @@
         <div class="feature-card">
           <div class="feature-icon">🔄</div>
           <h3>Convert &amp; Quantize</h3>
-          <p>Convert PyTorch → ONNX, GGUF, or TFLite (LiteRT). Apply INT8/INT4, NNCF, and 21+ GGUF quantization formats
-            for edge deployment.</p>
+          <p>Convert PyTorch → ONNX, GGUF, or OpenVINO. Dedicated GGUF Studio with 5 tabs (Inspect, Quantize,
+            HuggingFace to GGUF, LoRA Merge, Split). Apply INT8/INT4 NNCF and 21+ GGUF quantization formats.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">🏋️</div>
@@ -313,14 +319,18 @@ console.log(data.choices[<span class="num">0</span>].message.content);</code></p
         <div class="step">
           <div class="step-num">2</div>
           <div class="step-content">
-            <h4>Run setup</h4><code>setup.bat</code>
+            <h4>Run setup</h4>
+            <code>setup.bat</code> (Windows)<br>
+            <code>./setup.sh</code> (Linux/macOS)
             <p>Downloads portable Python, creates venv, installs all dependencies, generates <code>.env</code></p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">3</div>
           <div class="step-content">
-            <h4>Launch</h4><code>run-all.bat</code>
+            <h4>Launch</h4>
+            <code>run-all.bat</code> (Windows)<br>
+            <code>./run-all.sh</code> (Linux/macOS)
             <p>Backend (FastAPI :8000) + Frontend (Vite :5173) + OpenAI API (/v1)</p>
           </div>
         </div>

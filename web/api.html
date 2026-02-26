@@ -296,13 +296,18 @@ data: [DONE]</pre>
             <p>Push a model directory, GGUF file, or dataset to the HuggingFace Hub with auto-generated model cards.</p>
 
             <h2 id="gguf-status">GET /api/gguf/pipeline/status</h2>
-            <p>Check available GGUF tools, quant types (21 supported), and architectures (39 supported).</p>
+            <p>Check available GGUF tools (e.g., <code>llama-cli</code>, <code>llama-quantize</code>), 21 supported
+                quantization types, and 38+ supported architectures.</p>
 
             <h2 id="gguf-quantize">POST /api/gguf/quantize</h2>
             <p>Quantize a GGUF model using <code>llama.cpp</code>. Supports IQ variants with imatrix.</p>
 
             <h2 id="gguf-convert">POST /api/gguf/convert/hf-to-gguf</h2>
             <p>Convert HuggingFace/SafeTensors models to GGUF format.</p>
+
+            <h2 id="cross-format-paths">GET /api/convert/cross/paths</h2>
+            <p>Retrieve all supported cross-format conversion paths (e.g., PyTorch to ONNX, PyTorch to OpenVINO,
+                HuggingFace to GGUF). Returns a list of available conversions based on installed backend tools.</p>
 
             <h2 id="assets-catalog">GET /api/assets/catalog</h2>
             <p>Retrieve the registry of pre-bundled curated models and datasets.</p>
