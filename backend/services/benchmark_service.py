@@ -461,6 +461,9 @@ def get_system_info() -> dict:
         "llama_cpp_inference": {"available": _check_llama_cpp(), "label": "llama.cpp (GGUF Inference)"},
         "unsloth": {"available": _check_unsloth(), "label": "Unsloth (QLoRA Fine-Tuning)"},
         "hf_hub": {"available": _check_hf_hub(), "label": "HuggingFace Hub (Publish)"},
+        "nim": {"available": _check_nim(), "label": "NVIDIA NIM (Cloud API)"},
+        "cvedia": {"available": _check_cvedia(), "label": "CVEDIA-RT Engine"},
+        "vitis_compiler": {"available": _check_vitis_compiler(), "label": "Vitis AI Compiler (vai_c_xir)"},
         "cpu": {"available": True, "label": "CPU Inference"},
     }
 
@@ -502,3 +505,27 @@ def _check_hf_hub() -> bool:
     except Exception:
         return False
 
+
+def _check_nim() -> bool:
+    """Check if NVIDIA_API_KEY is configured for NIM."""
+    import os
+    return bool(os.environ.get("NVIDIA_API_KEY", ""))
+
+
+def _check_cvedia() -> bool:
+    """Check if CVEDIA-RT engine or bindings are available."""
+    try:
+        from services.cvedia_service import get_cvedia_status
+        status = get_cvedia_status()
+        return status["engine"]["available"] or status["python_bindings"]
+    except Exception:
+        return False
+
+
+def _check_vitis_compiler() -> bool:
+    """Check if Vitis AI Compiler (vai_c_xir) is available."""
+    try:
+        from services.vitis_compiler import get_vitis_compiler_status
+        return get_vitis_compiler_status()["available"]
+    except Exception:
+        return False
