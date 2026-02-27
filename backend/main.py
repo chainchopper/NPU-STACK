@@ -58,6 +58,7 @@ from routers.nim import router as nim_router
 from routers.cvedia import router as cvedia_router
 from routers.vitis_compiler import router as vitis_compiler_router
 from routers.agent import router as agent_router
+from routers.civitai import router as civitai_router
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -106,10 +107,15 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Catch unhandled exceptions and return a proper JSON 500 with CORS headers."""
     import traceback
     traceback.print_exc()
-    return JSONResponse(
+    response = JSONResponse(
         status_code=500,
         content={"detail": str(exc)},
     )
+    # Manually add CORS headers because middleware doesn't run for custom handlers in some versions
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 # Include routers
 app.include_router(models_router)
@@ -132,6 +138,7 @@ app.include_router(nim_router)
 app.include_router(cvedia_router)
 app.include_router(vitis_compiler_router)
 app.include_router(agent_router)
+app.include_router(civitai_router)
 
 
 @app.get("/api/health")

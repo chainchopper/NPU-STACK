@@ -86,6 +86,23 @@ echo "  This will take several minutes (PyTorch, OpenVINO, etc.)"
 echo ""
 
 "$PIP" install --upgrade pip setuptools wheel --quiet
+
+echo "  Installing core ML dependencies (Torch 2.9.1+cu130)..."
+"$PIP" uninstall torch torchvision torchaudio -y >/dev/null 2>&1
+"$PIP" install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu130
+if [ $? -ne 0 ]; then
+    echo "  [WARN] Optimized PyTorch install failed, falling back to standard..."
+fi
+
+echo "  Installing llama-cpp-python optimized for CUDA..."
+"$PIP" uninstall llama-cpp-python -y >/dev/null 2>&1
+CMAKE_ARGS="-DGGML_CUDA=on" "$PIP" install llama-cpp-python --no-cache-dir
+if [ $? -ne 0 ]; then
+    echo "  [WARN] CUDA llama-cpp-python install failed, falling back to standard..."
+    "$PIP" install llama-cpp-python --prefer-binary
+fi
+
+echo "  Installing remaining requirements..."
 "$PIP" install -r "$ROOT/backend/requirements.txt"
 
 if [ $? -ne 0 ]; then

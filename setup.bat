@@ -173,6 +173,29 @@ echo   This will take several minutes (PyTorch, OpenVINO, etc.)
 echo.
 
 "%PIP%" install --upgrade pip setuptools wheel >nul 2>&1
+
+echo   Installing core ML dependencies (Torch 2.9.1+cu130)...
+"%PIP%" uninstall torch torchvision torchaudio -y >nul 2>&1
+"%PIP%" install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu130
+if %errorlevel% neq 0 (
+    echo   [WARN] Optimized PyTorch install failed, falling back to standard...
+)
+
+echo   Installing llama-cpp-python optimized for cu130...
+"%PIP%" uninstall llama-cpp-python -y >nul 2>&1
+for /f "tokens=2" %%i in ('"%PYTHON%" -c "import platform; print(platform.python_version_tuple()[1])"') do set PY_MINOR=%%i
+if "!PY_MINOR!"=="12" (
+    "%PIP%" install https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.24-cu130-Basic-win-20260208/llama_cpp_python-0.3.24+cu130.basic-cp312-cp312-win_amd64.whl
+) else if "!PY_MINOR!"=="11" (
+    "%PIP%" install https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.24-cu130-Basic-win-20260208/llama_cpp_python-0.3.24+cu130.basic-cp311-cp311-win_amd64.whl
+) else (
+    "%PIP%" install llama-cpp-python --prefer-binary
+)
+if %errorlevel% neq 0 (
+    echo   [WARN] Optimized llama-cpp-python install failed...
+)
+
+echo   Installing remaining requirements...
 "%PIP%" install -r "%ROOT%\backend\requirements.txt"
 
 if %errorlevel% neq 0 (
@@ -264,6 +287,7 @@ echo [6/6] Creating launcher scripts...
 >> "%ROOT%\run-backend.bat" echo echo Docs: http://localhost:8000/docs
 >> "%ROOT%\run-backend.bat" echo echo Press Ctrl+C to stop.
 >> "%ROOT%\run-backend.bat" echo echo.
+>> "%ROOT%\run-backend.bat" echo if exist "%%~dp0llama.cpp\llama.dll" set "PATH=%%~dp0llama.cpp;%%PATH%%"
 >> "%ROOT%\run-backend.bat" echo call "%%~dp0.venv\Scripts\activate.bat"
 >> "%ROOT%\run-backend.bat" echo cd /d "%%~dp0backend"
 >> "%ROOT%\run-backend.bat" echo python main.py

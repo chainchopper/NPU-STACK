@@ -10,28 +10,30 @@ Endpoints:
 
 import os
 import json
-import urllib.request
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+import shutil
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
-from typing import List, Dict
-from database import SessionLocal, ModelRecord
+from typing import List, Dict, Optional
+from sqlalchemy.orm import Session
+from database import SessionLocal, ModelRecord, get_db
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
-AGENT_MODEL_URL = "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
+# Constants from environment or defaults
+AGENT_REPO_ID = "microsoft/Phi-3-mini-4k-instruct-gguf"
 AGENT_MODEL_FILENAME = "Phi-3-mini-4k-instruct-q4.gguf"
 DATASET_FILENAME = "npu_stack_knowledge.jsonl"
 
-SYSTEM_PROMPT = (
-    "You are the NPU-STACK System Assistant. You help users navigate the NPU-STACK AI Factory, "
-    "explaining how to convert models to GGUF, RKNN, or ONNX, how to fine-tune using Unsloth, "
-    "and how to deploy to edge hardware like Vitis DPU and NVIDIA NIM. Be concise, technical, and helpful."
-)
+def _get_token():
+    return os.getenv("HUGGINGFACE_TOKEN")
 
+def _model_store():
+    # Use the same MODEL_STORE as main.py/huggingface.py
+    from main import MODEL_STORE
+    return MODEL_STORE
 
 def _model_path():
-    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "models", AGENT_MODEL_FILENAME)
-
+    return os.path.join(_model_store(), AGENT_MODEL_FILENAME)
 
 def _dataset_path():
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "datasets", DATASET_FILENAME)
@@ -67,12 +69,27 @@ def get_agent_status():
 
 def _download_model_task():
     model_path = _model_path()
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    model_store = _model_store()
+    os.makedirs(model_store, exist_ok=True)
 
     if not os.path.exists(model_path):
         try:
-            print(f"[Agent] Downloading {AGENT_MODEL_FILENAME} ...")
-            urllib.request.urlretrieve(AGENT_MODEL_URL, model_path)
+            print(f"[Agent] Downloading {AGENT_MODEL_FILENAME} from {AGENT_REPO_ID} ...")
+            from huggingface_hub import hf_hub_download
+            
+            token = _get_token()
+            local_path = hf_hub_download(
+                repo_id=AGENT_REPO_ID,
+                filename=AGENT_MODEL_FILENAME,
+                token=token,
+                local_dir=model_store,
+            )
+
+            # Ensure it has exactly the name we expect if hf_hub_download behaved differently
+            if os.path.abspath(local_path) != os.path.abspath(model_path):
+                if os.path.exists(model_path):
+                    os.remove(model_path)
+                shutil.move(local_path, model_path)
 
             db = SessionLocal()
             try:
@@ -81,10 +98,11 @@ def _download_model_task():
                     new_model = ModelRecord(
                         name="NPU-STACK System Agent (Phi-3-mini)",
                         architecture="phi3",
-                        format="GGUF",
+                        format="gguf",
                         size_mb=os.path.getsize(model_path) / (1024 * 1024),
                         file_path=model_path,
                         quant_type="Q4_0",
+                        description=f"System Agent model: {AGENT_REPO_ID}/{AGENT_MODEL_FILENAME}"
                     )
                     db.add(new_model)
                     db.commit()
@@ -109,19 +127,36 @@ def initialize_agent(background_tasks: BackgroundTasks):
 
 
 @router.post("/start")
-def start_agent():
-    """Load the system agent GGUF model into memory via gguf_service."""
+def start_agent(background_tasks: BackgroundTasks):
+    """Load the system agent GGUF model. Triggers auto-download if missing."""
     model_path = _model_path()
+    
     if not os.path.exists(model_path):
-        raise HTTPException(404, "Agent model not found. Call /init first.")
+        # Auto-trigger download
+        print(f"[Agent] Model missing at {model_path}. Triggering auto-download.")
+        background_tasks.add_task(_download_model_task)
+        return {
+            "success": False, 
+            "status": "downloading",
+            "message": "Agent model is missing. Download has been started automatically. Please try again in a few minutes."
+        }
 
     from services.gguf_service import load_model
 
-    result = load_model(model_path, n_ctx=4096, n_gpu_layers=-1)
-    return {"success": True, **result}
+    try:
+        result = load_model(model_path, n_ctx=4096, n_gpu_layers=-1)
+        return {"success": True, **result}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to load agent model: {str(e)}")
 
 
 # ── Chat ────────────────────────────────────────────────
+
+SYSTEM_PROMPT = (
+    "You are the NPU-STACK System Assistant. You help users navigate the NPU-STACK AI Factory, "
+    "explaining how to convert models to GGUF, RKNN, or ONNX, how to fine-tune using Unsloth, "
+    "and how to deploy to edge hardware like Vitis DPU and NVIDIA NIM. Be concise, technical, and helpful."
+)
 
 
 class ChatRequest(BaseModel):

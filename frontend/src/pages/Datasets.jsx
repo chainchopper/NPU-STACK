@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Upload, FolderSearch, Trash2, File, FileImage, FileText, FileSpreadsheet, RefreshCw, HardDrive } from 'lucide-react';
+import { Database, Upload, FolderSearch, Trash2, File, FileImage, FileText, FileSpreadsheet, RefreshCw, HardDrive, DownloadCloud } from 'lucide-react';
 import { API_BASE } from '../api/client';
 
 const TYPE_ICONS = {
@@ -17,6 +17,8 @@ export default function Datasets() {
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [scanning, setScanning] = useState(false);
+    const [hfRepoId, setHfRepoId] = useState('');
+    const [hfDownloading, setHfDownloading] = useState(false);
     const [error, setError] = useState(null);
     const fileRef = useRef(null);
 
@@ -71,6 +73,33 @@ export default function Datasets() {
         }
     };
 
+    const handleHfDownload = async () => {
+        if (!hfRepoId.trim()) return;
+        setHfDownloading(true);
+        setError(null);
+        try {
+            const fd = new FormData();
+            fd.append('repo_id', hfRepoId.trim());
+
+            const res = await fetch(`${API_BASE}/datasets/huggingface/download`, {
+                method: 'POST',
+                body: fd
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Download failed');
+            }
+
+            setHfRepoId('');
+            await loadDatasets();
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setHfDownloading(false);
+        }
+    };
+
     const deleteDataset = async (name) => {
         if (!confirm(`Delete dataset "${name}"?`)) return;
         try {
@@ -118,6 +147,33 @@ export default function Datasets() {
                         </button>
                         <input ref={fileRef} type="file" accept=".zip,.csv,.tsv,.json,.jsonl,.parquet,.tar,.gz,.txt" onChange={handleUpload} style={{ display: 'none' }} />
                     </div>
+                </div>
+
+                {/* HuggingFace Import Section */}
+                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(59,130,246,0.1)', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '250px', position: 'relative' }}>
+                        <div style={{ position: 'absolute', inset: '0 0 0 12px', display: 'flex', alignItems: 'center', pointerEvents: 'none' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>🤗</span>
+                        </div>
+                        <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Import from HuggingFace (e.g. HuggingFaceH4/ultrachat_200k)"
+                            value={hfRepoId}
+                            onChange={(e) => setHfRepoId(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleHfDownload()}
+                            disabled={hfDownloading}
+                            style={{ paddingLeft: '36px', width: '100%', background: 'rgba(0,0,0,0.2)' }}
+                        />
+                    </div>
+                    <button
+                        className="btn btn-primary"
+                        onClick={handleHfDownload}
+                        disabled={!hfRepoId.trim() || hfDownloading}
+                        style={{ whiteSpace: 'nowrap' }}
+                    >
+                        {hfDownloading ? <><RefreshCw size={14} className="spinner" /> Downloading...</> : <><DownloadCloud size={14} /> Import Dataset</>}
+                    </button>
                 </div>
             </div>
 

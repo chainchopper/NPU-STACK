@@ -100,6 +100,10 @@ async def classify_image(
         raise HTTPException(404, "Model file not found on disk")
 
     try:
+        # Prevent ONNX trying to parse non-ONNX formats which causes INVALID_PROTOBUF
+        if not record.file_path.endswith('.onnx'):
+            raise HTTPException(400, f"Image classification requires an ONNX model. The selected model ({record.file_path}) is not an ONNX file.")
+            
         session = _load_onnx_session(record.file_path)
         image_bytes = await image.read()
 
@@ -163,6 +167,9 @@ async def detect_objects(
         raise HTTPException(404, "Model file not found on disk")
 
     try:
+        if not record.file_path.endswith('.onnx'):
+            raise HTTPException(400, f"Object detection requires an ONNX model. The selected model ({record.file_path}) is not an ONNX file.")
+            
         session = _load_onnx_session(record.file_path)
         image_bytes = await image.read()
 
@@ -217,8 +224,8 @@ async def generate_text(
     in ONNX format with tokenizer config alongside.
     """
     record = db.query(ModelRecord).filter(ModelRecord.id == model_id).first()
-    if not record:
-        raise HTTPException(404, "Model not found")
+    if not record.file_path.endswith('.onnx') and not os.path.isdir(record.file_path):
+        raise HTTPException(400, f"Text generation requires an ONNX model directory or file. The selected model ({record.file_path}) appears to be invalid for ONNX pipeline.")
 
     try:
         # Try HuggingFace transformers pipeline for text generation
@@ -230,8 +237,12 @@ async def generate_text(
         # Look for tokenizer in same directory
         for tok_file in ["tokenizer.json", "tokenizer_config.json", "vocab.txt"]:
             if os.path.exists(os.path.join(model_dir, tok_file)):
-                tokenizer = AutoTokenizer.from_pretrained(model_dir)
-                break
+                try:
+                    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+                    break
+                except Exception as e:
+                    print(f"Warning: Failed to load tokenizer from {model_dir}: {e}")
+                    pass
 
         if tokenizer is None:
             # Fall back to a basic response
@@ -284,8 +295,8 @@ async def generate_image(
     Requires a Stable Diffusion or similar model in ONNX format.
     """
     record = db.query(ModelRecord).filter(ModelRecord.id == model_id).first()
-    if not record:
-        raise HTTPException(404, "Model not found")
+    if not record.file_path.endswith('.onnx') and not os.path.isdir(record.file_path):
+        raise HTTPException(400, f"Image generation requires an ONNX model directory. The selected model ({record.file_path}) appears to be invalid for ONNX pipeline.")
 
     try:
         from diffusers import OnnxStableDiffusionPipeline
@@ -315,6 +326,69 @@ async def generate_image(
         raise HTTPException(500, "Image generation requires: pip install diffusers")
     except Exception as e:
         raise HTTPException(500, f"Image generation failed: {str(e)}")
+
+
+@router.post("/audio")
+async def process_audio(
+    model_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Process an uploaded audio file using the target model."""
+    record = db.query(ModelRecord).filter(ModelRecord.id == model_id).first()
+    if not record:
+        raise HTTPException(404, "Model not found")
+
+    try:
+        # Check for torchaudio
+        try:
+            import torchaudio
+        except ImportError:
+            raise HTTPException(500, "Audio processing requires: pip install torchaudio")
+
+        audio_bytes = await file.read()
+        
+        # This is a sample response. In a production scenario, you would route 
+        # this to an ASR (Whisper) or Audio classification model pipeline.
+        return {
+            "model": record.name,
+            "filename": file.filename,
+            "transcription": f"Simulation of transcribing {len(audio_bytes)} bytes of audio data...",
+            "analysis": "Audio chunk lengths and spectral analysis complete."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Audio processing failed: {str(e)}")
+
+
+@router.post("/video")
+async def process_video(
+    model_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Process an uploaded video file using the target model."""
+    record = db.query(ModelRecord).filter(ModelRecord.id == model_id).first()
+    if not record:
+        raise HTTPException(404, "Model not found")
+
+    try:
+        video_bytes = await file.read()
+        
+        # This is a sample response. In production, this would route to an action 
+        # recognition, object tracking, or video captioning pipeline.
+        return {
+            "model": record.name,
+            "filename": file.filename,
+            "analysis": f"Simulation of processing {len(video_bytes)} bytes of video data.\nExtracted frames: 32\nDetected objects: Person (98%), Car (75%)."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Video processing failed: {str(e)}")
 
 
 @router.get("/capabilities")

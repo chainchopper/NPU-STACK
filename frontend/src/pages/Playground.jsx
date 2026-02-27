@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Play, Upload, Image, MessageSquare, Sparkles, Crosshair, Loader2 } from 'lucide-react';
+import { Play, Upload, Image, MessageSquare, Sparkles, Crosshair, Loader2, Video, Volume2, Mic } from 'lucide-react';
 import { API_BASE } from '../api/client';
 
 const TABS = [
@@ -7,6 +7,8 @@ const TABS = [
     { id: 'detect', label: 'Object Detection', icon: Crosshair },
     { id: 'text', label: 'Text Generation', icon: MessageSquare },
     { id: 'imagegen', label: 'Image Generation', icon: Sparkles },
+    { id: 'audio', label: 'Audio Testing', icon: Volume2 },
+    { id: 'video', label: 'Video Testing', icon: Video },
 ];
 
 export default function Playground() {
@@ -44,7 +46,16 @@ export default function Playground() {
             const fd = new FormData();
             fd.append('model_id', selectedModel);
 
-            if (tab === 'classify' || tab === 'detect') {
+            if (tab === 'audio' || tab === 'video') {
+                const file = fileRef.current?.files?.[0];
+                if (!file) { setError(`Upload an ${tab} file first`); setLoading(false); return; }
+                fd.append('file', file);
+                const endpoint = `/inference/${tab}`;
+                const res = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Inference failed');
+                setResult(data);
+            } else if (tab === 'classify' || tab === 'detect') {
                 const file = fileRef.current?.files?.[0];
                 if (!file) { setError('Upload an image first'); setLoading(false); return; }
                 fd.append('image', file);
@@ -85,7 +96,7 @@ export default function Playground() {
         <div>
             <div className="page-header">
                 <h2>Playground</h2>
-                <p>Test your models interactively — classify images, detect objects, generate text or images</p>
+                <p>Test your models interactively — images, text, audio, and video capabilities</p>
             </div>
 
             {/* Tabs */}
@@ -114,7 +125,11 @@ export default function Playground() {
                         <label className="form-label">Model</label>
                         <select className="form-select" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
                             <option value="">Select a model...</option>
-                            {models.map(m => (
+                            {models.filter(m => {
+                                const formatStr = (m.format || m.framework || '').toLowerCase();
+                                const extMatch = m.file_path?.toLowerCase().endsWith('.onnx');
+                                return formatStr.includes('onnx') || extMatch;
+                            }).map(m => (
                                 <option key={m.id} value={m.id}>{m.name} ({m.framework})</option>
                             ))}
                         </select>
@@ -142,6 +157,41 @@ export default function Playground() {
                                     type="file"
                                     accept="image/*"
                                     onChange={handleImageSelect}
+                                    style={{ display: 'none' }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Media input for audio/video */}
+                    {(tab === 'audio' || tab === 'video') && (
+                        <div className="form-group">
+                            <label className="form-label">{tab === 'audio' ? 'Audio File' : 'Video File'}</label>
+                            <div
+                                className={`file-upload-zone`}
+                                onClick={() => fileRef.current?.click()}
+                            >
+                                {preview && tab === 'video' ? (
+                                    <video src={preview} controls style={{ maxWidth: '100%', maxHeight: '260px', borderRadius: '8px' }} />
+                                ) : preview && tab === 'audio' ? (
+                                    <audio src={preview} controls style={{ width: '100%', marginTop: '10px' }} />
+                                ) : (
+                                    <>
+                                        {tab === 'audio' ? <Mic size={40} /> : <Video size={40} />}
+                                        <p>Click to upload {tab} file</p>
+                                        <p className="text-muted" style={{ fontSize: '12px' }}>
+                                            {tab === 'audio' ? 'MP3, WAV, M4A' : 'MP4, WEBM, MOV'}
+                                        </p>
+                                    </>
+                                )}
+                                <input
+                                    ref={fileRef}
+                                    type="file"
+                                    accept={tab === 'audio' ? 'audio/*' : 'video/*'}
+                                    onChange={(e) => {
+                                        const file = e.target.files[0];
+                                        if (file) setPreview(URL.createObjectURL(file));
+                                    }}
                                     style={{ display: 'none' }}
                                 />
                             </div>
@@ -246,6 +296,13 @@ export default function Playground() {
                             alt="Generated"
                             style={{ width: '100%', borderRadius: 'var(--radius-md)' }}
                         />
+                    )}
+
+                    {/* Audio/Video Results Placeholder */}
+                    {result && (tab === 'audio' || tab === 'video') && (
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', lineHeight: 1.8, whiteSpace: 'pre-wrap', color: 'var(--text-primary)', padding: '16px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
+                            {result.transcription || result.analysis || JSON.stringify(result, null, 2)}
+                        </div>
                     )}
                 </div>
             </div>

@@ -47,6 +47,7 @@ def _get_api():
 def search_models(
     q: str = "",
     task: Optional[str] = None,
+    tags: Optional[str] = None,
     sort: str = "downloads",
     limit: int = 20,
 ):
@@ -55,43 +56,44 @@ def search_models(
     Tasks: image-classification, object-detection, text-generation,
            text2text-generation, image-to-text, text-to-image,
            feature-extraction, automatic-speech-recognition, etc.
+    Tags: onnx, gguf, loRA, etc.
     """
     api = _get_api()
 
     try:
-        # Build search params — avoid deprecated 'direction' parameter
         kwargs = {"limit": limit}
         if q:
             kwargs["search"] = q
+        
+        # Merge task and tags into filter if needed, or use them separately
+        huggingface_filter = []
         if task:
-            kwargs["pipeline_tag"] = task
+            huggingface_filter.append(task)
+        if tags:
+            huggingface_filter.extend([t.strip() for t in tags.split(",")])
+        
+        if huggingface_filter:
+            kwargs["filter"] = huggingface_filter
+            
         if sort:
             kwargs["sort"] = sort
 
-        try:
-            models = api.list_models(**kwargs)
-        except TypeError:
-            # Fallback for older API versions
-            kwargs.pop("pipeline_tag", None)
-            kwargs.pop("sort", None)
-            if task:
-                kwargs["task"] = task
-            models = api.list_models(**kwargs)
+        models = api.list_models(**kwargs)
 
         results = []
         for m in models:
             results.append({
                 "id": m.id,
                 "author": m.author,
-                "task": m.pipeline_tag,
-                "downloads": m.downloads,
-                "likes": m.likes,
-                "tags": m.tags[:10] if m.tags else [],
-                "last_modified": str(m.last_modified) if m.last_modified else None,
-                "private": m.private,
+                "task": getattr(m, 'pipeline_tag', None),
+                "downloads": getattr(m, 'downloads', 0),
+                "likes": getattr(m, 'likes', 0),
+                "tags": m.tags[:10] if hasattr(m, 'tags') and m.tags else [],
+                "last_modified": str(m.last_modified) if hasattr(m, 'last_modified') and m.last_modified else None,
+                "private": getattr(m, 'private', False),
             })
 
-        return {"query": q, "task": task, "count": len(results), "models": results}
+        return {"query": q, "task": task, "tags": tags, "count": len(results), "models": results}
 
     except Exception as e:
         raise HTTPException(500, f"HuggingFace search failed: {str(e)}")
@@ -99,7 +101,7 @@ def search_models(
 
 @router.get("/model/{repo_id:path}")
 def get_model_details(repo_id: str):
-    """Get detailed info about a HuggingFace model including its files."""
+    """Get detailed info about a HuggingFace model including its files and README."""
     api = _get_api()
 
     try:
@@ -114,8 +116,18 @@ def get_model_details(repo_id: str):
                 ext = os.path.splitext(f)[1].lower()
                 files.append({
                     "name": f,
-                    "is_model": ext in (".onnx", ".pt", ".pth", ".bin", ".safetensors", ".xml", ".tflite", ".pb"),
+                    "is_model": ext in (".onnx", ".pt", ".pth", ".bin", ".safetensors", ".xml", ".tflite", ".pb", ".gguf"),
                 })
+        except Exception:
+            pass
+
+        # Try to get README content
+        readme_content = ""
+        try:
+            from huggingface_hub import hf_hub_download
+            readme_path = hf_hub_download(repo_id=repo_id, filename="README.md", token=_get_token())
+            with open(readme_path, "r", encoding="utf-8") as f:
+                readme_content = f.read(5000) # Limit to 5000 chars
         except Exception:
             pass
 
@@ -128,7 +140,8 @@ def get_model_details(repo_id: str):
             "tags": info.tags[:20] if info.tags else [],
             "library_name": info.library_name,
             "last_modified": str(info.last_modified) if info.last_modified else None,
-            "card_data": str(info.card_data) if info.card_data else None,
+            "card_data": info.card_data,
+            "readme": readme_content,
             "files": files,
         }
 
@@ -263,3 +276,53 @@ def download_model(
         raise
     except Exception as e:
         raise HTTPException(500, f"Download failed: {str(e)}")
+@router.post("/snapshot")
+def download_snapshot(
+    repo_id: str = Form(...),
+    revision: str = Form("main"),
+    db: Session = Depends(get_db),
+):
+    """Download an entire repository snapshot from HuggingFace Hub."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        raise HTTPException(500, "huggingface_hub not installed")
+
+    token = _get_token()
+    
+    # Create a safe directory name for the model repo
+    repo_slug = repo_id.replace("/", "--")
+    dest_dir = os.path.join(MODEL_STORE, repo_slug)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    try:
+        local_dir = snapshot_download(
+            repo_id=repo_id,
+            revision=revision,
+            token=token,
+            local_dir=dest_dir,
+            local_dir_use_symlinks=False,
+        )
+
+        # Register as a folder-based model if it's large/complex
+        # For simplicity, we'll record the entry point if we can find one, or just the directory
+        record = ModelRecord(
+            name=repo_id.split("/")[-1],
+            framework="huggingface",
+            format="directory",
+            file_path=local_dir,
+            file_size=0, # Computed if needed
+            description=f"Full repository snapshot of {repo_id}",
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+
+        return {
+            "id": record.id,
+            "name": record.name,
+            "path": local_dir,
+            "message": f"Successfully downloaded snapshot of {repo_id}",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Snapshot download failed: {str(e)}")

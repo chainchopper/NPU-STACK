@@ -7,7 +7,7 @@ import Training from './pages/Training';
 import Conversion from './pages/Conversion';
 import Benchmark from './pages/Benchmark';
 import Playground from './pages/Playground';
-import HuggingFaceHub from './pages/HuggingFaceHub';
+import ModelHub from './pages/ModelHub';
 import Datasets from './pages/Datasets';
 import Serving from './pages/Serving';
 import FineTuning from './pages/FineTuning';
@@ -21,7 +21,7 @@ const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/playground', icon: Play, label: 'Playground' },
     { path: '/models', icon: Box, label: 'Models' },
-    { path: '/huggingface', icon: Globe, label: 'HuggingFace' },
+    { path: '/hub', icon: Globe, label: 'Model Hub' },
     { path: '/hf-publisher', icon: CloudUpload, label: 'HF Publisher' },
     { path: '/datasets', icon: Database, label: 'Datasets' },
     { path: '/ingestion', icon: Upload, label: 'Data Ingestion' },
@@ -115,7 +115,7 @@ export default function App() {
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/playground" element={<Playground />} />
                         <Route path="/models" element={<Models />} />
-                        <Route path="/huggingface" element={<HuggingFaceHub />} />
+                        <Route path="/hub" element={<ModelHub />} />
                         <Route path="/hf-publisher" element={<HubPublisher />} />
                         <Route path="/datasets" element={<Datasets />} />
                         <Route path="/ingestion" element={<DataIngestion />} />

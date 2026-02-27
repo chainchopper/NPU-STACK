@@ -4,6 +4,7 @@ import {
     Minimize2, GitMerge, Scissors, FileSearch, Loader, AlertCircle,
     Zap, FolderOpen, Info
 } from 'lucide-react';
+import FolderBrowser from '../components/FolderBrowser';
 
 const API = 'http://localhost:8000';
 
@@ -16,11 +17,11 @@ const humanSize = (bytes) => {
 };
 
 const TABS = [
-    { id: 'inspect',  label: 'Inspect',       icon: FileSearch, desc: 'Read GGUF metadata' },
-    { id: 'quantize', label: 'Quantize',      icon: Minimize2,  desc: 'Reduce precision for smaller/faster models' },
-    { id: 'convert',  label: 'HF → GGUF',     icon: Zap,        desc: 'Convert HuggingFace model dirs to GGUF' },
-    { id: 'lora',     label: 'Merge LoRA',     icon: GitMerge,   desc: 'Merge a LoRA adapter into base model' },
-    { id: 'split',    label: 'Split / Join',   icon: Scissors,   desc: 'Split large GGUFs into shards' },
+    { id: 'inspect', label: 'Inspect', icon: FileSearch, desc: 'Read GGUF metadata' },
+    { id: 'quantize', label: 'Quantize', icon: Minimize2, desc: 'Reduce precision for smaller/faster models' },
+    { id: 'convert', label: 'HF → GGUF', icon: Zap, desc: 'Convert HuggingFace model dirs to GGUF' },
+    { id: 'lora', label: 'Merge LoRA', icon: GitMerge, desc: 'Merge a LoRA adapter into base model' },
+    { id: 'split', label: 'Split / Join', icon: Scissors, desc: 'Split large GGUFs into shards' },
 ];
 
 export default function GGUFStudio() {
@@ -58,6 +59,10 @@ export default function GGUFStudio() {
     const [splitModelId, setSplitModelId] = useState('');
     const [splitMaxSize, setSplitMaxSize] = useState(4.0);
 
+    // Browser state
+    const [browserOpen, setBrowserOpen] = useState(false);
+    const [browserTarget, setBrowserTarget] = useState(''); // 'inspect', 'convert', 'lora'
+
     useEffect(() => {
         Promise.all([
             fetch(`${API}/api/gguf/pipeline/status`).then(r => r.json()),
@@ -68,7 +73,7 @@ export default function GGUFStudio() {
             setModels(modelsData.models || []);
             setQuantTypes(quantData.quant_types || []);
         }).catch(e => console.error(e))
-          .finally(() => setLoading(false));
+            .finally(() => setLoading(false));
     }, []);
 
     const ggufModels = models.filter(m => m.format === 'gguf');
@@ -248,9 +253,14 @@ export default function GGUFStudio() {
                             </div>
 
                             {useCustomInspect ? (
-                                <input type="text" className="form-input" style={{ width: '100%' }}
-                                    value={inspectCustomPath} onChange={e => setInspectCustomPath(e.target.value)}
-                                    placeholder="Path to .gguf file" />
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <input type="text" className="form-input" style={{ flex: 1 }}
+                                        value={inspectCustomPath} onChange={e => setInspectCustomPath(e.target.value)}
+                                        placeholder="Path to .gguf file" />
+                                    <button className="btn btn-outline" onClick={() => { setBrowserTarget('inspect'); setBrowserOpen(true); }}>
+                                        Browse
+                                    </button>
+                                </div>
                             ) : (
                                 <select className="form-select" style={{ width: '100%' }}
                                     value={inspectModelId} onChange={e => setInspectModelId(e.target.value)}>
@@ -306,7 +316,7 @@ export default function GGUFStudio() {
                                         value={quantType} onChange={e => setQuantType(e.target.value)}>
                                         {(status?.quant_types_available || []).map(qt => (
                                             <option key={qt} value={qt}>
-                                                {qt} {['Q4_K_M','Q5_K_M','Q6_K','Q8_0'].includes(qt) ? '⭐ recommended' : ''}
+                                                {qt} {['Q4_K_M', 'Q5_K_M', 'Q6_K', 'Q8_0'].includes(qt) ? '⭐ recommended' : ''}
                                             </option>
                                         ))}
                                     </select>
@@ -360,9 +370,14 @@ export default function GGUFStudio() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                 <div>
                                     <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Model Directory</label>
-                                    <input type="text" className="form-input" style={{ width: '100%' }}
-                                        value={hfModelDir} onChange={e => setHfModelDir(e.target.value)}
-                                        placeholder="C:\Users\...\.cache\huggingface\hub\models--org--model\snapshots\..." />
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <input type="text" className="form-input" style={{ flex: 1 }}
+                                            value={hfModelDir} onChange={e => setHfModelDir(e.target.value)}
+                                            placeholder="C:\Users\...\.cache\huggingface\hub\models--org--model\snapshots\..." />
+                                        <button className="btn btn-outline" onClick={() => { setBrowserTarget('convert'); setBrowserOpen(true); }}>
+                                            Browse
+                                        </button>
+                                    </div>
                                 </div>
                                 <div>
                                     <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Output Precision</label>
@@ -414,9 +429,14 @@ export default function GGUFStudio() {
                                 </div>
                                 <div>
                                     <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>LoRA Adapter Path</label>
-                                    <input type="text" className="form-input" style={{ width: '100%' }}
-                                        value={loraPath} onChange={e => setLoraPath(e.target.value)}
-                                        placeholder="Path to LoRA adapter (.gguf or directory)" />
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <input type="text" className="form-input" style={{ flex: 1 }}
+                                            value={loraPath} onChange={e => setLoraPath(e.target.value)}
+                                            placeholder="Path to LoRA adapter (.gguf or directory)" />
+                                        <button className="btn btn-outline" onClick={() => { setBrowserTarget('lora'); setBrowserOpen(true); }}>
+                                            Browse
+                                        </button>
+                                    </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: 12 }}>
                                     <div style={{ flex: 1 }}>
@@ -545,6 +565,18 @@ export default function GGUFStudio() {
                     </div>
                 </div>
             </div>
+
+            {/* Folder Browser Modal */}
+            <FolderBrowser
+                open={browserOpen}
+                onClose={() => setBrowserOpen(false)}
+                showFiles={browserTarget === 'inspect'} // Only show files for inspect, others target dirs
+                onSelect={(path) => {
+                    if (browserTarget === 'inspect') setInspectCustomPath(path);
+                    else if (browserTarget === 'convert') setHfModelDir(path);
+                    else if (browserTarget === 'lora') setLoraPath(path);
+                }}
+            />
         </div>
     );
 }

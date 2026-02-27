@@ -219,3 +219,50 @@ def datasets_info():
         "datasets_folder_exists": os.path.exists(DATASETS_DIR),
         "hint": "Place dataset folders or files in the 'datasets/' folder at the project root.",
     }
+
+
+@router.post("/huggingface/download")
+def download_from_huggingface(
+    repo_id: str = Form(...),
+    revision: str = Form("main"),
+):
+    """Download a dataset from HuggingFace Hub using snapshot_download.
+
+    Example: repo_id=HuggingFaceH4/ultrachat_200k
+    """
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        raise HTTPException(500, "huggingface_hub is not installed. Run: pip install huggingface_hub")
+
+    token = os.environ.get("HUGGINGFACE_TOKEN") or None
+    safe_repo_name = repo_id.replace("/", "_")
+    dest_dir = os.path.join(DATASETS_DIR, safe_repo_name)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    try:
+        # Download entire dataset repository (ignoring hidden files)
+        local_path = snapshot_download(
+            repo_id=repo_id,
+            repo_type="dataset",
+            revision=revision,
+            token=token,
+            local_dir=dest_dir,
+            local_dir_use_symlinks=False,
+            ignore_patterns=[".git/*", "*.md", ".gitattributes"], # optional: save space on non-data files if preferred, but usually README is nice. We'll leave it mostly open.
+        )
+
+        info = _get_folder_info(dest_dir)
+        return {
+            "name": safe_repo_name,
+            "type": "huggingface_dataset",
+            "path": dest_dir,
+            **info,
+            "message": f"Successfully downloaded dataset {repo_id}",
+        }
+    except Exception as e:
+        # Clean up empty dir if failed
+        if os.path.exists(dest_dir) and not os.listdir(dest_dir):
+            shutil.rmtree(dest_dir)
+        raise HTTPException(500, f"HuggingFace download failed: {str(e)}")
+

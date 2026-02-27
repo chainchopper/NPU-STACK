@@ -76,7 +76,10 @@ export default function WebcamTest() {
     const compatibleFormats = ['onnx', 'openvino', 'pytorch', 'ultralytics'];
     const filteredModels = models.filter(m => {
         const nameMatch = !modelFilter || m.name.toLowerCase().includes(modelFilter.toLowerCase());
-        return nameMatch;
+        const formatStr = (m.format || m.framework || '').toLowerCase();
+        const extMatch = m.file_path?.toLowerCase().endsWith('.onnx') || m.file_path?.toLowerCase().endsWith('.pt');
+        const formatMatch = compatibleFormats.some(fmt => formatStr.includes(fmt)) || extMatch;
+        return nameMatch && formatMatch;
     });
 
     // Get the actual file path for the selected model
