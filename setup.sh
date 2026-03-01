@@ -21,7 +21,7 @@ PYTHON_CMD=""
 # =============================================
 # STEP 1: Find Python 3.10+
 # =============================================
-echo "[1/6] Checking for Python..."
+echo "[1/7] Checking for Python..."
 
 if [ -f "$VENV_DIR/bin/python" ]; then
     echo "  [OK] Virtual environment already exists at .venv/"
@@ -59,7 +59,7 @@ else
     # STEP 2: Create Virtual Environment
     # =============================================
     echo ""
-    echo "[2/6] Creating isolated virtual environment..."
+    echo "[2/7] Creating isolated virtual environment..."
 
     $PYTHON_CMD -m venv "$VENV_DIR"
     if [ $? -ne 0 ]; then
@@ -81,7 +81,7 @@ echo ""
 # =============================================
 # STEP 3: Install Dependencies
 # =============================================
-echo "[3/6] Installing backend dependencies..."
+echo "[3/7] Installing backend dependencies..."
 echo "  This will take several minutes (PyTorch, OpenVINO, etc.)"
 echo ""
 
@@ -117,9 +117,17 @@ echo "  [OK] Dependencies installed."
 echo ""
 
 # =============================================
-# STEP 4: Generate .env File
+# STEP 4: Download GGUF Tools
 # =============================================
-echo "[4/6] Generating .env configuration..."
+echo "[4/7] Downloading GGUF Tools..."
+
+"$PYTHON_CMD" "$ROOT/scripts/download_llama_cpp_tools.py"
+echo ""
+
+# =============================================
+# STEP 5: Generate .env File
+# =============================================
+echo "[5/7] Generating .env configuration..."
 
 if [ -f "$ENV_FILE" ]; then
     echo "  [OK] .env already exists, skipping. Delete it to regenerate."
@@ -172,9 +180,9 @@ fi
 echo ""
 
 # =============================================
-# STEP 5: Create Data Directories
+# STEP 6: Create Data Directories
 # =============================================
-echo "[5/6] Creating data directories..."
+echo "[6/7] Creating data directories..."
 
 mkdir -p "$ROOT/backend/data/models"
 mkdir -p "$ROOT/backend/data/datasets"
@@ -184,9 +192,9 @@ echo "  [OK] Data directories ready."
 echo ""
 
 # =============================================
-# STEP 6: Install Frontend Dependencies
+# STEP 7: Install Frontend Dependencies
 # =============================================
-echo "[6/6] Installing frontend dependencies..."
+echo "[7/7] Installing frontend dependencies..."
 
 if command -v npm &>/dev/null; then
     cd "$ROOT/frontend"

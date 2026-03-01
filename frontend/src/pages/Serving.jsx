@@ -5,6 +5,7 @@ const API_BASE = 'http://localhost:8000';
 
 export default function Serving() {
     const [models, setModels] = useState([]);
+    const [modelFilter, setModelFilter] = useState('all');
     const [loadedModels, setLoadedModels] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadingModel, setLoadingModel] = useState(null);
@@ -175,6 +176,14 @@ console.log(data.choices[0].message.content);`,
                 <div className="card">
                     <div className="card-header">
                         <h3 className="card-title">Model Registry</h3>
+                        <select value={modelFilter} onChange={e => setModelFilter(e.target.value)} className="form-select" style={{ width: 'auto', fontSize: '12px', padding: '4px 24px 4px 8px', minHeight: '28px' }}>
+                            <option value="all">All Formats</option>
+                            <option value="gguf">GGUF</option>
+                            <option value="onnx">ONNX</option>
+                            <option value="pytorch">PyTorch</option>
+                            <option value="openvino">OpenVINO</option>
+                            <option value="safetensors">SafeTensors</option>
+                        </select>
                     </div>
                     {loading ? (
                         <div className="loading"><Loader className="spin" size={20} /> Loading models...</div>
@@ -182,18 +191,22 @@ console.log(data.choices[0].message.content);`,
                         <p className="text-secondary">No models registered. Upload or download a model first.</p>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '400px', overflowY: 'auto' }}>
-                            {models.map((m, index) => (
-                                <div key={`model-${m.id}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
-                                    <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{m.id}</span>
-                                    {loadedNames.has(m.id) ? (
-                                        <span className="badge badge-green">Loaded</span>
-                                    ) : (
-                                        <button className="btn btn-sm btn-primary" onClick={() => loadModel(m.id)} disabled={loadingModel === m.id}>
-                                            {loadingModel === m.id ? <Loader size={12} className="spin" /> : <Play size={12} />} Load
-                                        </button>
-                                    )}
-                                </div>
-                            ))}
+                            {models.filter(m => modelFilter === 'all' || m.framework?.toLowerCase() === modelFilter || m.format?.toLowerCase() === modelFilter).length === 0 ? (
+                                <p className="text-secondary" style={{ textAlign: 'center', padding: '20px 0', fontSize: '13px' }}>No models match the selected filter.</p>
+                            ) : models
+                                .filter(m => modelFilter === 'all' || m.framework?.toLowerCase() === modelFilter || m.format?.toLowerCase() === modelFilter)
+                                .map((m, index) => (
+                                    <div key={`model-${m.id}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
+                                        <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{m.id}</span>
+                                        {loadedNames.has(m.id) ? (
+                                            <span className="badge badge-green">Loaded</span>
+                                        ) : (
+                                            <button className="btn btn-sm btn-primary" onClick={() => loadModel(m.id)} disabled={loadingModel === m.id}>
+                                                {loadingModel === m.id ? <Loader size={12} className="spin" /> : <Play size={12} />} Load
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
                         </div>
                     )}
                 </div>

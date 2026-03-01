@@ -419,6 +419,56 @@ def get_system_info() -> dict:
     except Exception:
         pass
 
+    # ── OS-level GPU detection (Fallback for AMD/Intel) ────
+    try:
+        import platform
+        import subprocess
+        existing_gpu_names = {g["name"] for g in gpus}
+        
+        if platform.system() == "Windows":
+            cmd = ['powershell', '-Command', 
+                   'Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json -Compress']
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and res.stdout.strip():
+                import json
+                adapters = json.loads(res.stdout)
+                if isinstance(adapters, dict): adapters = [adapters]
+                for adapter in adapters:
+                    name = adapter.get("Name", "")
+                    if name and not any(existing in name for existing in ["NVIDIA", "GeForce", "RTX", "GTX", "Quadro", "Tesla"]):
+                        if not any(name in existing or existing in name for existing in existing_gpu_names):
+                            gpu_type = "AMD iGPU/GPU" if "AMD" in name or "Radeon" in name else "Intel GPU" if "Intel" in name else "Generic GPU"
+                            ram_bytes = adapter.get("AdapterRAM") or 0
+                            gpus.append({
+                                "index": len(gpus),
+                                "name": name,
+                                "type": gpu_type,
+                                "memory_gb": round(ram_bytes / (1024**3), 1),
+                                "compute_capability": "DirectML / OpenCL",
+                                "status": "online"
+                            })
+                            existing_gpu_names.add(name)
+        elif platform.system() == "Linux":
+            res = subprocess.run(['lspci'], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    if "VGA compatible controller" in line or "3D controller" in line:
+                        if "NVIDIA" not in line:
+                            name = line.split(": ")[-1].strip()
+                            if not any(name in existing or existing in name for existing in existing_gpu_names):
+                                gpu_type = "AMD iGPU/GPU" if "AMD" in name or "Radeon" in name else "Intel GPU" if "Intel" in name else "Generic GPU"
+                                gpus.append({
+                                    "index": len(gpus),
+                                    "name": name,
+                                    "type": gpu_type,
+                                    "memory_gb": 0,
+                                    "compute_capability": "OpenCL / Vulkan",
+                                    "status": "online"
+                                })
+                                existing_gpu_names.add(name)
+    except Exception:
+        pass
+
     info["gpus"] = gpus
 
     # ── AMD Vitis AI / Alveo FPGA detection ──────────────

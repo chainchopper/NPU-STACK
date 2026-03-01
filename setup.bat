@@ -37,7 +37,7 @@ set "ENV_FILE=%ROOT%\.env"
 :: =============================================
 :: STEP 0: Enable Windows Long Paths (Optional)
 :: =============================================
-echo [0/6] Checking Windows Long Path support...
+echo [0/7] Checking Windows Long Path support...
 reg query "HKLM\System\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled >nul 2>&1
 if %errorlevel% equ 0 (
     for /f "tokens=3" %%a in ('reg query "HKLM\System\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled') do set "LP_VAL=%%a"
@@ -59,7 +59,7 @@ if %errorlevel% equ 0 (
 :: =============================================
 :: STEP 1: Check / Download Portable Python
 :: =============================================
-echo [1/6] Checking for Python...
+echo [1/7] Checking for Python...
 
 :: Check if venv already exists and is working
 if exist "%VENV_DIR%\Scripts\python.exe" (
@@ -140,7 +140,7 @@ goto :CREATE_VENV_PORTABLE
 
 :CREATE_VENV_SYSTEM
 echo.
-echo [2/6] Creating isolated virtual environment...
+echo [2/7] Creating isolated virtual environment...
 %PY_CMD% -m venv "%VENV_DIR%"
 if %errorlevel% neq 0 (
     echo   [ERROR] Failed to create venv.
@@ -151,7 +151,7 @@ goto :SKIP_PYTHON
 
 :CREATE_VENV_PORTABLE
 echo.
-echo [2/6] Creating isolated virtual environment with portable Python...
+echo [2/7] Creating isolated virtual environment with portable Python...
 "%PYTHON_DIR%\python.exe" -m virtualenv "%VENV_DIR%" 2>nul
 if %errorlevel% neq 0 (
     "%PYTHON_DIR%\python.exe" -m venv "%VENV_DIR%" 2>nul
@@ -168,7 +168,7 @@ echo.
 :: =============================================
 :: STEP 3: Install Dependencies
 :: =============================================
-echo [3/6] Installing backend dependencies...
+echo [3/7] Installing backend dependencies...
 echo   This will take several minutes (PyTorch, OpenVINO, etc.)
 echo.
 
@@ -210,9 +210,16 @@ echo   [OK] Dependencies installed.
 echo.
 
 :: =============================================
-:: STEP 4: Generate .env File
+:: STEP 4: Download GGUF Tools
 :: =============================================
-echo [4/6] Generating .env configuration...
+echo [4/7] Downloading GGUF Tools...
+"%PYTHON%" "%ROOT%\scripts\download_llama_cpp_tools.py"
+echo.
+
+:: =============================================
+:: STEP 5: Generate .env File
+:: =============================================
+echo [5/7] Generating .env configuration...
 
 if exist "%ENV_FILE%" (
     echo   [OK] .env already exists, skipping. Delete it to regenerate.
@@ -263,9 +270,9 @@ if exist "%ENV_FILE%" (
 echo.
 
 :: =============================================
-:: STEP 5: Create Data Directories
+:: STEP 6: Create Data Directories
 :: =============================================
-echo [5/6] Creating data directories...
+echo [6/7] Creating data directories...
 
 if not exist "%ROOT%\backend\data\models"   mkdir "%ROOT%\backend\data\models"
 if not exist "%ROOT%\backend\data\datasets" mkdir "%ROOT%\backend\data\datasets"
@@ -275,9 +282,9 @@ echo   [OK] Data directories ready.
 echo.
 
 :: =============================================
-:: STEP 6: Create Launcher Scripts
+:: STEP 7: Create Launcher Scripts
 :: =============================================
-echo [6/6] Creating launcher scripts...
+echo [7/7] Creating launcher scripts...
 
 :: --- run-backend.bat ---
 > "%ROOT%\run-backend.bat" echo @echo off

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Trash2, Download, FileText, Box, Search } from 'lucide-react';
+import { Upload, Trash2, Download, FileText, Box, Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { listModels, uploadModel, deleteModel } from '../api/client';
 
 export default function Models() {
@@ -8,6 +8,7 @@ export default function Models() {
     const [uploading, setUploading] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [filter, setFilter] = useState('');
+    const [sortConfig, setSortConfig] = useState({ key: 'created_at', direction: 'desc' });
     const fileRef = useRef(null);
 
     const loadModels = () => {
@@ -52,6 +53,49 @@ export default function Models() {
         m.name.toLowerCase().includes(filter.toLowerCase()) ||
         m.framework.toLowerCase().includes(filter.toLowerCase())
     );
+
+    const handleSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const sortedModels = React.useMemo(() => {
+        let sortableItems = [...filtered];
+        if (sortConfig.key !== null) {
+            sortableItems.sort((a, b) => {
+                let aValue = a[sortConfig.key];
+                let bValue = b[sortConfig.key];
+
+                if (sortConfig.key === 'file_size') {
+                    aValue = Number(aValue) || 0;
+                    bValue = Number(bValue) || 0;
+                } else if (sortConfig.key === 'created_at') {
+                    aValue = new Date(aValue).getTime();
+                    bValue = new Date(bValue).getTime();
+                } else {
+                    aValue = String(aValue || '').toLowerCase();
+                    bValue = String(bValue || '').toLowerCase();
+                }
+
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'asc' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'asc' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return sortableItems;
+    }, [filtered, sortConfig]);
+
+    const SortIcon = ({ columnKey }) => {
+        if (sortConfig.key !== columnKey) return <ChevronsUpDown size={14} className="text-muted" style={{ marginLeft: 4, opacity: 0.3 }} />;
+        return sortConfig.direction === 'asc' ? <ChevronUp size={14} style={{ marginLeft: 4 }} /> : <ChevronDown size={14} style={{ marginLeft: 4 }} />;
+    };
 
     return (
         <div>
@@ -127,24 +171,34 @@ export default function Models() {
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Name</th>
-                                <th>Framework</th>
-                                <th>Format</th>
-                                <th>Size</th>
+                                <th onClick={() => handleSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>Name <SortIcon columnKey="name" /></div>
+                                </th>
+                                <th onClick={() => handleSort('framework')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>Framework <SortIcon columnKey="framework" /></div>
+                                </th>
+                                <th onClick={() => handleSort('format')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>Format <SortIcon columnKey="format" /></div>
+                                </th>
+                                <th onClick={() => handleSort('file_size')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>Size <SortIcon columnKey="file_size" /></div>
+                                </th>
                                 <th>Input Shape</th>
-                                <th>Created</th>
+                                <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>Created <SortIcon columnKey="created_at" /></div>
+                                </th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.map((m) => (
+                            {sortedModels.map((m) => (
                                 <tr key={m.id}>
                                     <td className="text-mono text-muted">{m.id}</td>
                                     <td style={{ fontWeight: 500 }}>{m.name}</td>
                                     <td>
                                         <span className={`badge ${m.framework === 'onnx' ? 'badge-info' :
-                                                m.framework === 'pytorch' ? 'badge-purple' :
-                                                    m.framework === 'openvino' ? 'badge-success' : 'badge-warning'
+                                            m.framework === 'pytorch' ? 'badge-purple' :
+                                                m.framework === 'openvino' ? 'badge-success' : 'badge-warning'
                                             }`}>
                                             {m.framework}
                                         </span>
