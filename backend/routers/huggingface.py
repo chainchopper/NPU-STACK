@@ -179,8 +179,6 @@ def download_model(
             if not filename:
                 raise HTTPException(400, f"No model files found in {repo_id}. Files: {files[:20]}")
 
-        # Download directly to MODEL_STORE
-        # Note: local_dir_use_symlinks is deprecated in newer huggingface_hub versions
         try:
             local_path = hf_hub_download(
                 repo_id=repo_id,
@@ -192,9 +190,16 @@ def download_model(
         except Exception as dl_err:
             raise HTTPException(500, f"Download failed for {repo_id}/{filename}: {str(dl_err)}")
 
+        # Resolve symlinks — older huggingface_hub versions may return a symlink
+        # into the HF cache rather than the real file path
+        if os.path.islink(local_path):
+            real_path = os.path.realpath(local_path)
+            if os.path.isfile(real_path):
+                local_path = real_path
+
         safe_name = f"{repo_id.replace('/', '_')}_{os.path.basename(filename)}"
         dest_path = os.path.join(MODEL_STORE, safe_name)
-        
+
         # Rename to our safe name if it differs
         if os.path.abspath(local_path) != os.path.abspath(dest_path):
             if os.path.exists(dest_path):
@@ -205,13 +210,12 @@ def download_model(
                 # If move fails (e.g. cross-device), copy instead
                 shutil.copy2(local_path, dest_path)
 
-        # Clean up any nested directories hf_hub_download may have created
-        hf_nested = os.path.join(MODEL_STORE, repo_id.split('/')[0] if '/' in repo_id else '')
-        if hf_nested and os.path.isdir(hf_nested) and hf_nested != MODEL_STORE:
-            try:
-                shutil.rmtree(hf_nested, ignore_errors=True)
-            except Exception:
-                pass
+        # Clean up cache directories left behind by hf_hub_download inside MODEL_STORE
+        for cache_dir_name in [".cache", repo_id.split("/")[0] if "/" in repo_id else ""]:
+            if cache_dir_name:
+                cache_dir_path = os.path.join(MODEL_STORE, cache_dir_name)
+                if os.path.isdir(cache_dir_path) and cache_dir_path != MODEL_STORE:
+                    shutil.rmtree(cache_dir_path, ignore_errors=True)
 
         file_size = os.path.getsize(dest_path)
 
@@ -301,7 +305,6 @@ def download_snapshot(
             revision=revision,
             token=token,
             local_dir=dest_dir,
-            local_dir_use_symlinks=False,
         )
 
         # Register as a folder-based model if it's large/complex

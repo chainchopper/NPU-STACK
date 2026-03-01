@@ -110,11 +110,13 @@ def _download_model_task():
                 if not existing:
                     new_model = ModelRecord(
                         name="NPU-STACK System Agent (Phi-3-mini)",
+                        framework="llama.cpp",
                         architecture="phi3",
                         format="gguf",
+                        file_size=os.path.getsize(model_path),
                         size_mb=os.path.getsize(model_path) / (1024 * 1024),
                         file_path=model_path,
-                        quant_type="Q4_0",
+                        quant_type="Q4",
                         description=f"System Agent model: {AGENT_REPO_ID}/{AGENT_MODEL_FILENAME}"
                     )
                     db.add(new_model)
