@@ -140,9 +140,9 @@ export default function SystemAgent() {
         <>
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-6 right-6 p-2 rounded-full bg-primary/20 backdrop-blur-md border border-primary/30 text-white shadow-2xl hover:shadow-primary/50 transition-all z-50 flex items-center justify-center hover:scale-110 active:scale-95 group"
+                className="fixed bottom-6 right-6 p-3 rounded-full bg-primary/20 backdrop-blur-md border border-primary/30 text-white shadow-2xl hover:shadow-primary/50 transition-all z-50 flex items-center justify-center hover:scale-110 active:scale-95 group"
             >
-                <AgentVisual size={56} status={agentStatus.is_running ? "online" : "offline"} />
+                <MessageSquare size={28} />
                 <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full border-2 border-[#060a14] animate-pulse"></div>
             </button>
 
@@ -151,7 +151,6 @@ export default function SystemAgent() {
                     {/* Header */}
                     <div className="p-4 border-b border-border flex justify-between items-center bg-[#1a1c23]">
                         <div className="flex items-center gap-3">
-                            <AgentVisual size={32} status={agentStatus.is_running ? "online" : "offline"} />
                             <div>
                                 <h3 className="font-semibold text-white">NPU-STACK Agent</h3>
                                 <p className="text-xs text-secondary-text">

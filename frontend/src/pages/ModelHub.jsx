@@ -221,8 +221,10 @@ export default function ModelHub() {
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <span style={{ fontSize: '13px', color: 'var(--text-muted)', marginRight: '8px' }}>Frameworks:</span>
-                        {FRAMEWORK_TAGS.map(f => (
+                        <span style={{ fontSize: '13px', color: 'var(--text-muted)', marginRight: '8px' }}>
+                            {source === 'huggingface' ? 'Frameworks:' : 'Categories:'}
+                        </span>
+                        {source === 'huggingface' ? FRAMEWORK_TAGS.map(f => (
                             <button
                                 key={f.value}
                                 className={`btn btn-sm ${tags.includes(f.value) ? 'btn-primary' : 'btn-secondary'}`}
@@ -230,7 +232,25 @@ export default function ModelHub() {
                             >
                                 {f.label}
                             </button>
-                        ))}
+                        )) : (
+                            // For CivitAI, only show relevant types instead of "Frameworks"
+                            [
+                                { label: 'Checkpoint', value: 'Checkpoint' },
+                                { label: 'LoRA', value: 'LORA' },
+                                { label: 'Textual Inversion', value: 'TextualInversion' },
+                                { label: 'Hypernetwork', value: 'Hypernetwork' },
+                                { label: 'Controlnet', value: 'Controlnet' },
+                                { label: 'DoRA', value: 'DoRA' }
+                            ].map(f => (
+                                <button
+                                    key={f.value}
+                                    className={`btn btn-sm ${tags.includes(f.value) ? 'btn-primary' : 'btn-secondary'}`}
+                                    onClick={() => toggleTag(f.value)}
+                                >
+                                    {f.label}
+                                </button>
+                            ))
+                        )}
                     </div>
                 </div>
             </div>

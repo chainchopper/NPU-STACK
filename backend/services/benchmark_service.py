@@ -59,8 +59,12 @@ def benchmark_onnxruntime(
         # Fall back to CPU if requested provider not available
         session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         device = "cpu (fallback)"
-
+        
+    # Double check active provider
     active_provider = session.get_providers()[0]
+    if active_provider == "CPUExecutionProvider" and device not in ("cpu", "cpu (fallback)"):
+        device = "cpu (fallback)"
+
     input_data = _generate_random_input(session, "onnxruntime", batch_size)
 
     # Warmup
@@ -124,9 +128,12 @@ def benchmark_openvino(
     # Compile for target device
     target_device = device.upper()
     if target_device not in available_devices and target_device != "AUTO":
-        target_device = "CPU"
+        target_device = "CPU (fallback)"
 
-    compiled = core.compile_model(model, target_device)
+    # Remove (fallback) suffix for OpenVINO engine if present, but keep track of it
+    compile_device = "CPU" if "fallback" in target_device.lower() else target_device
+
+    compiled = core.compile_model(model, compile_device)
     infer_request = compiled.create_infer_request()
 
     # Generate input
@@ -166,6 +173,81 @@ def benchmark_openvino(
         "latency_min_ms": round(float(np.min(latencies_arr)), 3),
         "latency_max_ms": round(float(np.max(latencies_arr)), 3),
         "throughput_fps": round(1000.0 / float(np.mean(latencies_arr)) * batch_size, 2),
+        "memory_peak_mb": round(peak_memory / 1024 / 1024, 2),
+    }
+
+
+def benchmark_llama_cpp(
+    model_path: str,
+    device: str = "cpu",
+    batch_size: int = 1,
+    warmup_runs: int = 5,
+    num_iterations: int = 10,  # Lower for LLMs as they are slower
+) -> dict:
+    """
+    Benchmark a GGUF model using llama-cpp-python.
+    """
+    try:
+        from llama_cpp import Llama
+    except ImportError:
+        raise ImportError("llama-cpp-python is not installed.")
+
+    # Select GPU layers
+    n_gpu_layers = -1 if device == "cuda" else 0
+    
+    # Load model
+    model = Llama(
+        model_path=model_path,
+        n_ctx=512,
+        n_gpu_layers=n_gpu_layers,
+        verbose=False,
+    )
+
+    # Simple prompt for benchmarking token generation
+    prompt = "Llama is a large language model developed by Meta."
+    
+    # Warmup
+    for _ in range(warmup_runs):
+        model(prompt, max_tokens=10)
+
+    # Benchmark
+    tracemalloc.start()
+    latencies = []
+    tokens_per_sec = []
+    
+    for _ in range(num_iterations):
+        start = time.perf_counter()
+        output = model(prompt, max_tokens=32)
+        duration = time.perf_counter() - start
+        
+        latencies.append(duration * 1000)
+        
+        # Calculate tokens per second
+        usage = output.get("usage", {})
+        completion_tokens = usage.get("completion_tokens", 0)
+        if duration > 0:
+            tokens_per_sec.append(completion_tokens / duration)
+
+    _, peak_memory = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    latencies_arr = np.array(latencies)
+    tps_arr = np.array(tokens_per_sec)
+
+    return {
+        "runtime": "llama-cpp",
+        "device": device if n_gpu_layers == -1 else "cpu (fallback)" if device != "cpu" else "cpu",
+        "active_provider": "CUDA" if n_gpu_layers == -1 else "CPU",
+        "batch_size": batch_size,
+        "warmup_runs": warmup_runs,
+        "num_iterations": num_iterations,
+        "latency_mean_ms": round(float(np.mean(latencies_arr)), 3),
+        "latency_p50_ms": round(float(np.percentile(latencies_arr, 50)), 3),
+        "latency_p95_ms": round(float(np.percentile(latencies_arr, 95)), 3),
+        "latency_p99_ms": round(float(np.percentile(latencies_arr, 99)), 3),
+        "latency_min_ms": round(float(np.min(latencies_arr)), 3),
+        "latency_max_ms": round(float(np.max(latencies_arr)), 3),
+        "throughput_fps": round(float(np.mean(tps_arr)), 2),  # Tokens/sec for LLMs
         "memory_peak_mb": round(peak_memory / 1024 / 1024, 2),
     }
 
@@ -316,6 +398,24 @@ def get_system_info() -> dict:
                             "compute_capability": f"gfx{props.gcnArchName}" if hasattr(props, 'gcnArchName') else "RDNA/CDNA",
                             "status": "online",
                         })
+    except Exception:
+        pass
+
+    # ── PCIe Bandwidth via pynvml ──────────────────────
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        for gpu in gpus:
+            if gpu.get("type") == "CUDA":
+                try:
+                    handle = pynvml.nvmlDeviceGetHandleByIndex(gpu["index"])
+                    # nvmlDeviceGetPcieTxThroughput returns KB/s
+                    tx_kbps = pynvml.nvmlDeviceGetPcieTxThroughput(handle)
+                    rx_kbps = pynvml.nvmlDeviceGetPcieRxThroughput(handle)
+                    gpu["pcie_tx_mb_s"] = round(tx_kbps / 1024, 1)
+                    gpu["pcie_rx_mb_s"] = round(rx_kbps / 1024, 1)
+                except Exception:
+                    pass
     except Exception:
         pass
 

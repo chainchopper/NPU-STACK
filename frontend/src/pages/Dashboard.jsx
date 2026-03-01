@@ -57,6 +57,8 @@ export default function Dashboard() {
                 temp: gpu.temperature_c ? `${gpu.temperature_c}°C` : null,
                 utilization: gpu.utilization_pct != null ? `${gpu.utilization_pct}%` : null,
                 power: gpu.power_draw_w ? `${gpu.power_draw_w}W` : null,
+                pcie_tx: gpu.pcie_tx_mb_s != null ? `${gpu.pcie_tx_mb_s} MB/s` : null,
+                pcie_rx: gpu.pcie_rx_mb_s != null ? `${gpu.pcie_rx_mb_s} MB/s` : null,
                 color: colorMap[gpu.type] || 'green',
             });
         });
@@ -175,6 +177,18 @@ export default function Dashboard() {
                                 <div className="device-stat">
                                     <span className="device-stat-label">Power</span>
                                     <span className="device-stat-value">{d.power}</span>
+                                </div>
+                            )}
+                            {d.pcie_tx && (
+                                <div className="device-stat">
+                                    <span className="device-stat-label">PCIe Tx</span>
+                                    <span className="device-stat-value">{d.pcie_tx}</span>
+                                </div>
+                            )}
+                            {d.pcie_rx && (
+                                <div className="device-stat">
+                                    <span className="device-stat-label">PCIe Rx</span>
+                                    <span className="device-stat-value">{d.pcie_rx}</span>
                                 </div>
                             )}
                         </div>

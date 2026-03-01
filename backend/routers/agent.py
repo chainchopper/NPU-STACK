@@ -74,22 +74,35 @@ def _download_model_task():
 
     if not os.path.exists(model_path):
         try:
-            print(f"[Agent] Downloading {AGENT_MODEL_FILENAME} from {AGENT_REPO_ID} ...")
-            from huggingface_hub import hf_hub_download
+            print(f"[Agent] Downloading {AGENT_MODEL_FILENAME} from {AGENT_REPO_ID} via HTTP streaming...")
+            import requests
             
             token = _get_token()
-            local_path = hf_hub_download(
-                repo_id=AGENT_REPO_ID,
-                filename=AGENT_MODEL_FILENAME,
-                token=token,
-                local_dir=model_store,
-            )
-
-            # Ensure it has exactly the name we expect if hf_hub_download behaved differently
-            if os.path.abspath(local_path) != os.path.abspath(model_path):
-                if os.path.exists(model_path):
-                    os.remove(model_path)
-                shutil.move(local_path, model_path)
+            url = f"https://huggingface.co/{AGENT_REPO_ID}/resolve/main/{AGENT_MODEL_FILENAME}"
+            
+            headers = {}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            
+            temp_path = model_path + ".downloading"
+            
+            with requests.get(url, headers=headers, stream=True) as r:
+                r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                downloaded = 0
+                
+                with open(temp_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192 * 1024): # 8MB chunks
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0 and downloaded % (100 * 1024 * 1024) < (8192 * 1024):
+                                # Print progress ~ every 100MB
+                                print(f"[Agent] Download progress: {downloaded / (1024*1024):.1f}MB / {total_size / (1024*1024):.1f}MB ({(downloaded/total_size)*100:.1f}%)")
+            
+            if os.path.exists(model_path):
+                os.remove(model_path)
+            shutil.move(temp_path, model_path)
 
             db = SessionLocal()
             try:

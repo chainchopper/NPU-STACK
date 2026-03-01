@@ -16,6 +16,8 @@ services:
       - model-store:/app/data/models
       - dataset-cache:/app/data/datasets
       - db-data:/app/data
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped

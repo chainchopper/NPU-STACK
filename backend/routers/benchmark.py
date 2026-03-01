@@ -11,6 +11,7 @@ from database import get_db, ModelRecord, BenchmarkResult
 from services.benchmark_service import (
     benchmark_onnxruntime,
     benchmark_openvino,
+    benchmark_llama_cpp,
     get_system_info,
 )
 
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
 class BenchmarkRequest(BaseModel):
     model_id: int = Field(..., description="Model ID to benchmark")
-    runtime: str = Field("onnxruntime", description="Runtime: onnxruntime, openvino")
+    runtime: str = Field("onnxruntime", description="Runtime: onnxruntime, openvino, llama-cpp")
     device: str = Field("cpu", description="Device: cpu, npu, cuda, auto")
     batch_size: int = Field(1, ge=1, le=64)
     warmup_runs: int = Field(10, ge=0, le=100)
@@ -54,6 +55,17 @@ def run_benchmark(req: BenchmarkRequest, db: Session = Depends(get_db)):
                 raise HTTPException(400, "OpenVINO requires ONNX or OpenVINO IR model")
 
             result = benchmark_openvino(
+                model_path=record.file_path,
+                device=req.device,
+                batch_size=req.batch_size,
+                warmup_runs=req.warmup_runs,
+                num_iterations=req.num_iterations,
+            )
+        elif req.runtime == "llama-cpp":
+            if record.format not in ("gguf",):
+                raise HTTPException(400, "llama-cpp requires a GGUF model")
+            
+            result = benchmark_llama_cpp(
                 model_path=record.file_path,
                 device=req.device,
                 batch_size=req.batch_size,

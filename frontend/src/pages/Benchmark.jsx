@@ -79,8 +79,8 @@ export default function Benchmark() {
                             <label className="form-label">Model</label>
                             <select className="form-select" value={form.model_id} onChange={e => setForm({ ...form, model_id: e.target.value })} required>
                                 <option value="">Select a model...</option>
-                                {models.filter(m => ['onnx', 'openvino_ir'].includes(m.format)).map(m => (
-                                    <option key={m.id} value={m.id}>{m.name} ({m.format})</option>
+                                {models.filter(m => ['onnx', 'openvino_ir', 'gguf'].includes(m.format)).map(m => (
+                                    <option key={m.id} value={m.id}>{m.name} ({m.format.toUpperCase()})</option>
                                 ))}
                             </select>
                         </div>
@@ -90,6 +90,7 @@ export default function Benchmark() {
                                 <select className="form-select" value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })}>
                                     <option value="onnxruntime">ONNX Runtime</option>
                                     <option value="openvino">OpenVINO Runtime</option>
+                                    <option value="llama-cpp">Llama-CPP (GGUF)</option>
                                 </select>
                             </div>
                             <div className="form-group">
@@ -129,7 +130,12 @@ export default function Benchmark() {
                             <div style={{ marginBottom: '16px' }}>
                                 <span className="badge badge-success">✅ Complete</span>
                                 <span className="badge badge-info" style={{ marginLeft: '8px' }}>{latestResult.runtime}</span>
-                                <span className="badge badge-purple" style={{ marginLeft: '8px' }}>{latestResult.device || latestResult.active_provider}</span>
+                                <span className="badge badge-purple" style={{ marginLeft: '8px' }}>{latestResult.active_provider || latestResult.device}</span>
+                                {latestResult.device === 'cuda' && latestResult.active_provider === 'CPU' && (
+                                    <div style={{ marginTop: '12px', padding: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', fontSize: '12px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <AlertCircle size={14} /> Fallback to CPU detected. GPU providers may be missing.
+                                    </div>
+                                )}
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <ResultCard label="Mean Latency" value={`${latestResult.latency_mean_ms} ms`} accent="blue" />
@@ -140,6 +146,11 @@ export default function Benchmark() {
                             <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 <MetricRow label="P50 Latency" value={`${latestResult.latency_p50_ms} ms`} />
                                 <MetricRow label="P99 Latency" value={`${latestResult.latency_p99_ms} ms`} />
+                                {latestResult.runtime === 'llama-cpp' ? (
+                                    <MetricRow label="Metric Type" value="Tokens/sec" />
+                                ) : (
+                                    <MetricRow label="Metric Type" value="Inference (ms)" />
+                                )}
                                 <MetricRow label="Min Latency" value={`${latestResult.latency_min_ms} ms`} />
                                 <MetricRow label="Max Latency" value={`${latestResult.latency_max_ms} ms`} />
                             </div>
