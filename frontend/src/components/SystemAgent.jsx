@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, X, Send, User, Settings, Database, Play } from "lucide-react";
+import { MessageSquare, X, Send, User, Settings, Database, Play, Loader2 } from "lucide-react";
 import AgentVisual from "./AgentVisual";
 
 export default function SystemAgent() {
@@ -16,6 +16,7 @@ export default function SystemAgent() {
         is_downloaded: false,
         is_running: false,
         dataset_ready: false,
+        download_in_progress: false,
     });
 
     const messagesEndRef = useRef(null);
@@ -24,13 +25,20 @@ export default function SystemAgent() {
         checkAgentStatus();
     }, [isOpen]);
 
+    // Poll status while a download is in progress so the UI updates automatically
+    useEffect(() => {
+        if (!agentStatus.download_in_progress) return;
+        const id = setInterval(checkAgentStatus, 5000); // eslint-disable-line react-hooks/exhaustive-deps
+        return () => clearInterval(id);
+    }, [agentStatus.download_in_progress]); // eslint-disable-line react-hooks/exhaustive-deps
+
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
     const checkAgentStatus = async () => {
         try {
-            const res = await fetch("http://localhost:8000/api/agent/status");
+            const res = await fetch("/api/agent/status");
             const data = await res.json();
             setAgentStatus(data);
         } catch (err) {
@@ -40,7 +48,7 @@ export default function SystemAgent() {
 
     const initAgent = async () => {
         try {
-            await fetch("http://localhost:8000/api/agent/init", { method: "POST" });
+            await fetch("/api/agent/init", { method: "POST" });
             setTimeout(checkAgentStatus, 3000);
         } catch (err) {
             console.error(err);
@@ -49,7 +57,7 @@ export default function SystemAgent() {
 
     const startAgent = async () => {
         try {
-            await fetch("http://localhost:8000/api/agent/start", { method: "POST" });
+            await fetch("/api/agent/start", { method: "POST" });
             setTimeout(checkAgentStatus, 2000);
         } catch (err) {
             console.error(err);
@@ -58,7 +66,7 @@ export default function SystemAgent() {
 
     const generateDataset = async () => {
         try {
-            await fetch("http://localhost:8000/api/agent/generate-dataset", { method: "POST" });
+            await fetch("/api/agent/generate-dataset", { method: "POST" });
             setTimeout(checkAgentStatus, 1000);
         } catch (err) {
             console.error(err);
@@ -67,9 +75,9 @@ export default function SystemAgent() {
 
     const fineTuneAgent = async () => {
         try {
-            const gRes = await fetch("http://localhost:8000/api/models/all");
+            const gRes = await fetch("/api/models");
             const gData = await gRes.json();
-            const agentModel = gData.models.find(m => m.name === "NPU-STACK System Agent (Phi-3-mini)");
+            const agentModel = gData.find(m => m.name === "NPU-STACK System Agent (Phi-3-mini)");
 
             if (!agentModel) {
                 alert("Agent model not found in database. Please download it first.");
@@ -81,7 +89,7 @@ export default function SystemAgent() {
             formData.append("dataset", "npu_stack_knowledge.jsonl");
             formData.append("epochs", "3");
 
-            const fRes = await fetch("http://localhost:8000/api/finetune/start", {
+            const fRes = await fetch("/api/finetune/start", {
                 method: "POST",
                 body: formData,
             });
@@ -103,7 +111,7 @@ export default function SystemAgent() {
 
         try {
             // Use the backend's /api/agent/chat which routes through gguf_service
-            const res = await fetch("http://localhost:8000/api/agent/chat", {
+            const res = await fetch("/api/agent/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -182,7 +190,14 @@ export default function SystemAgent() {
                                 The NPU-STACK local orchestrator model is not currently running.
                             </p>
 
-                            {!agentStatus.is_downloaded ? (
+                            {agentStatus.download_in_progress ? (
+                                <div className="w-full flex flex-col items-center gap-3 mb-2">
+                                    <div className="flex items-center gap-2 text-primary text-sm font-medium">
+                                        <Loader2 size={16} className="animate-spin" /> Downloading Phi-3-mini GGUF...
+                                    </div>
+                                    <p className="text-xs text-secondary-text">This may take several minutes. Status refreshes automatically.</p>
+                                </div>
+                            ) : !agentStatus.is_downloaded ? (
                                 <button
                                     onClick={initAgent}
                                     className="btn btn-primary w-full flex items-center justify-center gap-2 mb-2"
