@@ -11,6 +11,7 @@ Endpoints:
 import os
 import json
 import shutil
+import threading
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
 from typing import List, Dict, Optional
@@ -23,6 +24,10 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 AGENT_REPO_ID = "microsoft/Phi-3-mini-4k-instruct-gguf"
 AGENT_MODEL_FILENAME = "Phi-3-mini-4k-instruct-q4.gguf"
 DATASET_FILENAME = "npu_stack_knowledge.jsonl"
+
+# Thread-safe flag tracking whether a background download is in progress
+_download_lock = threading.Lock()
+_download_in_progress = False
 
 def _get_token():
     return os.getenv("HUGGINGFACE_TOKEN")
@@ -46,6 +51,7 @@ class AgentState(BaseModel):
     is_downloaded: bool
     is_running: bool
     dataset_ready: bool
+    download_in_progress: bool = False
 
 
 @router.get("/status", response_model=AgentState)
@@ -61,6 +67,7 @@ def get_agent_status():
         is_downloaded=os.path.exists(model_path),
         is_running=is_running,
         dataset_ready=os.path.exists(_dataset_path()),
+        download_in_progress=_download_in_progress,
     )
 
 
@@ -68,38 +75,49 @@ def get_agent_status():
 
 
 def _download_model_task():
+    global _download_in_progress
+
     model_path = _model_path()
     model_store = _model_store()
     os.makedirs(model_store, exist_ok=True)
 
     if not os.path.exists(model_path):
+        # Guard against concurrent downloads
+        with _download_lock:
+            if _download_in_progress:
+                return
+            _download_in_progress = True
+
+        temp_path = model_path + ".downloading"
         try:
+            # Clean up any orphaned partial download from a previous run
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
             print(f"[Agent] Downloading {AGENT_MODEL_FILENAME} from {AGENT_REPO_ID} via HTTP streaming...")
             import requests
-            
+
             token = _get_token()
             url = f"https://huggingface.co/{AGENT_REPO_ID}/resolve/main/{AGENT_MODEL_FILENAME}"
-            
+
             headers = {}
             if token:
                 headers["Authorization"] = f"Bearer {token}"
-            
-            temp_path = model_path + ".downloading"
-            
+
             with requests.get(url, headers=headers, stream=True) as r:
                 r.raise_for_status()
                 total_size = int(r.headers.get('content-length', 0))
                 downloaded = 0
-                
+
                 with open(temp_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192 * 1024): # 8MB chunks
+                    for chunk in r.iter_content(chunk_size=8192 * 1024):  # 8 MB chunks
                         if chunk:
                             f.write(chunk)
                             downloaded += len(chunk)
                             if total_size > 0 and downloaded % (100 * 1024 * 1024) < (8192 * 1024):
-                                # Print progress ~ every 100MB
+                                # Print progress ~ every 100 MB
                                 print(f"[Agent] Download progress: {downloaded / (1024*1024):.1f}MB / {total_size / (1024*1024):.1f}MB ({(downloaded/total_size)*100:.1f}%)")
-            
+
             if os.path.exists(model_path):
                 os.remove(model_path)
             shutil.move(temp_path, model_path)
@@ -127,6 +145,15 @@ def _download_model_task():
             print("[Agent] Download complete.")
         except Exception as e:
             print(f"[Agent] Download failed: {e}")
+            # Remove incomplete temp file so the next attempt starts fresh
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+        finally:
+            with _download_lock:
+                _download_in_progress = False
 
 
 @router.post("/init")
