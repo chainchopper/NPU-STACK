@@ -181,23 +181,31 @@ if %errorlevel% neq 0 (
     echo   [WARN] Optimized PyTorch install failed, falling back to standard...
 )
 
-echo   Installing llama-cpp-python optimized for cu130...
+echo   Installing llama-cpp-python (optional - GGUF inference)...
 "%PIP%" uninstall llama-cpp-python -y >nul 2>&1
+set "LLAMA_CPP_OK=1"
 for /f "tokens=2" %%i in ('"%PYTHON%" -c "import platform; print(platform.python_version_tuple()[1])"') do set PY_MINOR=%%i
 if "!PY_MINOR!"=="12" (
     "%PIP%" install https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.24-cu130-Basic-win-20260208/llama_cpp_python-0.3.24+cu130.basic-cp312-cp312-win_amd64.whl
+    if !errorlevel! neq 0 set "LLAMA_CPP_OK=0"
 ) else if "!PY_MINOR!"=="11" (
     "%PIP%" install https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.24-cu130-Basic-win-20260208/llama_cpp_python-0.3.24+cu130.basic-cp311-cp311-win_amd64.whl
+    if !errorlevel! neq 0 set "LLAMA_CPP_OK=0"
 ) else (
-    "%PIP%" install llama-cpp-python --prefer-binary
+    :: Use --only-binary to avoid triggering a source build (which requires nmake/MSVC on Windows)
+    "%PIP%" install llama-cpp-python --only-binary :all:
+    if !errorlevel! neq 0 set "LLAMA_CPP_OK=0"
 )
-if %errorlevel% neq 0 (
-    echo   [WARN] llama-cpp-python install failed.
-    echo   [WARN] GGUF inference features will be unavailable.
-    echo   [WARN] To fix on Windows: install Visual Studio Build Tools from
-    echo   [WARN]   https://visualstudio.microsoft.com/visual-cpp-build-tools/
-    echo   [WARN] then re-run: .venv\Scripts\pip install llama-cpp-python
-    echo   [WARN] Alternatively, use Docker: docker compose up --build
+if "!LLAMA_CPP_OK!"=="0" (
+    echo.
+    echo   [INFO] llama-cpp-python could not be installed as a pre-built binary.
+    echo   [INFO] This is OPTIONAL - the core platform will work without it.
+    echo   [INFO] GGUF inference features will be unavailable until resolved.
+    echo   [INFO] To install manually (requires Visual Studio Build Tools):
+    echo   [INFO]   https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo   [INFO]   Then run: .venv\Scripts\pip install llama-cpp-python
+    echo   [INFO] Alternatively, use Docker for full support:
+    echo   [INFO]   docker compose up --build
     echo.
 )
 
@@ -293,51 +301,86 @@ echo   [OK] Data directories ready.
 echo.
 
 :: =============================================
-:: STEP 7: Create Launcher Scripts
+:: STEP 7: Create Launcher Scripts (skip if already present)
 :: =============================================
-echo [7/7] Creating launcher scripts...
+echo [7/7] Checking launcher scripts...
 
+if exist "%ROOT%\run-backend.bat" (
+    echo   [OK] run-backend.bat already exists, skipping.
+) else (
 :: --- run-backend.bat ---
 > "%ROOT%\run-backend.bat" echo @echo off
+>> "%ROOT%\run-backend.bat" echo setlocal EnableDelayedExpansion
 >> "%ROOT%\run-backend.bat" echo title NPU-STACK Backend
->> "%ROOT%\run-backend.bat" echo echo Starting NPU-STACK Backend...
->> "%ROOT%\run-backend.bat" echo echo API: http://localhost:8000
->> "%ROOT%\run-backend.bat" echo echo Docs: http://localhost:8000/docs
->> "%ROOT%\run-backend.bat" echo echo Press Ctrl+C to stop.
+>> "%ROOT%\run-backend.bat" echo set "ROOT=%%~dp0"
+>> "%ROOT%\run-backend.bat" echo if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
+>> "%ROOT%\run-backend.bat" echo echo   Starting NPU-STACK Backend...
+>> "%ROOT%\run-backend.bat" echo echo   API:  http://localhost:8000
+>> "%ROOT%\run-backend.bat" echo echo   Docs: http://localhost:8000/docs
+>> "%ROOT%\run-backend.bat" echo echo   Press Ctrl+C to stop.
 >> "%ROOT%\run-backend.bat" echo echo.
->> "%ROOT%\run-backend.bat" echo if exist "%%~dp0llama.cpp\llama.dll" set "PATH=%%~dp0llama.cpp;%%PATH%%"
->> "%ROOT%\run-backend.bat" echo call "%%~dp0.venv\Scripts\activate.bat"
->> "%ROOT%\run-backend.bat" echo cd /d "%%~dp0backend"
+>> "%ROOT%\run-backend.bat" echo if not exist "!ROOT!\.venv\Scripts\activate.bat" (echo [ERROR] .venv not found. Please run setup.bat first. ^& pause ^& exit /b 1)
+>> "%ROOT%\run-backend.bat" echo if exist "!ROOT!\llama.cpp\llama.dll" set "PATH=!ROOT!\llama.cpp;!PATH!"
+>> "%ROOT%\run-backend.bat" echo call "!ROOT!\.venv\Scripts\activate.bat"
+>> "%ROOT%\run-backend.bat" echo cd /d "!ROOT!\backend"
 >> "%ROOT%\run-backend.bat" echo python main.py
 >> "%ROOT%\run-backend.bat" echo pause
+    echo   [OK] Created run-backend.bat
+)
 
+if exist "%ROOT%\run-frontend.bat" (
+    echo   [OK] run-frontend.bat already exists, skipping.
+) else (
 :: --- run-frontend.bat ---
 > "%ROOT%\run-frontend.bat" echo @echo off
->> "%ROOT%\run-frontend.bat" echo setlocal
+>> "%ROOT%\run-frontend.bat" echo setlocal EnableDelayedExpansion
 >> "%ROOT%\run-frontend.bat" echo title NPU-STACK Frontend
->> "%ROOT%\run-frontend.bat" echo cd /d "%%~dp0frontend"
->> "%ROOT%\run-frontend.bat" echo echo Starting NPU-STACK Frontend... UI: http://localhost:5173
->> "%ROOT%\run-frontend.bat" echo if not exist "%%~dp0frontend\node_modules" npm install
+>> "%ROOT%\run-frontend.bat" echo set "ROOT=%%~dp0"
+>> "%ROOT%\run-frontend.bat" echo if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
+>> "%ROOT%\run-frontend.bat" echo echo   Starting NPU-STACK Frontend...
+>> "%ROOT%\run-frontend.bat" echo echo   UI: http://localhost:5173
+>> "%ROOT%\run-frontend.bat" echo echo   Press Ctrl+C to stop.
+>> "%ROOT%\run-frontend.bat" echo echo.
+>> "%ROOT%\run-frontend.bat" echo if not exist "!ROOT!\frontend\node_modules" (
+>> "%ROOT%\run-frontend.bat" echo     echo [INFO] node_modules missing - installing...
+>> "%ROOT%\run-frontend.bat" echo     cd /d "!ROOT!\frontend"
+>> "%ROOT%\run-frontend.bat" echo     call npm install
+>> "%ROOT%\run-frontend.bat" echo     if errorlevel 1 ( echo [ERROR] npm install failed. ^& pause ^& exit /b 1 )
+>> "%ROOT%\run-frontend.bat" echo )
+>> "%ROOT%\run-frontend.bat" echo cd /d "!ROOT!\frontend"
 >> "%ROOT%\run-frontend.bat" echo npm run dev
 >> "%ROOT%\run-frontend.bat" echo pause
+    echo   [OK] Created run-frontend.bat
+)
 
+if exist "%ROOT%\run-all.bat" (
+    echo   [OK] run-all.bat already exists, skipping.
+) else (
 :: --- run-all.bat ---
 > "%ROOT%\run-all.bat" echo @echo off
->> "%ROOT%\run-all.bat" echo setlocal
+>> "%ROOT%\run-all.bat" echo setlocal EnableDelayedExpansion
 >> "%ROOT%\run-all.bat" echo title NPU-STACK
->> "%ROOT%\run-all.bat" echo cd /d "%%~dp0"
->> "%ROOT%\run-all.bat" echo echo Backend: http://localhost:8000 ^& Frontend: http://localhost:5173
->> "%ROOT%\run-all.bat" echo if not exist "%%~dp0.venv\Scripts\activate.bat" (echo [ERROR] Run setup.bat first. ^& pause ^& exit /b 1)
->> "%ROOT%\run-all.bat" echo if not exist "%%~dp0frontend\node_modules" (cd /d "%%~dp0frontend" ^& npm install ^& cd /d "%%~dp0")
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "cd /d "%%~dp0" ^&^& call .venv\Scripts\activate.bat ^&^& cd backend ^&^& python main.py"
+>> "%ROOT%\run-all.bat" echo set "ROOT=%%~dp0"
+>> "%ROOT%\run-all.bat" echo if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
+>> "%ROOT%\run-all.bat" echo echo  ============================================
+>> "%ROOT%\run-all.bat" echo echo    NPU-STACK  ^|  Neural Processor Toolkit
+>> "%ROOT%\run-all.bat" echo echo    Backend:  http://localhost:8000
+>> "%ROOT%\run-all.bat" echo echo    Frontend: http://localhost:5173
+>> "%ROOT%\run-all.bat" echo echo    API Docs: http://localhost:8000/docs
+>> "%ROOT%\run-all.bat" echo echo  ============================================
+>> "%ROOT%\run-all.bat" echo echo.
+>> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\.venv\Scripts\activate.bat" (echo [ERROR] .venv not found. Please run setup.bat first. ^& pause ^& exit /b 1)
+>> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\frontend\node_modules" (cd /d "!ROOT!\frontend" ^& call npm install ^& cd /d "!ROOT!")
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "call "!ROOT!\.venv\Scripts\activate.bat" ^& cd /d "!ROOT!\backend" ^& python main.py"
 >> "%ROOT%\run-all.bat" echo timeout /t 3 /nobreak ^>nul
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d "%%~dp0frontend" ^&^& npm run dev"
->> "%ROOT%\run-all.bat" echo echo Both services launched. Close those windows to stop.
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d "!ROOT!\frontend" ^& npm run dev"
+>> "%ROOT%\run-all.bat" echo echo.
+>> "%ROOT%\run-all.bat" echo echo   Both services launched in separate windows.
+>> "%ROOT%\run-all.bat" echo echo   Close those windows to stop the services.
+>> "%ROOT%\run-all.bat" echo echo.
 >> "%ROOT%\run-all.bat" echo pause
-
-echo   [OK] Created run-backend.bat
-echo   [OK] Created run-frontend.bat
-echo   [OK] Created run-all.bat
+    echo   [OK] Created run-all.bat
+)
 echo.
 
 :: =============================================

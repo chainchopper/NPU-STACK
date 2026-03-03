@@ -40,6 +40,9 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY requirements.txt .
+# Install llama-cpp-python separately (optional; graceful failure if build unavailable)
+RUN pip install --no-cache-dir llama-cpp-python --prefer-binary || \
+    echo "WARNING: llama-cpp-python install failed. GGUF inference via Python will be unavailable."
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code

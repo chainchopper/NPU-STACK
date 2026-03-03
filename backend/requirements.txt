@@ -37,7 +37,9 @@ einops>=0.7.0
 
 # HuggingFace & GGUF
 huggingface_hub>=0.27.0
-llama-cpp-python>=0.3.0
+# llama-cpp-python is optional and installed separately by setup scripts / Dockerfile
+# to allow platform-specific binary selection and graceful failure on Windows.
+# To install manually: pip install llama-cpp-python --only-binary :all:
 gguf>=0.6.0
 
 # Environment
