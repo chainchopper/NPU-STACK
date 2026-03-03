@@ -1,5 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRightLeft, Minimize2, Zap, Loader, AlertCircle, CheckCircle, Info, FileBox } from 'lucide-react';
+import ContextWizard from '../components/ContextWizard';
+
+const CONVERSION_WIZARD_STEPS = [
+    {
+        title: 'Conversion Studio',
+        body: 'Convert models between frameworks (PyTorch → ONNX, TensorFlow → TFLite, etc.) or quantize them to reduce size while preserving accuracy.',
+    },
+    {
+        title: 'Choosing a Target Format',
+        body: <>For NPU/TPU edge deployment, prefer <strong>OpenVINO IR</strong> or <strong>ONNX INT8</strong>. For GPU inference servers, use <strong>TensorRT</strong>. For mobile, target <strong>TFLite</strong>.</>,
+    },
+    {
+        title: 'Quantization Tips',
+        body: <>Use <strong>Dynamic INT8</strong> for quick size reduction with no calibration dataset needed. Use <strong>Static INT8</strong> when accuracy matters — it needs calibration samples from your real workload.</>,
+    },
+    {
+        title: 'Input Shape (PyTorch → ONNX)',
+        body: 'Provide the exact input tensor shape your model was trained with, e.g. [1, 3, 224, 224] for a standard vision model. Mismatched shapes will cause inference errors downstream.',
+    },
+];
 
 const API = 'http://localhost:8000';
 
@@ -46,7 +66,7 @@ export default function Conversion() {
             setModels(modelsData.models || []);
             setConversionPaths(pathsData.paths || []);
         }).catch(e => console.error(e))
-          .finally(() => setLoading(false));
+            .finally(() => setLoading(false));
     }, []);
 
     // Selected model object
@@ -232,8 +252,8 @@ export default function Conversion() {
                                 >
                                     <option value="">
                                         {!selectedModel ? 'Select a source model first' :
-                                         availableTargets.length === 0 ? 'No conversion paths for this format' :
-                                         `Select target format (${availableTargets.length} available)…`}
+                                            availableTargets.length === 0 ? 'No conversion paths for this format' :
+                                                `Select target format (${availableTargets.length} available)…`}
                                     </option>
                                     {availableTargets.map(p => (
                                         <option key={p.id} value={p.id} disabled={!p.available}>
@@ -454,6 +474,7 @@ export default function Conversion() {
                     </div>
                 </div>
             </div>
+            <ContextWizard id="conversion" steps={CONVERSION_WIZARD_STEPS} accentVar="--accent-blue" />
         </div>
     );
 }

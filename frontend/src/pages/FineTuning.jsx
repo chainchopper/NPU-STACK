@@ -1,5 +1,25 @@
 import { useState, useEffect } from 'react';
 import { Wrench, Play, Loader, Square, ChevronDown, ChevronRight } from 'lucide-react';
+import ContextWizard from '../components/ContextWizard';
+
+const FINETUNE_WIZARD_STEPS = [
+    {
+        title: 'Fine-Tuning Overview',
+        body: 'Fine-tuning adapts a pre-trained base model to your specific domain or task using your own dataset, dramatically outperforming general-purpose models at a fraction of the training cost.',
+    },
+    {
+        title: 'LoRA vs Full Fine-Tuning',
+        body: <>Enable <strong>LoRA</strong> to train only a small set of adapter weights (typical r=8-64). This uses 10-30× less VRAM than full fine-tuning and is sufficient for most domain-adaptation tasks. Disable LoRA only for task-critical accuracy gains.</>,
+    },
+    {
+        title: 'Dataset Format',
+        body: <>Your dataset should be a <code>.jsonl</code> file with rows like: <code>{'{"text": "..."}'}</code> for causal LM, or <code>{'{"prompt": "...", "response": "..."}'}</code> for instruction tuning. Upload via the Datasets tab.</>,
+    },
+    {
+        title: 'Hyperparameter Guidance',
+        body: 'Start with Epochs=3, Batch Size=4, LR=2e-4. Increase batch size if VRAM allows. Lower LR (e.g. 5e-5) if training loss oscillates. LoRA r=16 is a solid default — increase to 64 for harder tasks.',
+    },
+];
 
 const API_BASE = 'http://localhost:8000';
 
@@ -266,6 +286,7 @@ export default function FineTuning() {
                     )}
                 </div>
             </div>
+            <ContextWizard id="finetune" steps={FINETUNE_WIZARD_STEPS} accentVar="--accent-purple" />
         </div>
     );
 }

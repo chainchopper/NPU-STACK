@@ -5,6 +5,30 @@ import {
     Zap, FolderOpen, Info
 } from 'lucide-react';
 import FolderBrowser from '../components/FolderBrowser';
+import ContextWizard from '../components/ContextWizard';
+
+const GGUF_WIZARD_STEPS = [
+    {
+        title: 'GGUF Studio Overview',
+        body: 'GGUF is the native format for llama.cpp-based local inference. Use this studio to inspect metadata, quantize models, convert from HuggingFace, merge LoRA adapters, or split large files for distribution.',
+    },
+    {
+        title: 'Choosing a Quant Level',
+        body: <>Recommended: <strong>Q4_K_M</strong> (best quality/size trade-off), <strong>Q5_K_M</strong> (slightly better quality). Use <strong>Q8_0</strong> if you have plenty of VRAM and want near-lossless. Avoid Q2/Q3 for production — quality degrades significantly.</>,
+    },
+    {
+        title: 'HuggingFace → GGUF',
+        body: 'Point to a local snapshot directory (the folder containing config.json and safetensors files). Convert to F16 first, then quantize — this gives the cleanest quantization artifacts.',
+    },
+    {
+        title: 'Merging LoRA Adapters',
+        body: <>Set <strong>scale=1.0</strong> (default) for a full merge. Values below 1.0 blend the LoRA more conservatively into the base. After merging, the resulting model is a standalone GGUF with no adapter dependency.</>,
+    },
+    {
+        title: 'Splitting for Distribution',
+        body: 'Split models into ≤4 GB shards when uploading to HuggingFace, transferring via FAT32 external drives, or distributing across multi-GPU nodes. Llama.cpp loads shards automatically.',
+    },
+];
 
 const API = 'http://localhost:8000';
 
@@ -577,6 +601,7 @@ export default function GGUFStudio() {
                     else if (browserTarget === 'lora') setLoraPath(path);
                 }}
             />
+            <ContextWizard id="gguf" steps={GGUF_WIZARD_STEPS} accentVar="--accent-amber" />
         </div>
     );
 }
