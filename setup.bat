@@ -302,28 +302,26 @@ echo [7/7] Creating launcher scripts...
 
 :: --- run-frontend.bat ---
 > "%ROOT%\run-frontend.bat" echo @echo off
+>> "%ROOT%\run-frontend.bat" echo setlocal
 >> "%ROOT%\run-frontend.bat" echo title NPU-STACK Frontend
->> "%ROOT%\run-frontend.bat" echo echo Starting NPU-STACK Frontend...
->> "%ROOT%\run-frontend.bat" echo echo UI: http://localhost:5173
->> "%ROOT%\run-frontend.bat" echo echo Press Ctrl+C to stop.
->> "%ROOT%\run-frontend.bat" echo echo.
 >> "%ROOT%\run-frontend.bat" echo cd /d "%%~dp0frontend"
->> "%ROOT%\run-frontend.bat" echo if not exist node_modules npm install
+>> "%ROOT%\run-frontend.bat" echo echo Starting NPU-STACK Frontend... UI: http://localhost:5173
+>> "%ROOT%\run-frontend.bat" echo if not exist "%%~dp0frontend\node_modules" npm install
 >> "%ROOT%\run-frontend.bat" echo npm run dev
 >> "%ROOT%\run-frontend.bat" echo pause
 
 :: --- run-all.bat ---
 > "%ROOT%\run-all.bat" echo @echo off
+>> "%ROOT%\run-all.bat" echo setlocal
 >> "%ROOT%\run-all.bat" echo title NPU-STACK
->> "%ROOT%\run-all.bat" echo echo NPU-STACK - Starting Full Platform
->> "%ROOT%\run-all.bat" echo echo Backend:  http://localhost:8000
->> "%ROOT%\run-all.bat" echo echo Frontend: http://localhost:5173
->> "%ROOT%\run-all.bat" echo echo API Docs: http://localhost:8000/docs
->> "%ROOT%\run-all.bat" echo echo.
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "cd /d "%%~dp0." && call .venv\Scripts\activate.bat && cd backend && python main.py"
+>> "%ROOT%\run-all.bat" echo cd /d "%%~dp0"
+>> "%ROOT%\run-all.bat" echo echo Backend: http://localhost:8000 ^& Frontend: http://localhost:5173
+>> "%ROOT%\run-all.bat" echo if not exist "%%~dp0.venv\Scripts\activate.bat" (echo [ERROR] Run setup.bat first. ^& pause ^& exit /b 1)
+>> "%ROOT%\run-all.bat" echo if not exist "%%~dp0frontend\node_modules" (cd /d "%%~dp0frontend" ^& npm install ^& cd /d "%%~dp0")
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "cd /d "%%~dp0" ^&^& call .venv\Scripts\activate.bat ^&^& cd backend ^&^& python main.py"
 >> "%ROOT%\run-all.bat" echo timeout /t 3 /nobreak ^>nul
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d "%%~dp0frontend" && npm run dev"
->> "%ROOT%\run-all.bat" echo echo Both services started in separate windows.
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d "%%~dp0frontend" ^&^& npm run dev"
+>> "%ROOT%\run-all.bat" echo echo Both services launched. Close those windows to stop.
 >> "%ROOT%\run-all.bat" echo pause
 
 echo   [OK] Created run-backend.bat
