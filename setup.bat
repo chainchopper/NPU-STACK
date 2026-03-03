@@ -184,7 +184,12 @@ if %errorlevel% neq 0 (
 echo   Installing llama-cpp-python (optional - GGUF inference)...
 "%PIP%" uninstall llama-cpp-python -y >nul 2>&1
 set "LLAMA_CPP_OK=1"
-for /f "tokens=2" %%i in ('"%PYTHON%" -c "import platform; print(platform.python_version_tuple()[1])"') do set PY_MINOR=%%i
+set "PY_MINOR="
+"%PYTHON%" -c "import sys; print(sys.version_info[1])" > "%TEMP%\pyver_npu.tmp" 2>nul
+if exist "%TEMP%\pyver_npu.tmp" (
+    set /p PY_MINOR= < "%TEMP%\pyver_npu.tmp"
+    del "%TEMP%\pyver_npu.tmp" >nul 2>&1
+)
 if "!PY_MINOR!"=="12" (
     "%PIP%" install https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.24-cu130-Basic-win-20260208/llama_cpp_python-0.3.24+cu130.basic-cp312-cp312-win_amd64.whl
     if !errorlevel! neq 0 set "LLAMA_CPP_OK=0"
@@ -192,8 +197,8 @@ if "!PY_MINOR!"=="12" (
     "%PIP%" install https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.24-cu130-Basic-win-20260208/llama_cpp_python-0.3.24+cu130.basic-cp311-cp311-win_amd64.whl
     if !errorlevel! neq 0 set "LLAMA_CPP_OK=0"
 ) else (
-    :: Use --only-binary to avoid triggering a source build (which requires nmake/MSVC on Windows)
-    "%PIP%" install llama-cpp-python --only-binary :all:
+    REM Use --only-binary to avoid triggering a source build (which requires nmake/MSVC on Windows)
+    "%PIP%" install llama-cpp-python --only-binary :all: --index-url https://pypi.org/simple/
     if !errorlevel! neq 0 set "LLAMA_CPP_OK=0"
 )
 if "!LLAMA_CPP_OK!"=="0" (
