@@ -192,7 +192,13 @@ if "!PY_MINOR!"=="12" (
     "%PIP%" install llama-cpp-python --prefer-binary
 )
 if %errorlevel% neq 0 (
-    echo   [WARN] Optimized llama-cpp-python install failed...
+    echo   [WARN] llama-cpp-python install failed.
+    echo   [WARN] GGUF inference features will be unavailable.
+    echo   [WARN] To fix on Windows: install Visual Studio Build Tools from
+    echo   [WARN]   https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo   [WARN] then re-run: .venv\Scripts\pip install llama-cpp-python
+    echo   [WARN] Alternatively, use Docker: docker compose up --build
+    echo.
 )
 
 echo   Installing remaining requirements...
@@ -214,6 +220,11 @@ echo.
 :: =============================================
 echo [4/7] Downloading GGUF Tools...
 "%PYTHON%" "%ROOT%\scripts\download_llama_cpp_tools.py"
+if %errorlevel% neq 0 (
+    echo   [WARN] llama.cpp tools download failed or was skipped.
+    echo   [WARN] GGUF conversion features may be unavailable.
+    echo   [WARN] You can retry manually: .venv\Scripts\python scripts\download_llama_cpp_tools.py
+)
 echo.
 
 :: =============================================
