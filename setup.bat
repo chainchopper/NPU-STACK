@@ -184,7 +184,7 @@ if %errorlevel% neq 0 (
 echo   Installing llama-cpp-python (optional - GGUF inference)...
 "%PIP%" uninstall llama-cpp-python -y >nul 2>&1
 set "LLAMA_CPP_OK=1"
-for /f "tokens=2" %%i in ('"%PYTHON%" -c "import platform; print(platform.python_version_tuple()[1])"') do set PY_MINOR=%%i
+for /f "usebackq delims=" %%i in (`"%PYTHON%" -c "import sys; print(sys.version_info[1])"`) do set "PY_MINOR=%%i"
 if "!PY_MINOR!"=="12" (
     "%PIP%" install https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.24-cu130-Basic-win-20260208/llama_cpp_python-0.3.24+cu130.basic-cp312-cp312-win_amd64.whl
     if !errorlevel! neq 0 set "LLAMA_CPP_OK=0"
@@ -371,9 +371,9 @@ if exist "%ROOT%\run-all.bat" (
 >> "%ROOT%\run-all.bat" echo echo.
 >> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\.venv\Scripts\activate.bat" (echo [ERROR] .venv not found. Please run setup.bat first. ^& pause ^& exit /b 1)
 >> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\frontend\node_modules" (cd /d "!ROOT!\frontend" ^& call npm install ^& cd /d "!ROOT!")
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "call "!ROOT!\.venv\Scripts\activate.bat" ^& cd /d "!ROOT!\backend" ^& python main.py"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "call ""!ROOT!\.venv\Scripts\activate.bat"" ^& cd /d ""!ROOT!\backend"" ^& python main.py"
 >> "%ROOT%\run-all.bat" echo timeout /t 3 /nobreak ^>nul
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d "!ROOT!\frontend" ^& npm run dev"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d ""!ROOT!\frontend"" ^& npm run dev"
 >> "%ROOT%\run-all.bat" echo echo.
 >> "%ROOT%\run-all.bat" echo echo   Both services launched in separate windows.
 >> "%ROOT%\run-all.bat" echo echo   Close those windows to stop the services.

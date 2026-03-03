@@ -31,14 +31,12 @@ if not exist "!ROOT!\frontend\node_modules" (
 
 :: Start Backend in new window
 :: Note: call the activate script by full path, then cd to backend by full path
-start "NPU-STACK Backend" cmd /k ^
-"call "!ROOT!\.venv\Scripts\activate.bat" & cd /d "!ROOT!\backend" & python main.py"
+start "NPU-STACK Backend" cmd /k "call ""!ROOT!\.venv\Scripts\activate.bat"" & cd /d ""!ROOT!\backend"" & python main.py"
 
 timeout /t 3 /nobreak >nul
 
 :: Start Frontend in new window
-start "NPU-STACK Frontend" cmd /k ^
-"cd /d "!ROOT!\frontend" & npm run dev"
+start "NPU-STACK Frontend" cmd /k "cd /d ""!ROOT!\frontend"" & npm run dev"
 
 echo.
 echo   Both services launched in separate windows.
