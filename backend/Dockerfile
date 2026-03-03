@@ -3,13 +3,16 @@ FROM python:3.11-slim AS llama-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    cmake \
     git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 RUN git clone https://github.com/ggerganov/llama.cpp.git && \
     cd llama.cpp && \
-    make -j$(nproc) llama-quantize llama-gguf-split llama-imatrix llama-cli llama-server llama-export-lora
+    cmake -B build -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build build --config Release -j$(nproc) \
+        --target llama-quantize llama-gguf-split llama-imatrix llama-cli llama-server llama-export-lora
 
 # Main stage
 FROM python:3.11-slim
@@ -25,12 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy compiled llama.cpp tools from builder to bin
-COPY --from=llama-builder /build/llama.cpp/llama-quantize /usr/local/bin/
-COPY --from=llama-builder /build/llama.cpp/llama-gguf-split /usr/local/bin/
-COPY --from=llama-builder /build/llama.cpp/llama-imatrix /usr/local/bin/
-COPY --from=llama-builder /build/llama.cpp/llama-cli /usr/local/bin/
-COPY --from=llama-builder /build/llama.cpp/llama-server /usr/local/bin/
-COPY --from=llama-builder /build/llama.cpp/llama-export-lora /usr/local/bin/
+COPY --from=llama-builder /build/llama.cpp/build/bin/llama-quantize /usr/local/bin/
+COPY --from=llama-builder /build/llama.cpp/build/bin/llama-gguf-split /usr/local/bin/
+COPY --from=llama-builder /build/llama.cpp/build/bin/llama-imatrix /usr/local/bin/
+COPY --from=llama-builder /build/llama.cpp/build/bin/llama-cli /usr/local/bin/
+COPY --from=llama-builder /build/llama.cpp/build/bin/llama-server /usr/local/bin/
+COPY --from=llama-builder /build/llama.cpp/build/bin/llama-export-lora /usr/local/bin/
 
 # Fetch convert script
 RUN curl -sSL -o /usr/local/bin/convert_hf_to_gguf.py https://raw.githubusercontent.com/ggerganov/llama.cpp/master/convert_hf_to_gguf.py && \
