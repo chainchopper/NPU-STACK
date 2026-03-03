@@ -40,10 +40,8 @@ backend/data/
 python/
 python-embed.zip
 
-# Generated launchers
-run-backend.bat
-run-frontend.bat
-run-all.bat
+# Launcher scripts (tracked - do not ignore)
+# run-backend.bat, run-frontend.bat, run-all.bat are versioned
 
 # Environment config (contains secrets)
 .env
