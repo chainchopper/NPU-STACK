@@ -167,6 +167,8 @@ setup.bat       # Downloads Python, creates venv, installs everything
 run-all.bat     # Launches backend + frontend + API
 ```
 
+> **Note:** `llama-cpp-python` (GGUF inference) is an **optional** dependency. If a pre-built wheel is unavailable for your Python version or platform, setup will print an `[INFO]` warning and continue — the core platform works without it. Use `docker compose up --build` for full out-of-the-box GGUF support.
+
 ### Linux / macOS
 
 ```bash
