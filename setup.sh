@@ -4,8 +4,6 @@
 #  Made by Fanalogy - Powered by Nirvana
 # ============================================
 
-set -e
-
 echo ""
 echo "  ============================================"
 echo "    NPU-STACK  -  Neural Processor Toolkit"
@@ -98,8 +96,15 @@ echo "  Installing llama-cpp-python optimized for CUDA..."
 "$PIP" uninstall llama-cpp-python -y >/dev/null 2>&1
 CMAKE_ARGS="-DGGML_CUDA=on" "$PIP" install llama-cpp-python --no-cache-dir
 if [ $? -ne 0 ]; then
-    echo "  [WARN] CUDA llama-cpp-python install failed, falling back to standard..."
+    echo "  [WARN] CUDA llama-cpp-python install failed, falling back to pre-built binary..."
     "$PIP" install llama-cpp-python --prefer-binary
+    if [ $? -ne 0 ]; then
+        echo "  [WARN] llama-cpp-python could not be installed."
+        echo "  [WARN] GGUF inference features will be unavailable."
+        echo "  [WARN] To fix: ensure gcc, g++, and cmake are installed, then re-run:"
+        echo "  [WARN]   pip install llama-cpp-python"
+        echo "  [WARN] Alternatively, use Docker: docker compose up --build"
+    fi
 fi
 
 echo "  Installing remaining requirements..."
@@ -121,7 +126,11 @@ echo ""
 # =============================================
 echo "[4/7] Downloading GGUF Tools..."
 
-"$PYTHON_CMD" "$ROOT/scripts/download_llama_cpp_tools.py"
+"$PYTHON" "$ROOT/scripts/download_llama_cpp_tools.py" || {
+    echo "  [WARN] llama.cpp tools download failed or was skipped."
+    echo "  [WARN] GGUF conversion features may be unavailable."
+    echo "  [WARN] You can retry manually: python scripts/download_llama_cpp_tools.py"
+}
 echo ""
 
 # =============================================

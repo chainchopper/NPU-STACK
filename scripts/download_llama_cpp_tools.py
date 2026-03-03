@@ -1,12 +1,19 @@
 import os
 import io
+import sys
 import zipfile
 import urllib.request
 import json
 import shutil
 
 REPO = "ggerganov/llama.cpp"
-TARGET_DIR = r"J:\NPU-STACK\llama.cpp"
+
+# Resolve target directory:
+#   1. Explicit env var LLAMA_CPP_TOOLS_DIR (if set)
+#   2. Repo-local default: <repo_root>/llama.cpp
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
+TARGET_DIR = os.environ.get("LLAMA_CPP_TOOLS_DIR", os.path.join(_REPO_ROOT, "llama.cpp"))
 
 def get_latest_release_url():
     url = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -73,13 +80,37 @@ def download_convert_script(target_dir):
         print(f"Could not download secondary script: {e}")
 
 if __name__ == "__main__":
-    os.makedirs(TARGET_DIR, exist_ok=True)
-    
-    dl_url = get_latest_release_url()
+    try:
+        os.makedirs(TARGET_DIR, exist_ok=True)
+        print(f"llama.cpp tools target directory: {TARGET_DIR}")
+    except OSError as e:
+        print(f"[WARN] Could not create target directory '{TARGET_DIR}': {e}")
+        print("[WARN] Skipping llama.cpp tools download.")
+        print("[WARN] Set LLAMA_CPP_TOOLS_DIR to a writable path and re-run, or use Docker.")
+        sys.exit(0)
+
+    try:
+        dl_url = get_latest_release_url()
+    except Exception as e:
+        print(f"[WARN] Could not fetch llama.cpp release info: {e}")
+        print("[WARN] Skipping llama.cpp tools download. Check your internet connection.")
+        sys.exit(0)
+
     if not dl_url:
-        print("Could not find a suitable release zip.")
-        exit(1)
-        
-    download_and_extract(dl_url, TARGET_DIR)
-    download_convert_script(TARGET_DIR)
-    print("All llama.cpp tools successfully downloaded and extracted to J:\\NPU-STACK\\llama.cpp!")
+        print("[WARN] Could not find a suitable release zip in the latest llama.cpp release.")
+        print("[WARN] Skipping llama.cpp tools download.")
+        sys.exit(0)
+
+    try:
+        download_and_extract(dl_url, TARGET_DIR)
+    except Exception as e:
+        print(f"[WARN] Failed to download/extract llama.cpp binaries: {e}")
+        print("[WARN] GGUF conversion features will be unavailable until tools are downloaded.")
+        sys.exit(0)
+
+    try:
+        download_convert_script(TARGET_DIR)
+    except Exception as e:
+        print(f"[WARN] Failed to download conversion scripts: {e}")
+
+    print(f"All llama.cpp tools successfully downloaded and extracted to: {TARGET_DIR}")
