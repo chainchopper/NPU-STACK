@@ -448,6 +448,27 @@ def get_system_info() -> dict:
                                 "status": "online"
                             })
                             existing_gpu_names.add(name)
+            
+            # Detect NDUs/NPUs via WMI (AMD Ryzen AI / Intel NPU)
+            try:
+                cmd_npu = ['powershell', '-Command', 
+                       'Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "NPU|Neural Processing Unit|AI Engine|IPU" } | Select-Object Name | ConvertTo-Json -Compress']
+                res_npu = subprocess.run(cmd_npu, capture_output=True, text=True, timeout=5)
+                if res_npu.returncode == 0 and res_npu.stdout.strip():
+                    import json
+                    npus = json.loads(res_npu.stdout)
+                    if isinstance(npus, dict): npus = [npus]
+                    for n in npus:
+                        name = n.get("Name", "")
+                        if name:
+                            if "AMD" in name or "IPU" in name or "AI Engine" in name:
+                                info["amd_npu_available"] = True
+                                info["amd_npu_name"] = name
+                            elif "Intel" in name:
+                                info["npu_available"] = True
+                                info["npu_name"] = name
+            except Exception:
+                pass
         elif platform.system() == "Linux":
             res = subprocess.run(['lspci'], capture_output=True, text=True, timeout=5)
             if res.returncode == 0:
@@ -668,7 +689,8 @@ def get_system_info() -> dict:
         "vitis_ai": {"available": info.get("vitis_ai_available", False), "label": "AMD Vitis AI Quantization"},
         "alveo_fpga": {"available": info.get("alveo_available", False), "label": "AMD/Xilinx Alveo FPGA"},
         "quark": {"available": info.get("quark_available", False), "label": "AMD Quark Quantizer"},
-        "intel_npu": {"available": info.get("npu_available", False), "label": "Intel NPU"},
+        "amd_npu": {"available": info.get("amd_npu_available", False) or info.get("vitis_ai_available", False), "label": info.get("amd_npu_name", "AMD NPU (Ryzen AI)")},
+        "intel_npu": {"available": info.get("npu_available", False), "label": info.get("npu_name", "Intel NPU")},
         "coral_tpu": {"available": info.get("coral_tpu_available", False), "label": "Google Coral Edge TPU"},
         "rknn_npu": {"available": info.get("rknn_available", False), "label": "Rockchip RKNN NPU"},
         "rk_llama": {"available": info.get("rk_llama_cpp_available", False), "label": "rk-llama.cpp (NPU LLM)"},
