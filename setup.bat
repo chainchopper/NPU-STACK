@@ -371,9 +371,9 @@ if exist "%ROOT%\run-all.bat" (
 >> "%ROOT%\run-all.bat" echo echo.
 >> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\.venv\Scripts\activate.bat" (echo [ERROR] .venv not found. Please run setup.bat first. ^& pause ^& exit /b 1)
 >> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\frontend\node_modules" (cd /d "!ROOT!\frontend" ^& call npm install ^& cd /d "!ROOT!")
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k "call "!ROOT!\.venv\Scripts\activate.bat" ^& cd /d "!ROOT!\backend" ^& python main.py"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k call "!ROOT!\.venv\Scripts\activate.bat" ^^^& cd /d "!ROOT!\backend" ^^^& python main.py
 >> "%ROOT%\run-all.bat" echo timeout /t 3 /nobreak ^>nul
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k "cd /d "!ROOT!\frontend" ^& npm run dev"
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k cd /d "!ROOT!\frontend" ^^^& npm run dev
 >> "%ROOT%\run-all.bat" echo echo.
 >> "%ROOT%\run-all.bat" echo echo   Both services launched in separate windows.
 >> "%ROOT%\run-all.bat" echo echo   Close those windows to stop the services.
