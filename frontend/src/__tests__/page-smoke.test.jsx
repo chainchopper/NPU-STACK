@@ -168,6 +168,17 @@ describe('Frontend page smoke coverage', () => {
         expect(screen.getByPlaceholderText(/Known hosts \/ IPs/i)).toBeInTheDocument();
     });
 
+    it('renders EdgeFleet backend warning for a wrong backend 404', async () => {
+        const error = Object.assign(new Error('Not Found'), { status: 404, kind: 'not-found' });
+        listDevices.mockRejectedValue(error);
+        listBackups.mockResolvedValue({ backups: [] });
+        listPreparedBundles.mockResolvedValue({ bundles: [] });
+
+        render(<EdgeFleet />);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(/does not look like the NPU-STACK backend/i);
+    });
+
     it('maps frontend dev origins to the backend origin for bundle provisioning', () => {
         expect(inferBackendOrigin('http://127.0.0.1:5174/edge-fleet')).toBe('http://127.0.0.1:8010');
         expect(inferBackendOrigin('http://127.0.0.1:5173/hub')).toBe('http://127.0.0.1:8010');

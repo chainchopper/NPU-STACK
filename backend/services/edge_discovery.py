@@ -174,6 +174,7 @@ _HEURISTIC_RULES = [
     (["banana pi", "bananapi"], "allwinner", "Banana Pi"),
     (["coral", "edge tpu"], "coral", "Google Coral"),
     (["movidius", "myriad", "ncs2"], "movidius", "Intel NCS"),
+    (["quansheng", "uv-k5", "uvk5", "egzumer"], "radio", "Quansheng UV-K5"),
     (["cp210", "cp2102", "cp2104"], "uart-bridge", "Silicon Labs CP210x"),
     (["ch340"], "uart-bridge", "WCH CH340"),
     (["ch341"], "uart-bridge", "WCH CH341"),
@@ -303,6 +304,34 @@ def _classify_chip_identity(chip_name: str, manufacturer: str = "", description:
             "flash_mb": 0,
         }
     return heuristic
+
+
+def _is_generic_serial_family(family: str) -> bool:
+    return family in {"unknown", "serial", "uart-bridge"}
+
+
+def _should_preserve_existing_identity(existing: dict, discovered: dict) -> bool:
+    existing_family = str(existing.get("family") or "")
+    discovered_family = str(discovered.get("family") or "")
+
+    if not existing_family or existing_family == discovered_family:
+        return False
+
+    if not _is_generic_serial_family(existing_family) and _is_generic_serial_family(discovered_family):
+        return True
+
+    existing_chip = str(existing.get("chip") or "").lower()
+    detected_chip_at = existing.get("last_chip_detected_at")
+    if detected_chip_at and _is_generic_serial_family(discovered_family):
+        return True
+
+    if existing_family == "radio" and discovered_family == "uart-bridge":
+        return True
+
+    if (existing_family.startswith("esp") or "quansheng" in existing_chip) and discovered_family == "uart-bridge":
+        return True
+
+    return False
 
 
 def _compact_text(value: str, limit: int = 160) -> str:
@@ -1231,6 +1260,13 @@ def merge_into_registry(discovered: list[dict]) -> dict:
             "preferred_profile_id": existing.get("preferred_profile_id"),
             "last_prepared_bundle_id": existing.get("last_prepared_bundle_id"),
         }
+
+        if _should_preserve_existing_identity(existing, discovered_device):
+            for field in ("family", "chip", "has_npu", "flash_mb", "chip_features", "chip_mac", "last_chip_detected_at"):
+                existing_value = existing.get(field)
+                if existing_value not in (None, "", 0):
+                    merged[field] = existing_value
+
         devices[device_id] = merged
 
     registry["devices"] = devices

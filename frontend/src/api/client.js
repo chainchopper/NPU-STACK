@@ -75,6 +75,35 @@ export function websocketUrl(path = '') {
     return url.toString();
 }
 
+function buildApiError(message, details = {}) {
+    const error = new Error(message);
+    Object.assign(error, details);
+    return error;
+}
+
+export function diagnoseBackendError(error, feature = 'This feature') {
+    const backendOrigin = inferBackendOrigin();
+    const target = backendOrigin || (typeof window !== 'undefined' ? window.location.origin : 'the backend');
+
+    if (!error) {
+        return `${feature} could not reach the NPU-STACK backend.`;
+    }
+
+    if (error.kind === 'network') {
+        return `${feature} cannot reach the NPU-STACK backend at ${target}. Start the backend or point the frontend at the correct port.`;
+    }
+
+    if (error.status === 404) {
+        return `${feature} reached ${target}, but that service does not look like the NPU-STACK backend. The expected API route returned 404 Not Found.`;
+    }
+
+    if (error.status >= 500) {
+        return `${feature} reached the backend at ${target}, but it returned a server error (${error.status}).`;
+    }
+
+    return error.message || `${feature} failed while talking to the backend at ${target}.`;
+}
+
 function titleCaseSlug(value = '') {
     return value
         .replace(/[-_]+/g, ' ')
@@ -90,17 +119,32 @@ function formatFlmModelName(tag = '') {
 
 async function request(path, options = {}) {
     const url = apiUrl(path);
-    const res = await fetch(url, {
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers,
-        },
-        ...options,
-    });
+    let res;
+    try {
+        res = await fetch(url, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers,
+            },
+            ...options,
+        });
+    } catch (error) {
+        throw buildApiError(`Unable to reach ${url}`, {
+            url,
+            kind: 'network',
+            status: 0,
+            cause: error,
+        });
+    }
 
     if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(error.detail || `Request failed: ${res.status}`);
+        throw buildApiError(error.detail || `Request failed: ${res.status}`, {
+            url,
+            status: res.status,
+            kind: res.status === 404 ? 'not-found' : 'http',
+            detail: error.detail || null,
+        });
     }
 
     return res.json();

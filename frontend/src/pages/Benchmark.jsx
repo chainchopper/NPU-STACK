@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Gauge, Play, BarChart3 } from 'lucide-react';
+import { Gauge, Play, BarChart3, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts';
-import { listModels, runBenchmark, listBenchmarks } from '../api/client';
+import { getSystemInfo, listModels, runBenchmark, listBenchmarks } from '../api/client';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -11,11 +11,13 @@ export default function Benchmark() {
     const [loading, setLoading] = useState(true);
     const [running, setRunning] = useState(false);
     const [latestResult, setLatestResult] = useState(null);
+    const [systemInfo, setSystemInfo] = useState(null);
+    const [browserAccel, setBrowserAccel] = useState({ webgpu: false, webgl: false });
 
     const [form, setForm] = useState({
         model_id: '',
         runtime: 'onnxruntime',
-        device: 'cpu',
+        device: 'auto',
         batch_size: 1,
         warmup_runs: 10,
         num_iterations: 100,
@@ -25,11 +27,21 @@ export default function Benchmark() {
         Promise.all([
             listModels().catch(() => []),
             listBenchmarks().catch(() => []),
-        ]).then(([m, b]) => {
+            getSystemInfo().catch(() => null),
+        ]).then(([m, b, info]) => {
             setModels(m);
             setBenchmarks(b);
+            setSystemInfo(info);
             setLoading(false);
         });
+
+        if (typeof document !== 'undefined') {
+            const canvas = document.createElement('canvas');
+            setBrowserAccel({
+                webgpu: typeof navigator !== 'undefined' && Boolean(navigator.gpu),
+                webgl: Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl')),
+            });
+        }
     }, []);
 
     const handleRun = async (e) => {
@@ -96,10 +108,12 @@ export default function Benchmark() {
                             <div className="form-group">
                                 <label className="form-label">Device</label>
                                 <select className="form-select" value={form.device} onChange={e => setForm({ ...form, device: e.target.value })}>
+                                    <option value="auto">AUTO (best accelerator)</option>
+                                    <option value="gpu">GPU (generic)</option>
                                     <option value="cpu">CPU</option>
                                     <option value="npu">NPU (Intel)</option>
                                     <option value="cuda">CUDA GPU</option>
-                                    <option value="auto">AUTO</option>
+                                    <option value="directml">DirectML GPU</option>
                                 </select>
                             </div>
                         </div>
@@ -117,6 +131,22 @@ export default function Benchmark() {
                             <Play size={16} />
                             {running ? 'Running benchmark...' : 'Run Benchmark'}
                         </button>
+
+                        <div style={{ marginTop: '16px', padding: '12px', borderRadius: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                            <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                                Acceleration detected
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                                <span className={`badge ${systemInfo?.capabilities?.cuda_gpu?.available ? 'badge-success' : ''}`}>CUDA</span>
+                                <span className={`badge ${systemInfo?.capabilities?.directml?.available ? 'badge-info' : ''}`}>DirectML</span>
+                                <span className={`badge ${systemInfo?.capabilities?.openvino?.available ? 'badge-purple' : ''}`}>OpenVINO</span>
+                                <span className={`badge ${systemInfo?.capabilities?.vulkan?.available ? 'badge-purple' : ''}`}>Vulkan</span>
+                                <span className={`badge ${browserAccel.webgpu ? 'badge-purple' : ''}`}>WebGPU (browser)</span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                ONNX Runtime providers: {systemInfo?.onnxruntime_providers?.length ? systemInfo.onnxruntime_providers.join(', ') : 'not detected'}
+                            </div>
+                        </div>
                     </form>
                 </div>
 
@@ -131,9 +161,12 @@ export default function Benchmark() {
                                 <span className="badge badge-success">✅ Complete</span>
                                 <span className="badge badge-info" style={{ marginLeft: '8px' }}>{latestResult.runtime}</span>
                                 <span className="badge badge-purple" style={{ marginLeft: '8px' }}>{latestResult.active_provider || latestResult.device}</span>
-                                {latestResult.device === 'cuda' && latestResult.active_provider === 'CPU' && (
+                                {latestResult.requested_device && (
+                                    <span className="badge" style={{ marginLeft: '8px' }}>requested: {latestResult.requested_device}</span>
+                                )}
+                                {latestResult.fallback_used && (
                                     <div style={{ marginTop: '12px', padding: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', fontSize: '12px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <AlertCircle size={14} /> Fallback to CPU detected. GPU providers may be missing.
+                                        <AlertCircle size={14} /> {latestResult.fallback_reason || 'A fallback provider was used for this benchmark run.'}
                                     </div>
                                 )}
                             </div>
@@ -146,6 +179,7 @@ export default function Benchmark() {
                             <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 <MetricRow label="P50 Latency" value={`${latestResult.latency_p50_ms} ms`} />
                                 <MetricRow label="P99 Latency" value={`${latestResult.latency_p99_ms} ms`} />
+                                <MetricRow label="Resolved Device" value={latestResult.device} />
                                 {latestResult.runtime === 'llama-cpp' ? (
                                     <MetricRow label="Metric Type" value="Tokens/sec" />
                                 ) : (

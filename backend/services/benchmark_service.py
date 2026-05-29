@@ -10,6 +10,94 @@ import numpy as np
 MODEL_STORE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "models")
 
 
+def _provider_spec(name: str, options: Optional[dict] = None):
+    return (name, options) if options else name
+
+
+def _provider_name(provider_spec) -> str:
+    return provider_spec[0] if isinstance(provider_spec, tuple) else provider_spec
+
+
+def _build_onnxruntime_attempt(device_label: str, providers: list, summary: str, fallback: bool = False) -> dict:
+    return {
+        "device": device_label,
+        "providers": providers,
+        "primary_provider": _provider_name(providers[0]),
+        "summary": summary,
+        "fallback": fallback,
+    }
+
+
+def _plan_onnxruntime_execution(device: str, available_providers: list[str]) -> dict:
+    requested = (device or "cpu").strip().lower()
+    available = list(available_providers or [])
+    attempts: list[dict] = []
+
+    def has(provider_name: str) -> bool:
+        return provider_name in available
+
+    def add_attempt(device_label: str, providers: list, summary: str, fallback: bool = False):
+        attempts.append(_build_onnxruntime_attempt(device_label, providers, summary, fallback=fallback))
+
+    cpu_only = [_provider_spec("CPUExecutionProvider")]
+
+    if requested in {"npu", "openvino", "intel-npu"}:
+        if has("OpenVINOExecutionProvider"):
+            add_attempt("openvino-npu", [_provider_spec("OpenVINOExecutionProvider", {"device_type": "NPU"}), _provider_spec("CPUExecutionProvider")], "OpenVINO NPU")
+        add_attempt("cpu", cpu_only, "CPU fallback", fallback=True)
+    elif requested in {"cuda", "nvidia"}:
+        if has("CUDAExecutionProvider"):
+            add_attempt("cuda", [_provider_spec("CUDAExecutionProvider"), _provider_spec("CPUExecutionProvider")], "NVIDIA CUDA")
+        add_attempt("cpu", cpu_only, "CPU fallback", fallback=True)
+    elif requested in {"directml", "dml"}:
+        if has("DmlExecutionProvider"):
+            add_attempt("directml", [_provider_spec("DmlExecutionProvider"), _provider_spec("CPUExecutionProvider")], "DirectML GPU")
+        if has("CUDAExecutionProvider"):
+            add_attempt("cuda", [_provider_spec("CUDAExecutionProvider"), _provider_spec("CPUExecutionProvider")], "CUDA GPU fallback", fallback=True)
+        add_attempt("cpu", cpu_only, "CPU fallback", fallback=True)
+    elif requested in {"gpu", "accelerator"}:
+        if has("CUDAExecutionProvider"):
+            add_attempt("cuda", [_provider_spec("CUDAExecutionProvider"), _provider_spec("CPUExecutionProvider")], "NVIDIA CUDA")
+        if has("DmlExecutionProvider"):
+            add_attempt("directml", [_provider_spec("DmlExecutionProvider"), _provider_spec("CPUExecutionProvider")], "DirectML GPU")
+        if has("OpenVINOExecutionProvider"):
+            add_attempt("openvino-gpu", [_provider_spec("OpenVINOExecutionProvider", {"device_type": "GPU"}), _provider_spec("CPUExecutionProvider")], "OpenVINO GPU")
+            add_attempt("openvino-npu", [_provider_spec("OpenVINOExecutionProvider", {"device_type": "NPU"}), _provider_spec("CPUExecutionProvider")], "OpenVINO NPU")
+        add_attempt("cpu", cpu_only, "CPU fallback", fallback=True)
+    elif requested in {"auto", "default"}:
+        if has("CUDAExecutionProvider"):
+            add_attempt("cuda", [_provider_spec("CUDAExecutionProvider"), _provider_spec("CPUExecutionProvider")], "NVIDIA CUDA")
+        if has("DmlExecutionProvider"):
+            add_attempt("directml", [_provider_spec("DmlExecutionProvider"), _provider_spec("CPUExecutionProvider")], "DirectML GPU")
+        if has("OpenVINOExecutionProvider"):
+            add_attempt("openvino-gpu", [_provider_spec("OpenVINOExecutionProvider", {"device_type": "GPU"}), _provider_spec("CPUExecutionProvider")], "OpenVINO GPU")
+            add_attempt("openvino-npu", [_provider_spec("OpenVINOExecutionProvider", {"device_type": "NPU"}), _provider_spec("CPUExecutionProvider")], "OpenVINO NPU")
+        add_attempt("cpu", cpu_only, "CPU fallback", fallback=True)
+    else:
+        add_attempt("cpu", cpu_only, "CPU")
+
+    deduped_attempts: list[dict] = []
+    seen_signatures: set[tuple[str, tuple[str, ...]]] = set()
+    for attempt in attempts:
+        signature = (
+            attempt["device"],
+            tuple(
+                f"{_provider_name(provider)}:{provider[1] if isinstance(provider, tuple) else ''}"
+                for provider in attempt["providers"]
+            ),
+        )
+        if signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
+        deduped_attempts.append(attempt)
+
+    return {
+        "requested_device": requested,
+        "available_providers": available,
+        "attempts": deduped_attempts,
+    }
+
+
 def _generate_random_input(session_or_model, runtime: str, batch_size: int = 1):
     """Generate random input data matching model input requirements."""
     if runtime == "onnxruntime":
@@ -38,32 +126,52 @@ def benchmark_onnxruntime(
     """
     Benchmark an ONNX model using ONNX Runtime.
     
-    Supports CPU and OpenVINO execution providers for NPU inference.
+    Supports CPU, CUDA, DirectML, and OpenVINO execution providers.
     """
     import onnxruntime as ort
 
-    # Select execution provider
-    providers = []
-    if device == "npu" or device == "openvino":
-        providers.append(("OpenVINOExecutionProvider", {"device_type": "NPU"}))
-        providers.append("CPUExecutionProvider")
-    elif device == "cuda":
-        providers.append("CUDAExecutionProvider")
-        providers.append("CPUExecutionProvider")
-    else:
-        providers.append("CPUExecutionProvider")
+    available_providers = ort.get_available_providers()
+    plan = _plan_onnxruntime_execution(device, available_providers)
+    attempt_errors: list[dict] = []
+    selected_attempt = None
+    session = None
 
-    try:
-        session = ort.InferenceSession(model_path, providers=providers)
-    except Exception:
-        # Fall back to CPU if requested provider not available
-        session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-        device = "cpu (fallback)"
-        
-    # Double check active provider
-    active_provider = session.get_providers()[0]
-    if active_provider == "CPUExecutionProvider" and device not in ("cpu", "cpu (fallback)"):
-        device = "cpu (fallback)"
+    for attempt in plan["attempts"]:
+        try:
+            session = ort.InferenceSession(model_path, providers=attempt["providers"])
+            selected_attempt = attempt
+            break
+        except Exception as exc:
+            attempt_errors.append({
+                "device": attempt["device"],
+                "provider": attempt["primary_provider"],
+                "error": str(exc),
+            })
+
+    if session is None or selected_attempt is None:
+        raise RuntimeError("Unable to create an ONNX Runtime inference session")
+
+    active_providers = session.get_providers()
+    active_provider = active_providers[0] if active_providers else "unknown"
+    fallback_used = bool(selected_attempt.get("fallback"))
+    resolved_device = selected_attempt["device"]
+
+    if active_provider == "CPUExecutionProvider" and plan["requested_device"] != "cpu":
+        fallback_used = True
+        resolved_device = "cpu (fallback)"
+
+    fallback_reason = None
+    if fallback_used:
+        if attempt_errors:
+            attempt_summary = "; ".join(
+                f"{entry['device']} via {entry['provider']}: {entry['error']}"
+                for entry in attempt_errors
+            )
+            fallback_reason = f"Requested {plan['requested_device']} acceleration was unavailable. {attempt_summary}"
+        elif plan["requested_device"] == "auto":
+            fallback_reason = "No hardware acceleration provider was available, so ONNX Runtime used CPUExecutionProvider."
+        else:
+            fallback_reason = f"Requested {plan['requested_device']} acceleration was unavailable, so ONNX Runtime used {active_provider}."
 
     input_data = _generate_random_input(session, "onnxruntime", batch_size)
 
@@ -87,7 +195,22 @@ def benchmark_onnxruntime(
     return {
         "runtime": "onnxruntime",
         "active_provider": active_provider,
-        "device": device,
+        "device": resolved_device,
+        "requested_device": plan["requested_device"],
+        "available_providers": available_providers,
+        "provider_attempts": [
+            {
+                "device": attempt["device"],
+                "provider": attempt["primary_provider"],
+                "summary": attempt["summary"],
+                "fallback": attempt["fallback"],
+            }
+            for attempt in plan["attempts"]
+        ],
+        "provider_errors": attempt_errors,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "hardware_acceleration_used": active_provider != "CPUExecutionProvider",
         "batch_size": batch_size,
         "warmup_runs": warmup_runs,
         "num_iterations": num_iterations,
@@ -126,7 +249,7 @@ def benchmark_openvino(
         model = core.read_model(model_path)
 
     # Compile for target device
-    target_device = device.upper()
+    target_device = "GPU" if str(device).lower() == "gpu" else str(device).upper()
     if target_device not in available_devices and target_device != "AUTO":
         target_device = "CPU (fallback)"
 
@@ -162,6 +285,8 @@ def benchmark_openvino(
     return {
         "runtime": "openvino",
         "device": target_device,
+        "requested_device": str(device).lower(),
+        "fallback_used": "fallback" in target_device.lower(),
         "available_devices": available_devices,
         "batch_size": batch_size,
         "warmup_runs": warmup_runs,

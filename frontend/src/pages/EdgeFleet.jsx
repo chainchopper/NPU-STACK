@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Wifi, Usb, Bluetooth, Search, RefreshCw, HardDrive, Terminal,
     Download, Trash2, Edit3, Check, X, Radio, CircleDot,
-    ChevronDown, ChevronUp, Zap, Server, MonitorSmartphone, Shield,
+    ChevronDown, ChevronUp, Zap, Server, MonitorSmartphone, Shield, AlertTriangle,
     Link2, PackageOpen, Upload,
 } from 'lucide-react';
 import {
     absoluteUrl,
     detectDeviceChip,
+    diagnoseBackendError,
     downloadPreparedBundleUrl,
     espBackup,
     inferBackendOrigin,
@@ -104,6 +105,9 @@ export default function EdgeFleet() {
     const [editName, setEditName] = useState('');
     const [loading, setLoading] = useState(true);
     const [provisioningConfig, setProvisioningConfig] = useState(buildProvisioningDefaults);
+    const [backendWarning, setBackendWarning] = useState('');
+
+    const backendOrigin = useMemo(() => inferBackendOrigin(), []);
 
     const addLog = (msg) => {
         setLog((prev) => [...prev.slice(-59), `${new Date().toLocaleTimeString()} — ${msg}`]);
@@ -120,8 +124,9 @@ export default function EdgeFleet() {
                 available_count: data.available_count || 0,
                 hidden_low_confidence: data.hidden_low_confidence || 0,
             });
-        } catch {
-            // Backend not available.
+            setBackendWarning('');
+        } catch (error) {
+            setBackendWarning(diagnoseBackendError(error, 'Edge Fleet'));
         }
         setLoading(false);
     }, []);
@@ -197,9 +202,12 @@ export default function EdgeFleet() {
                 available_count: nextDevices.filter((device) => device.available).length,
                 hidden_low_confidence: data.hidden_low_confidence || 0,
             });
+            setBackendWarning('');
             addLog(`Found ${data.devices_found || 0} device(s), ${data.total_registered || 0} registered`);
         } catch (error) {
-            addLog(`Scan failed: ${error.message}`);
+            const message = diagnoseBackendError(error, 'Edge Fleet scan');
+            setBackendWarning(message);
+            addLog(`Scan failed: ${message}`);
         }
         setScanning(false);
     };
@@ -334,9 +342,12 @@ export default function EdgeFleet() {
             } else {
                 addLog('No RP2040 in BOOTSEL mode');
             }
+            setBackendWarning('');
             fetchDevices();
         } catch (error) {
-            addLog(`RP2040 detect failed: ${error.message}`);
+            const message = diagnoseBackendError(error, 'RP2040 detection');
+            setBackendWarning(message);
+            addLog(`RP2040 detect failed: ${message}`);
         }
     };
 
@@ -527,6 +538,29 @@ export default function EdgeFleet() {
                 <h2>Edge Device Fleet</h2>
                 <p>Detect boards immediately, pair them for management, and prepare repo-native firmware bundles from the existing NPU-STACK device stack.</p>
             </div>
+
+            {backendWarning && (
+                <div
+                    role="alert"
+                    className="card"
+                    style={{
+                        marginBottom: 24,
+                        borderColor: 'rgba(245, 158, 11, 0.35)',
+                        background: 'rgba(245, 158, 11, 0.08)',
+                    }}
+                >
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <AlertTriangle size={18} style={{ color: 'var(--accent-amber)', marginTop: 2 }} />
+                        <div>
+                            <div style={{ fontWeight: 700, marginBottom: 6 }}>Backend attention needed</div>
+                            <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>{backendWarning}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                Expected backend origin: {backendOrigin || 'same-origin /api proxy'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="metrics-grid">
                 <div className="metric-card blue">
