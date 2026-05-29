@@ -25,6 +25,21 @@ export function absoluteUrl(path = '') {
     return new URL(normalized, window.location.origin).toString();
 }
 
+export function inferBackendOrigin(currentUrl = null) {
+    const fallbackUrl = currentUrl || (typeof window !== 'undefined' ? window.location.href : '');
+    if (!fallbackUrl) return '';
+
+    try {
+        const url = new URL(fallbackUrl, typeof window !== 'undefined' ? window.location.origin : undefined);
+        if (url.port === '5173' || url.port === '5174') {
+            url.port = '8000';
+        }
+        return url.origin;
+    } catch {
+        return typeof window !== 'undefined' ? window.location.origin : '';
+    }
+}
+
 export function websocketUrl(path = '') {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${window.location.host}${normalizePath(path)}`;

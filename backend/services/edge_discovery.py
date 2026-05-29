@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import time
 import zipfile
@@ -148,6 +149,14 @@ _HEURISTIC_RULES = [
     (["esp32-h2"], "esp32-h2", "ESP32-H2"),
     (["esp32"], "esp32", "ESP32"),
     (["esp8266", "nodemcu"], "esp8266", "ESP8266"),
+    (["esphome"], "esp32", "ESPHome Node"),
+    (["wled"], "esp32", "WLED Controller"),
+    (["tasmota"], "esp8266", "Tasmota Device"),
+    (["micropython"], "esp32", "MicroPython Device"),
+    (["circuitpython"], "circuitpython", "CircuitPython Device"),
+    (["luckfox"], "rockchip", "LuckFox Pico"),
+    (["rv1103", "rv1106"], "rockchip", "LuckFox Pico"),
+    (["rockchip", "rk3588", "rk3588s", "rk3576", "rk3568", "rk3566", "rk3562", "radxa", "friendlyelec", "firefly"], "rockchip", "Rockchip SoC"),
     (["rp2040", "pico"], "rp2040", "RP2040"),
     (["rp2350", "pico 2", "pico2"], "rp2350", "RP2350"),
     (["arduino uno r4"], "arduino", "Arduino Uno R4"),
@@ -159,8 +168,6 @@ _HEURISTIC_RULES = [
     (["teensy"], "teensy", "Teensy"),
     (["stm32", "st-link", "stlink"], "stm32", "STM32"),
     (["nrf52", "nrf53", "nrf91"], "nrf", "Nordic nRF"),
-    (["luckfox"], "rockchip", "LuckFox Pico"),
-    (["rockchip", "rk3588", "rk3566", "rk3562", "rv1103", "rv1106"], "rockchip", "Rockchip SoC"),
     (["orangepi", "orange pi"], "allwinner", "OrangePi"),
     (["banana pi", "bananapi"], "allwinner", "Banana Pi"),
     (["coral", "edge tpu"], "coral", "Google Coral"),
@@ -174,6 +181,15 @@ _HEURISTIC_RULES = [
     (["raspberry pi", "raspberrypi"], "rpi-sbc", "Raspberry Pi"),
     (["jetson"], "nvidia", "NVIDIA Jetson"),
     (["adafruit"], "circuitpython", "Adafruit Board"),
+]
+
+DEFAULT_MDNS_SCAN_TYPES = [
+    "_nirvana-npu._tcp.local.",
+    "_http._tcp.local.",
+    "_ssh._tcp.local.",
+    "_esphomelib._tcp.local.",
+    "_arduino._tcp.local.",
+    "_workstation._tcp.local.",
 ]
 
 
@@ -285,6 +301,65 @@ def _classify_chip_identity(chip_name: str, manufacturer: str = "", description:
             "flash_mb": 0,
         }
     return heuristic
+
+
+def _compact_text(value: str, limit: int = 160) -> str:
+    compact = " ".join(str(value or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1].rstrip() + "…"
+
+
+def _extract_html_title(text: str) -> str:
+    if not text:
+        return ""
+    match = re.search(r"<title[^>]*>(.*?)</title>", text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ""
+    return _compact_text(match.group(1), limit=120)
+
+
+def _parse_http_probe(raw_text: str) -> dict:
+    if not raw_text:
+        return {}
+
+    header_block, _, body = raw_text.partition("\r\n\r\n")
+    if not body and "\n\n" in raw_text:
+        header_block, _, body = raw_text.partition("\n\n")
+
+    headers = {}
+    for line in header_block.splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+
+    return {
+        "server_header": headers.get("server", ""),
+        "location": headers.get("location", ""),
+        "page_title": _extract_html_title(body),
+        "body_preview": _compact_text(body, limit=220),
+    }
+
+
+def _classify_network_endpoint(
+    hostname: str = "",
+    server_header: str = "",
+    page_title: str = "",
+    body_preview: str = "",
+    ssh_banner: str = "",
+) -> dict:
+    evidence = " ".join(filter(None, [hostname, server_header, page_title, body_preview, ssh_banner]))
+    heuristic = _identify_by_heuristics(evidence, "", "") or {}
+    description = _compact_text(page_title or server_header or ssh_banner or hostname or "Network device")
+    family = heuristic.get("family", "unknown")
+
+    return {
+        "family": family,
+        "chip": heuristic.get("chip") or description or "unknown",
+        "has_npu": heuristic.get("npu", _family_has_npu(family)),
+        "description": description,
+    }
 
 
 def _device_tier(family: str) -> str:
@@ -664,7 +739,12 @@ def scan_mdns(service_type: str = "_nirvana-npu._tcp.local.", timeout: float = 5
     zc = Zeroconf()
     try:
         listeners = []
-        for scan_type in [service_type, "_http._tcp.local.", "_ssh._tcp.local."]:
+        scan_types: list[str] = []
+        for candidate in [service_type, *DEFAULT_MDNS_SCAN_TYPES]:
+            if candidate and candidate not in scan_types:
+                scan_types.append(candidate)
+
+        for scan_type in scan_types:
             listener = Listener()
             listeners.append((scan_type, listener, ServiceBrowser(zc, scan_type, listener)))
         time.sleep(timeout)
@@ -706,10 +786,55 @@ def get_local_subnets() -> list[str]:
     return subnets
 
 
-async def scan_subnet(subnet: str, ports: list[int] = [80, 8000, 22], timeout: float = 0.5) -> list[dict]:
+async def scan_subnet(subnet: str, ports: Optional[list[int]] = None, timeout: float = 0.5) -> list[dict]:
     devices: list[dict] = []
 
     import socket
+
+    ports = ports or [80, 81, 8080, 8000, 22]
+
+    async def _probe_http_endpoint(ip: str, port: int) -> dict:
+        reader = None
+        writer = None
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
+            request = (
+                f"GET / HTTP/1.0\r\n"
+                f"Host: {ip}\r\n"
+                "User-Agent: NPU-STACK/1.0\r\n"
+                "Accept: text/html, */*\r\n"
+                "Connection: close\r\n\r\n"
+            )
+            writer.write(request.encode("ascii", errors="ignore"))
+            await writer.drain()
+            raw = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+            return _parse_http_probe(raw.decode("utf-8", errors="ignore"))
+        except Exception:
+            return {}
+        finally:
+            if writer is not None:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+
+    async def _probe_ssh_banner(ip: str, port: int) -> str:
+        reader = None
+        writer = None
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
+            raw = await asyncio.wait_for(reader.read(256), timeout=timeout)
+            return _compact_text(raw.decode("utf-8", errors="ignore"), limit=160)
+        except Exception:
+            return ""
+        finally:
+            if writer is not None:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
 
     async def check_host(ip: str):
         for port in ports:
@@ -724,17 +849,48 @@ async def scan_subnet(subnet: str, ports: list[int] = [80, 8000, 22], timeout: f
                 except Exception:
                     hostname = ""
 
-                heuristic = _identify_by_heuristics(hostname, "", ip) if hostname else None
+                server_header = ""
+                page_title = ""
+                body_preview = ""
+                location = ""
+                ssh_banner = ""
+                service = "tcp"
+
+                if port in {80, 81, 8080, 8000}:
+                    service = "http"
+                    probe = await _probe_http_endpoint(ip, port)
+                    server_header = probe.get("server_header", "")
+                    page_title = probe.get("page_title", "")
+                    body_preview = probe.get("body_preview", "")
+                    location = probe.get("location", "")
+                elif port == 22:
+                    service = "ssh"
+                    ssh_banner = await _probe_ssh_banner(ip, port)
+
+                classification = _classify_network_endpoint(
+                    hostname=hostname,
+                    server_header=server_header,
+                    page_title=page_title,
+                    body_preview=body_preview,
+                    ssh_banner=ssh_banner,
+                )
+
                 devices.append({
                     "id": f"net-{ip.replace('.', '-')}-{port}",
                     "ip": ip,
                     "host": hostname or None,
                     "port": port,
                     "connection": "wifi",
-                    "family": (heuristic or {}).get("family", "unknown"),
-                    "chip": (heuristic or {}).get("chip", hostname or "unknown"),
-                    "has_npu": (heuristic or {}).get("npu", False),
+                    "service": service,
+                    "family": classification.get("family", "unknown"),
+                    "chip": classification.get("chip", hostname or "unknown"),
+                    "description": classification.get("description", hostname or "Network device"),
+                    "has_npu": classification.get("has_npu", False),
                     "status": "reachable",
+                    "server_header": server_header or None,
+                    "page_title": page_title or None,
+                    "location": location or None,
+                    "ssh_banner": ssh_banner or None,
                     "discovered_at": _utcnow_iso(),
                 })
                 break

@@ -59,3 +59,12 @@ backend/_create_test_model.py
 
 # Web folder's own git repo (deployed separately to Vercel)
 web/.git
+
+# Local lab / media content pending an explicit ownership decision
+Fleet MCP - OTA - REMOTE BOOT - MGMT - SERVICE AND DEVICE DISOVERY.md
+assets/
+compositions/
+libraries/
+test_escape.bat
+test_hardware.py
+test_quote.bat

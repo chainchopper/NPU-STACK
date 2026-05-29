@@ -10,6 +10,7 @@ import {
     detectDeviceChip,
     downloadPreparedBundleUrl,
     espBackup,
+    inferBackendOrigin,
     installPreparedBundle,
     listBackups,
     listDevices,
@@ -56,7 +57,7 @@ function buildProvisioningDefaults() {
         wifi_ssid: '',
         wifi_password: '',
         mqtt_broker: typeof window !== 'undefined' ? window.location.hostname : '',
-        command_center_url: typeof window !== 'undefined' ? window.location.origin : '',
+        command_center_url: inferBackendOrigin(),
         agent_port: 9200,
     };
 }

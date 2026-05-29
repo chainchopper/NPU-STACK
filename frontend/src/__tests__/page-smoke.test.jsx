@@ -49,6 +49,7 @@ import {
     getStatus,
     getSystemInfo,
     getFLMStatus,
+    inferBackendOrigin,
     listFLMModels,
     listDevices,
     listBackups,
@@ -164,6 +165,12 @@ describe('Frontend page smoke coverage', () => {
 
         expect(await screen.findByText(/Registered Devices/i)).toBeInTheDocument();
         expect(screen.getByText(/No devices found/i)).toBeInTheDocument();
+    });
+
+    it('maps frontend dev origins to the backend origin for bundle provisioning', () => {
+        expect(inferBackendOrigin('http://127.0.0.1:5174/edge-fleet')).toBe('http://127.0.0.1:8000');
+        expect(inferBackendOrigin('http://127.0.0.1:5173/hub')).toBe('http://127.0.0.1:8000');
+        expect(inferBackendOrigin('http://127.0.0.1:8000/edge-fleet')).toBe('http://127.0.0.1:8000');
     });
 
     it('renders ModelHub no-results state from search', async () => {
