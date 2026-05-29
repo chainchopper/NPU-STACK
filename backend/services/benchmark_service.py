@@ -1,13 +1,128 @@
 """Benchmark service — real inference benchmarking across runtimes and devices."""
 
+import io
 import os
 import time
 import tracemalloc
+from contextlib import redirect_stderr, redirect_stdout
 from typing import Optional
 
 import numpy as np
 
 MODEL_STORE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "models")
+_DLL_DIRECTORY_HANDLES = []
+
+
+def _prioritize_nvidia_site_package_bins(ort_module) -> list[str]:
+    try:
+        from pathlib import Path
+    except Exception:
+        return []
+
+    try:
+        site_packages_dir = Path(getattr(ort_module, "__file__", "")).resolve().parent.parent
+    except Exception:
+        return []
+
+    nvidia_root = site_packages_dir / "nvidia"
+    if not nvidia_root.exists():
+        return []
+
+    candidate_dirs = []
+    for package_name in [
+        "cuda_runtime",
+        "cuda_nvrtc",
+        "cublas",
+        "cudnn",
+        "cufft",
+        "curand",
+        "nvjitlink",
+    ]:
+        bin_dir = nvidia_root / package_name / "bin"
+        if bin_dir.exists():
+            candidate_dirs.append(str(bin_dir))
+
+    if not candidate_dirs:
+        return []
+
+    existing_path_parts = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
+    normalized_existing = {os.path.normcase(part) for part in existing_path_parts}
+    new_path_parts = []
+
+    for candidate in candidate_dirs:
+        normalized_candidate = os.path.normcase(candidate)
+        if normalized_candidate in normalized_existing:
+            continue
+        new_path_parts.append(candidate)
+        if hasattr(os, "add_dll_directory"):
+            try:
+                _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(candidate))
+            except OSError:
+                pass
+
+    if new_path_parts:
+        os.environ["PATH"] = os.pathsep.join([*new_path_parts, *existing_path_parts])
+
+    return candidate_dirs
+
+
+def _preload_onnxruntime_dlls(ort_module) -> dict:
+    result = {
+        "attempted": False,
+        "loaded": False,
+        "source": None,
+        "messages": [],
+        "error": None,
+    }
+
+    preload = getattr(ort_module, "preload_dlls", None)
+    if preload is None:
+        return result
+
+    prioritized_dirs = _prioritize_nvidia_site_package_bins(ort_module)
+    if prioritized_dirs:
+        result["messages"].append(f"Prioritized NVIDIA runtime bins: {len(prioritized_dirs)} directory(s)")
+
+    search_order = [
+        ("", "nvidia-site-packages"),
+        (None, "default"),
+    ]
+
+    for directory, source in search_order:
+        captured_out = io.StringIO()
+        captured_err = io.StringIO()
+        result["attempted"] = True
+        try:
+            with redirect_stdout(captured_out), redirect_stderr(captured_err):
+                preload(directory=directory)
+        except Exception as exc:
+            result["error"] = str(exc)
+
+        combined_output = "\n".join(filter(None, [captured_out.getvalue(), captured_err.getvalue()])).strip()
+        message_lines = [
+            line.strip()
+            for line in combined_output.splitlines()
+            if line.strip() and ("Failed to load" in line or "Please follow" in line)
+        ]
+
+        if result["error"]:
+            if not result["messages"]:
+                result["messages"] = message_lines
+            continue
+
+        if message_lines:
+            result["messages"] = message_lines
+            continue
+
+        result.update({
+            "loaded": True,
+            "source": source,
+            "messages": result["messages"],
+            "error": None,
+        })
+        return result
+
+    return result
 
 
 def _probe_onnxruntime_provider_libraries(ort_module) -> dict:
@@ -175,6 +290,8 @@ def benchmark_onnxruntime(
     """
     import onnxruntime as ort
 
+    preload_result = _preload_onnxruntime_dlls(ort)
+
     available_providers = ort.get_available_providers()
     plan = _plan_onnxruntime_execution(device, available_providers)
     attempt_errors: list[dict] = []
@@ -256,6 +373,10 @@ def benchmark_onnxruntime(
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
         "hardware_acceleration_used": active_provider != "CPUExecutionProvider",
+        "runtime_dlls_preloaded": preload_result.get("loaded", False),
+        "runtime_dll_source": preload_result.get("source"),
+        "runtime_dll_messages": preload_result.get("messages", []),
+        "runtime_dll_error": preload_result.get("error"),
         "batch_size": batch_size,
         "warmup_runs": warmup_runs,
         "num_iterations": num_iterations,
@@ -435,6 +556,40 @@ def get_system_info() -> dict:
         "memory_total_gb": round(psutil.virtual_memory().total / (1024 ** 3), 1),
         "memory_available_gb": round(psutil.virtual_memory().available / (1024 ** 3), 1),
     }
+
+    # ── ONNX Runtime providers (before torch mutates DLL resolution) ──
+    try:
+        import onnxruntime as ort
+        preload_result = _preload_onnxruntime_dlls(ort)
+        info["onnxruntime_providers"] = ort.get_available_providers()
+        info["onnxruntime_version"] = ort.__version__
+        info["onnxruntime_runtime_dlls_preloaded"] = preload_result.get("loaded", False)
+        info["onnxruntime_runtime_dll_source"] = preload_result.get("source")
+        info["onnxruntime_runtime_dll_messages"] = preload_result.get("messages", [])
+        info["onnxruntime_runtime_dll_error"] = preload_result.get("error")
+        info["onnxruntime_provider_status"] = _probe_onnxruntime_provider_libraries(ort)
+        cuda_provider_status = info["onnxruntime_provider_status"].get("CUDAExecutionProvider", {})
+        info["onnxruntime_cuda_ready"] = bool(
+            "CUDAExecutionProvider" in info["onnxruntime_providers"] and cuda_provider_status.get("loadable", True)
+        )
+        info["onnxruntime_cuda_error"] = cuda_provider_status.get("error") or preload_result.get("error")
+        dml_provider_status = info["onnxruntime_provider_status"].get("DmlExecutionProvider", {})
+        info["onnxruntime_directml_ready"] = bool(
+            "DmlExecutionProvider" in info["onnxruntime_providers"] and dml_provider_status.get("loadable", True)
+        )
+        info["onnxruntime_directml_error"] = dml_provider_status.get("error")
+    except ImportError:
+        info["onnxruntime_providers"] = []
+        info["onnxruntime_version"] = None
+        info["onnxruntime_runtime_dlls_preloaded"] = False
+        info["onnxruntime_runtime_dll_source"] = None
+        info["onnxruntime_runtime_dll_messages"] = []
+        info["onnxruntime_runtime_dll_error"] = None
+        info["onnxruntime_provider_status"] = {}
+        info["onnxruntime_cuda_ready"] = False
+        info["onnxruntime_cuda_error"] = None
+        info["onnxruntime_directml_ready"] = False
+        info["onnxruntime_directml_error"] = None
 
     # ── Enumerate all CUDA GPUs ──────────────────────────
     gpus = []
@@ -813,30 +968,6 @@ def get_system_info() -> dict:
         info["flm_version"] = flm_info.get("version")
     except Exception:
         pass
-
-    # ── ONNX Runtime providers ───────────────────────────
-    try:
-        import onnxruntime as ort
-        info["onnxruntime_providers"] = ort.get_available_providers()
-        info["onnxruntime_version"] = ort.__version__
-        info["onnxruntime_provider_status"] = _probe_onnxruntime_provider_libraries(ort)
-        cuda_provider_status = info["onnxruntime_provider_status"].get("CUDAExecutionProvider", {})
-        info["onnxruntime_cuda_ready"] = bool(
-            "CUDAExecutionProvider" in info["onnxruntime_providers"] and cuda_provider_status.get("loadable", True)
-        )
-        info["onnxruntime_cuda_error"] = cuda_provider_status.get("error")
-        dml_provider_status = info["onnxruntime_provider_status"].get("DmlExecutionProvider", {})
-        info["onnxruntime_directml_ready"] = bool(
-            "DmlExecutionProvider" in info["onnxruntime_providers"] and dml_provider_status.get("loadable", True)
-        )
-        info["onnxruntime_directml_error"] = dml_provider_status.get("error")
-    except ImportError:
-        info["onnxruntime_providers"] = []
-        info["onnxruntime_provider_status"] = {}
-        info["onnxruntime_cuda_ready"] = False
-        info["onnxruntime_cuda_error"] = None
-        info["onnxruntime_directml_ready"] = False
-        info["onnxruntime_directml_error"] = None
 
     # ── DirectML (Windows GPU fallback for AMD/Intel/NVIDIA) ──
     info["directml_available"] = info.get("onnxruntime_directml_ready", False)

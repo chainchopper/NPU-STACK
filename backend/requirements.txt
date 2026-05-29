@@ -15,7 +15,8 @@ torch>=2.0.0
 torchvision>=0.15.0
 torchaudio>=2.0.0
 onnx>=1.16.0
-onnxruntime-gpu>=1.18.0
+onnxruntime-gpu[cuda,cudnn]>=1.21.0; platform_system == "Windows"
+onnxruntime-gpu>=1.21.0; platform_system != "Windows"
 xformers>=0.0.25
 diffusers>=0.27.0
 transformers>=4.40.0
