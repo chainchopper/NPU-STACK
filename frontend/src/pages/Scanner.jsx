@@ -4,8 +4,7 @@ import {
     CheckCircle, AlertCircle, Loader, Search, Database
 } from 'lucide-react';
 import FolderBrowser from '../components/FolderBrowser';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../api/client';
 
 const humanSize = (bytes) => {
     if (!bytes) return '—';
@@ -32,13 +31,13 @@ export default function Scanner() {
     const [importedPaths, setImportedPaths] = useState(new Set());
 
     useEffect(() => {
-        fetch(`${API}/api/scan/hints`)
+        fetch(apiUrl('/scan/hints'))
             .then(r => r.json())
             .then(data => setHints(data.hints || []))
             .catch(() => {});
 
         // Load existing models to mark already-imported
-        fetch(`${API}/api/models`)
+        fetch(apiUrl('/models'))
             .then(r => r.json())
             .then(data => {
                 const paths = new Set((data.models || []).map(m => m.file_path).filter(Boolean));
@@ -53,7 +52,7 @@ export default function Scanner() {
         setResults(null);
         setImportResults({});
         try {
-            const res = await fetch(`${API}/api/scan?directory=${encodeURIComponent(directory)}&recursive=${recursive}`);
+            const res = await fetch(`${apiUrl('/scan')}?directory=${encodeURIComponent(directory)}&recursive=${recursive}`);
             const data = await res.json();
             if (res.ok) setResults(data);
             else alert(data.detail || 'Scan failed');
@@ -66,7 +65,7 @@ export default function Scanner() {
     const importModel = async (model) => {
         setImporting(model.path);
         try {
-            const res = await fetch(`${API}/api/scan/import`, {
+            const res = await fetch(apiUrl('/scan/import'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ file_path: model.path, copy_file: false }),

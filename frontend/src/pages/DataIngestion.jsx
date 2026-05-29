@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FolderOpen, FileText, Database, Trash2, Eye, Play, Settings, ChevronDown, X, Check } from 'lucide-react';
 import FolderBrowser from '../components/FolderBrowser';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../api/client';
 
 export default function DataIngestion() {
     const [uploads, setUploads] = useState([]);
@@ -30,13 +29,13 @@ export default function DataIngestion() {
     });
 
     useEffect(() => {
-        fetch(`${API}/api/ingest/dataset-formats`).then(r => r.json()).then(d => setFormats(d.formats || [])).catch(() => { });
-        fetch(`${API}/api/ingest/supported-types`).then(r => r.json()).then(d => setSupportedTypes(d.types || [])).catch(() => { });
+        fetch(apiUrl('/ingest/dataset-formats')).then(r => r.json()).then(d => setFormats(d.formats || [])).catch(() => { });
+        fetch(apiUrl('/ingest/supported-types')).then(r => r.json()).then(d => setSupportedTypes(d.types || [])).catch(() => { });
         refreshUploads();
     }, []);
 
     const refreshUploads = () => {
-        fetch(`${API}/api/ingest/uploads`).then(r => r.json()).then(d => setUploads(d.files || [])).catch(() => { });
+        fetch(apiUrl('/ingest/uploads')).then(r => r.json()).then(d => setUploads(d.files || [])).catch(() => { });
     };
 
     const handleFileDrop = async (e) => {
@@ -54,7 +53,7 @@ export default function DataIngestion() {
         formData.append('ocr', config.ocr);
 
         try {
-            const res = await fetch(`${API}/api/ingest/upload`, { method: 'POST', body: formData });
+            const res = await fetch(apiUrl('/ingest/upload'), { method: 'POST', body: formData });
             const data = await res.json();
             setExtractionResults(prev => [...prev, ...(data.files || [])]);
             refreshUploads();
@@ -71,7 +70,7 @@ export default function DataIngestion() {
         formData.append('recursive', 'true');
         formData.append('ocr', config.ocr);
         try {
-            const res = await fetch(`${API}/api/ingest/extract-folder`, { method: 'POST', body: formData });
+            const res = await fetch(apiUrl('/ingest/extract-folder'), { method: 'POST', body: formData });
             const data = await res.json();
             setExtractionResults(prev => [...prev, ...(data.files || [])]);
         } catch {
@@ -96,7 +95,7 @@ export default function DataIngestion() {
         formData.append('ocr', config.ocr);
 
         try {
-            const res = await fetch(`${API}/api/ingest/build-dataset`, { method: 'POST', body: formData });
+            const res = await fetch(apiUrl('/ingest/build-dataset'), { method: 'POST', body: formData });
             const data = await res.json();
             setBuildResult(data);
         } catch {
@@ -106,7 +105,7 @@ export default function DataIngestion() {
     };
 
     const clearUploads = async () => {
-        await fetch(`${API}/api/ingest/uploads/clear`, { method: 'DELETE' });
+        await fetch(apiUrl('/ingest/uploads/clear'), { method: 'DELETE' });
         setUploads([]);
         setExtractionResults([]);
         setBuildResult(null);

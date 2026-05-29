@@ -1,21 +1,24 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload } from 'lucide-react';
-import Dashboard from './pages/Dashboard';
-import Models from './pages/Models';
-import Training from './pages/Training';
-import Conversion from './pages/Conversion';
-import Benchmark from './pages/Benchmark';
-import Playground from './pages/Playground';
-import ModelHub from './pages/ModelHub';
-import Datasets from './pages/Datasets';
-import Serving from './pages/Serving';
-import FineTuning from './pages/FineTuning';
-import Scanner from './pages/Scanner';
-import WebcamTest from './pages/WebcamTest';
-import DataIngestion from './pages/DataIngestion';
-import GGUFStudio from './pages/GGUFStudio';
-import HubPublisher from './pages/HubPublisher';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone } from 'lucide-react';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Models = lazy(() => import('./pages/Models'));
+const Training = lazy(() => import('./pages/Training'));
+const Conversion = lazy(() => import('./pages/Conversion'));
+const Benchmark = lazy(() => import('./pages/Benchmark'));
+const Playground = lazy(() => import('./pages/Playground'));
+const ModelHub = lazy(() => import('./pages/ModelHub'));
+const Datasets = lazy(() => import('./pages/Datasets'));
+const Serving = lazy(() => import('./pages/Serving'));
+const FineTuning = lazy(() => import('./pages/FineTuning'));
+const Scanner = lazy(() => import('./pages/Scanner'));
+const WebcamTest = lazy(() => import('./pages/WebcamTest'));
+const DataIngestion = lazy(() => import('./pages/DataIngestion'));
+const GGUFStudio = lazy(() => import('./pages/GGUFStudio'));
+const HubPublisher = lazy(() => import('./pages/HubPublisher'));
+const FastFlowLM = lazy(() => import('./pages/FastFlowLM'));
+const EdgeFleet = lazy(() => import('./pages/EdgeFleet'));
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -29,11 +32,22 @@ const navItems = [
     { path: '/training', icon: GraduationCap, label: 'Training' },
     { path: '/finetuning', icon: Wrench, label: 'Fine-Tuning' },
     { path: '/gguf-studio', icon: Cpu, label: 'GGUF Studio' },
+    { path: '/fastflowlm', icon: Zap, label: 'FastFlowLM' },
     { path: '/conversion', icon: ArrowRightLeft, label: 'Conversion' },
     { path: '/scanner', icon: FolderSearch, label: 'Scanner' },
     { path: '/webcam', icon: Camera, label: 'Webcam' },
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
+    { path: '/edge-fleet', icon: MonitorSmartphone, label: 'Edge Fleet' },
 ];
+
+function RouteLoadingFallback() {
+    return (
+        <div className="loading-overlay">
+            <div className="spinner" />
+            <span>Loading page...</span>
+        </div>
+    );
+}
 
 export default function App() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -111,23 +125,27 @@ export default function App() {
 
                 {/* Main Content */}
                 <main className="main-content">
-                    <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/playground" element={<Playground />} />
-                        <Route path="/models" element={<Models />} />
-                        <Route path="/hub" element={<ModelHub />} />
-                        <Route path="/hf-publisher" element={<HubPublisher />} />
-                        <Route path="/datasets" element={<Datasets />} />
-                        <Route path="/ingestion" element={<DataIngestion />} />
-                        <Route path="/serving" element={<Serving />} />
-                        <Route path="/training" element={<Training />} />
-                        <Route path="/finetuning" element={<FineTuning />} />
-                        <Route path="/gguf-studio" element={<GGUFStudio />} />
-                        <Route path="/conversion" element={<Conversion />} />
-                        <Route path="/scanner" element={<Scanner />} />
-                        <Route path="/webcam" element={<WebcamTest />} />
-                        <Route path="/benchmark" element={<Benchmark />} />
-                    </Routes>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                        <Routes>
+                            <Route path="/" element={<Dashboard />} />
+                            <Route path="/playground" element={<Playground />} />
+                            <Route path="/models" element={<Models />} />
+                            <Route path="/hub" element={<ModelHub />} />
+                            <Route path="/hf-publisher" element={<HubPublisher />} />
+                            <Route path="/datasets" element={<Datasets />} />
+                            <Route path="/ingestion" element={<DataIngestion />} />
+                            <Route path="/serving" element={<Serving />} />
+                            <Route path="/training" element={<Training />} />
+                            <Route path="/finetuning" element={<FineTuning />} />
+                            <Route path="/gguf-studio" element={<GGUFStudio />} />
+                            <Route path="/fastflowlm" element={<FastFlowLM />} />
+                            <Route path="/conversion" element={<Conversion />} />
+                            <Route path="/scanner" element={<Scanner />} />
+                            <Route path="/webcam" element={<WebcamTest />} />
+                            <Route path="/benchmark" element={<Benchmark />} />
+                            <Route path="/edge-fleet" element={<EdgeFleet />} />
+                        </Routes>
+                    </Suspense>
                 </main>
 
                 {/* Footer Bar */}

@@ -1,0 +1,17 @@
+[Unit]
+Description=Nirvana Edge Agent — NPU device management
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/nirvana-agent
+ExecStart=/usr/bin/python3 /opt/nirvana-agent/nirvana_agent.py
+Restart=on-failure
+RestartSec=5
+Environment=NIRVANA_AGENT_PORT=9200
+Environment=NIRVANA_NPU_TYPE=auto
+
+[Install]
+WantedBy=multi-user.target

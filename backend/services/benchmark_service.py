@@ -419,64 +419,102 @@ def get_system_info() -> dict:
     except Exception:
         pass
 
-    # ── OS-level GPU detection (Fallback for AMD/Intel) ────
-    try:
-        import platform
-        import subprocess
-        existing_gpu_names = {g["name"] for g in gpus}
-        
-        if platform.system() == "Windows":
-            cmd = ['powershell', '-Command', 
-                   'Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json -Compress']
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            if res.returncode == 0 and res.stdout.strip():
+    # Collect existing GPU names for deduplication
+    existing_gpu_names = {g["name"] for g in gpus}
+
+    # Detect GPUs via iGPU/dGPU string matching (AMD/Intel)
+    if platform.system() == "Windows":
+        try:
+            cmd_gpu = ['powershell', '-Command', 
+                   'Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion, VideoProcessor | ConvertTo-Json -Compress']
+            res_gpu = subprocess.run(cmd_gpu, capture_output=True, text=True, timeout=5)
+            if res_gpu.returncode == 0 and res_gpu.stdout.strip():
                 import json
-                adapters = json.loads(res.stdout)
+                adapters = json.loads(res_gpu.stdout)
                 if isinstance(adapters, dict): adapters = [adapters]
                 for adapter in adapters:
                     name = adapter.get("Name", "")
-                    if name and not any(existing in name for existing in ["NVIDIA", "GeForce", "RTX", "GTX", "Quadro", "Tesla"]):
-                        if not any(name in existing or existing in name for existing in existing_gpu_names):
-                            gpu_type = "AMD iGPU/GPU" if "AMD" in name or "Radeon" in name else "Intel GPU" if "Intel" in name else "Generic GPU"
-                            ram_bytes = adapter.get("AdapterRAM") or 0
-                            gpus.append({
-                                "index": len(gpus),
-                                "name": name,
-                                "type": gpu_type,
-                                "memory_gb": round(ram_bytes / (1024**3), 1),
-                                "compute_capability": "DirectML / OpenCL",
-                                "status": "online"
-                            })
-                            existing_gpu_names.add(name)
+                    if not name: continue
+                    
+                    # Already handled NVIDIA via nvidia-smi/torch
+                    if any(x in name for x in ["NVIDIA", "GeForce", "RTX", "GTX", "Quadro", "Tesla"]):
+                        continue
+                        
+                    if not any(g_name in name or name in g_name for g_name in existing_gpu_names):
+                        # Enhanced AMD identification
+                        is_amd = any(x in name.upper() for x in ["AMD", "RADEON", "780M", "8945HS", "8845HS"])
+                        gpu_type = "AMD iGPU (780M)" if "780M" in name.upper() else "AMD iGPU" if is_amd else "Intel GPU" if "Intel" in name else "Generic GPU"
+                        ram_bytes = adapter.get("AdapterRAM") or 0
+                        gpus.append({
+                            "index": len(gpus),
+                            "name": name,
+                            "type": gpu_type,
+                            "memory_gb": round(abs(ram_bytes) / (1024**3), 2) if ram_bytes else 0,
+                            "driver_version": adapter.get("DriverVersion"),
+                            "video_processor": adapter.get("VideoProcessor"),
+                            "compute_capability": "DirectML / OpenCL",
+                            "status": "online"
+                        })
+                        existing_gpu_names.add(name)
+        except Exception:
+            pass
+        
+        # Detect NPUs/IPUs via WMI (AMD Ryzen AI / Intel NPU / Qualcomm)
+        try:
+            # Broad query + Specific AMD IPU query
+            pnp_query = 'Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "NPU|Neural|AI Engine|IPU|Computational Accelerator|AMD AI Processor" } | Select-Object Name, Status, DeviceID | ConvertTo-Json -Compress'
             
-            # Detect NDUs/NPUs via WMI (AMD Ryzen AI / Intel NPU)
-            try:
-                cmd_npu = ['powershell', '-Command', 
-                       'Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match "NPU|Neural Processing Unit|AI Engine|IPU" } | Select-Object Name | ConvertTo-Json -Compress']
-                res_npu = subprocess.run(cmd_npu, capture_output=True, text=True, timeout=5)
-                if res_npu.returncode == 0 and res_npu.stdout.strip():
+            res_npu = subprocess.run(['powershell', '-Command', pnp_query], capture_output=True, text=True, timeout=5)
+            
+            # Additional fallback for AMD IPU specifically if not found
+            if "AMD" not in res_npu.stdout:
+                amd_ipu_query = 'Get-PnpDevice -FriendlyName "*AMD IPU Device*" | Select-Object FriendlyName, Status, InstanceId | ConvertTo-Json -Compress'
+                res_amd = subprocess.run(['powershell', '-Command', amd_ipu_query], capture_output=True, text=True, timeout=5)
+                if res_amd.returncode == 0 and res_amd.stdout.strip():
                     import json
-                    npus = json.loads(res_npu.stdout)
-                    if isinstance(npus, dict): npus = [npus]
-                    for n in npus:
-                        name = n.get("Name", "")
-                        if name:
-                            if "AMD" in name or "IPU" in name or "AI Engine" in name:
-                                info["amd_npu_available"] = True
-                                info["amd_npu_name"] = name
-                            elif "Intel" in name:
-                                info["npu_available"] = True
-                                info["npu_name"] = name
-            except Exception:
-                pass
-        elif platform.system() == "Linux":
+                    amd_devices = json.loads(res_amd.stdout)
+                    if isinstance(amd_devices, dict): amd_devices = [amd_devices]
+                    for d in amd_devices:
+                        name = d.get("FriendlyName", "")
+                        if not name: continue
+                        info["amd_npu_available"] = True
+                        info["amd_npu_name"] = name
+                        info["amd_npu_status"] = d.get("Status")
+                        info["npu_architecture"] = "XDNA"
+                        info["npu_available"] = True
+
+            if res_npu.returncode == 0 and res_npu.stdout.strip():
+                import json
+                npus = json.loads(res_npu.stdout)
+                if isinstance(npus, dict): npus = [npus]
+                for n in npus:
+                    name = n.get("Name", "")
+                    if not name: continue
+                    
+                    if any(x in name.upper() for x in ["AMD", "IPU", "AI ENGINE", "RYZEN AI", "XDNA", "AMD AI PROCESSOR"]):
+                        info["amd_npu_available"] = True
+                        info["amd_npu_name"] = name
+                        info["amd_npu_status"] = n.get("Status")
+                        info["npu_architecture"] = "XDNA"
+                        info["npu_available"] = True
+                    elif "Intel" in name or "Movidius" in name:
+                        info["npu_available"] = True
+                        info["npu_name"] = name
+                        info["npu_architecture"] = "OpenVINO/VPU"
+                    elif "Qualcomm" in name or "Snapdragon" in name:
+                        info["qcom_npu_available"] = True
+                        info["qcom_npu_name"] = name
+        except Exception:
+            pass
+    elif platform.system() == "Linux":
+        try:
             res = subprocess.run(['lspci'], capture_output=True, text=True, timeout=5)
             if res.returncode == 0:
                 for line in res.stdout.splitlines():
                     if "VGA compatible controller" in line or "3D controller" in line:
                         if "NVIDIA" not in line:
                             name = line.split(": ")[-1].strip()
-                            if not any(name in existing or existing in name for existing in existing_gpu_names):
+                            if not any(g_name in name or name in g_name for g_name in existing_gpu_names):
                                 gpu_type = "AMD iGPU/GPU" if "AMD" in name or "Radeon" in name else "Intel GPU" if "Intel" in name else "Generic GPU"
                                 gpus.append({
                                     "index": len(gpus),
@@ -487,8 +525,8 @@ def get_system_info() -> dict:
                                     "status": "online"
                                 })
                                 existing_gpu_names.add(name)
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     info["gpus"] = gpus
 
@@ -596,6 +634,16 @@ def get_system_info() -> dict:
     except Exception:
         pass
 
+    # ── FastFlowLM (NPU-first Runtime) ───────────────────
+    info["flm_available"] = False
+    try:
+        from services.flm_service import detect_flm
+        flm_info = detect_flm()
+        info["flm_available"] = flm_info["available"]
+        info["flm_version"] = flm_info.get("version")
+    except Exception:
+        pass
+
     # ── ONNX Runtime providers ───────────────────────────
     try:
         import onnxruntime as ort
@@ -694,6 +742,7 @@ def get_system_info() -> dict:
         "coral_tpu": {"available": info.get("coral_tpu_available", False), "label": "Google Coral Edge TPU"},
         "rknn_npu": {"available": info.get("rknn_available", False), "label": "Rockchip RKNN NPU"},
         "rk_llama": {"available": info.get("rk_llama_cpp_available", False), "label": "rk-llama.cpp (NPU LLM)"},
+        "fastflowlm": {"available": info.get("flm_available", False), "label": f"FastFlowLM ({info.get('flm_version', 'N/A')})"},
         "mediapipe": {"available": info.get("mediapipe_available", False), "label": f"MediaPipe ({info.get('mediapipe_version', 'N/A')})"},
         "directml": {"available": info.get("directml_available", False), "label": "DirectML (Windows GPU)"},
         "openvino": {"available": len(info.get("openvino_devices", [])) > 0, "label": f"OpenVINO Runtime ({info.get('openvino_version', 'N/A')})"},

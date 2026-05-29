@@ -11,12 +11,14 @@ env/
 # IDE
 .vscode/
 .idea/
+.vs/
 *.swp
 *.swo
 
 # OS
 .DS_Store
 Thumbs.db
+.thumbnails/
 
 # Dependencies
 node_modules/
@@ -39,6 +41,12 @@ backend/data/
 # Portable Python (downloaded by setup.bat)
 python/
 python-embed.zip
+
+# Local workspace/session files
+NPU-STACK.code-workspace
+
+# Local hardware scan output
+hardware_results.json
 
 # Launcher scripts (tracked - do not ignore)
 # run-backend.bat, run-frontend.bat, run-all.bat are versioned

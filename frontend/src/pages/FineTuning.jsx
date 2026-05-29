@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Wrench, Play, Loader, Square, ChevronDown, ChevronRight } from 'lucide-react';
 import ContextWizard from '../components/ContextWizard';
+import { apiUrl } from '../api/client';
 
 const FINETUNE_WIZARD_STEPS = [
     {
@@ -20,8 +21,6 @@ const FINETUNE_WIZARD_STEPS = [
         body: 'Start with Epochs=3, Batch Size=4, LR=2e-4. Increase batch size if VRAM allows. Lower LR (e.g. 5e-5) if training loss oscillates. LoRA r=16 is a solid default — increase to 64 for harder tasks.',
     },
 ];
-
-const API_BASE = 'http://localhost:8000';
 
 export default function FineTuning() {
     const [models, setModels] = useState([]);
@@ -63,9 +62,9 @@ export default function FineTuning() {
     const fetchData = async () => {
         try {
             const [modelsRes, datasetsRes, jobsRes] = await Promise.all([
-                fetch(`${API_BASE}/api/models`).then(r => r.json()),
-                fetch(`${API_BASE}/api/datasets`).then(r => r.json()),
-                fetch(`${API_BASE}/api/finetune/jobs`).then(r => r.json()),
+                fetch(apiUrl('/models')).then(r => r.json()),
+                fetch(apiUrl('/datasets')).then(r => r.json()),
+                fetch(apiUrl('/finetune/jobs')).then(r => r.json()),
             ]);
             setModels(modelsRes.models || []);
             setDatasets(datasetsRes.datasets || []);
@@ -78,7 +77,7 @@ export default function FineTuning() {
         fetchData();
         const interval = setInterval(async () => {
             try {
-                const res = await fetch(`${API_BASE}/api/finetune/jobs`);
+                const res = await fetch(apiUrl('/finetune/jobs'));
                 const data = await res.json();
                 setJobs(data.jobs || []);
             } catch (e) { }
@@ -100,7 +99,7 @@ export default function FineTuning() {
             form.append('lora_r', loraR);
             form.append('lora_alpha', loraAlpha);
 
-            await fetch(`${API_BASE}/api/finetune/start`, { method: 'POST', body: form });
+            await fetch(apiUrl('/finetune/start'), { method: 'POST', body: form });
             await fetchData();
         } catch (e) { console.error(e); }
         setStarting(false);
@@ -108,7 +107,7 @@ export default function FineTuning() {
 
     const stopJob = async (jobId) => {
         try {
-            await fetch(`${API_BASE}/api/finetune/stop/${jobId}`, { method: 'POST' });
+            await fetch(apiUrl(`/finetune/stop/${jobId}`), { method: 'POST' });
             await fetchData();
         } catch (e) { console.error(e); }
     };
@@ -120,7 +119,7 @@ export default function FineTuning() {
         }
         setExpandedJob(jobId);
         try {
-            const res = await fetch(`${API_BASE}/api/finetune/jobs/${jobId}`);
+            const res = await fetch(apiUrl(`/finetune/status/${jobId}`));
             const data = await res.json();
             setJobDetails(prev => ({ ...prev, [jobId]: data }));
         } catch (e) { console.error(e); }

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Server, Play, Square, Loader, Copy, Terminal, Zap } from 'lucide-react';
-
-const API_BASE = 'http://localhost:8000';
+import { OPENAI_BASE, openAIUrl, absoluteUrl } from '../api/client';
 
 export default function Serving() {
     const [models, setModels] = useState([]);
@@ -15,23 +14,30 @@ export default function Serving() {
     const [chatLoading, setChatLoading] = useState(false);
     const [copied, setCopied] = useState(null);
 
+    const openAIBaseUrl = absoluteUrl(OPENAI_BASE);
+    const chatCompletionsUrl = absoluteUrl(openAIUrl('/chat/completions'));
+
     const fetchModels = async () => {
         try {
-            const res = await fetch(`${API_BASE}/v1/models`);
+            const res = await fetch(openAIUrl('/models'));
             const data = await res.json();
             setModels(data.data || []);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        }
     };
 
     const fetchStatus = async () => {
         try {
-            const res = await fetch(`${API_BASE}/v1/models/status`);
+            const res = await fetch(openAIUrl('/models/status'));
             const data = await res.json();
             setLoadedModels(data.models || []);
             if (data.models?.length > 0 && !chatModel) {
                 setChatModel(data.models[0].name);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        }
     };
 
     useEffect(() => {
@@ -43,30 +49,35 @@ export default function Serving() {
     const loadModel = async (name) => {
         setLoadingModel(name);
         try {
-            await fetch(`${API_BASE}/v1/models/load`, {
+            await fetch(openAIUrl('/models/load'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name }),
             });
             await fetchStatus();
             setChatModel(name);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        }
         setLoadingModel(null);
     };
 
     const unloadModel = async (name) => {
         try {
-            await fetch(`${API_BASE}/v1/models/unload`, {
+            await fetch(openAIUrl('/models/unload'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name }),
             });
             await fetchStatus();
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        }
     };
 
     const sendChat = async () => {
         if (!chatInput.trim() || !chatModel) return;
+
         const userMsg = { role: 'user', content: chatInput };
         const newMsgs = [...chatMessages, userMsg];
         setChatMessages(newMsgs);
@@ -74,12 +85,12 @@ export default function Serving() {
         setChatLoading(true);
 
         try {
-            const res = await fetch(`${API_BASE}/v1/chat/completions`, {
+            const res = await fetch(openAIUrl('/chat/completions'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: chatModel,
-                    messages: newMsgs.map(m => ({ role: m.role, content: m.content })),
+                    messages: newMsgs.map((m) => ({ role: m.role, content: m.content })),
                     max_tokens: 256,
                     temperature: 0.7,
                 }),
@@ -93,6 +104,7 @@ export default function Serving() {
         } catch (e) {
             setChatMessages([...newMsgs, { role: 'system', content: `Error: ${e.message}` }]);
         }
+
         setChatLoading(false);
     };
 
@@ -101,7 +113,7 @@ export default function Serving() {
             python: `from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:8000/v1",
+    base_url="${openAIBaseUrl}",
     api_key="any"  # Not required for local
 )
 
@@ -110,7 +122,7 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)`,
-            javascript: `const response = await fetch("http://localhost:8000/v1/chat/completions", {
+            javascript: `const response = await fetch("${chatCompletionsUrl}", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -120,19 +132,20 @@ print(response.choices[0].message.content)`,
 });
 const data = await response.json();
 console.log(data.choices[0].message.content);`,
-            curl: `curl http://localhost:8000/v1/chat/completions \\
+            curl: `curl ${chatCompletionsUrl} \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "${chatModel || 'your-model-name'}",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'`,
         };
+
         navigator.clipboard.writeText(snippets[lang]);
         setCopied(lang);
         setTimeout(() => setCopied(null), 2000);
     };
 
-    const loadedNames = new Set(loadedModels.map(m => m.name));
+    const loadedNames = new Set(loadedModels.map((m) => m.name));
 
     return (
         <div>
@@ -141,11 +154,13 @@ console.log(data.choices[0].message.content);`,
                     <Server size={24} /> Model Serving
                 </h2>
                 <p className="text-secondary">
-                    OpenAI-compatible API at <code style={{ background: 'var(--bg-input)', padding: '2px 8px', borderRadius: '6px', fontSize: '13px' }}>http://localhost:8000/v1</code>
+                    OpenAI-compatible API at{' '}
+                    <code style={{ background: 'var(--bg-input)', padding: '2px 8px', borderRadius: '6px', fontSize: '13px' }}>
+                        {openAIBaseUrl}
+                    </code>
                 </p>
             </div>
 
-            {/* Loaded Models Status */}
             <div className="card mb-4">
                 <div className="card-header">
                     <h3 className="card-title">
@@ -153,15 +168,38 @@ console.log(data.choices[0].message.content);`,
                     </h3>
                 </div>
                 {loadedModels.length === 0 ? (
-                    <p className="text-secondary" style={{ padding: '16px 0' }}>No models loaded. Load a model below to start serving.</p>
+                    <p className="text-secondary" style={{ padding: '16px 0' }}>
+                        No models loaded. Load a model below to start serving.
+                    </p>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {loadedModels.map((m, index) => (
-                            <div key={`loaded-${m.name}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-green)', flexShrink: 0 }} />
+                            <div
+                                key={`loaded-${m.name}-${index}`}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    padding: '12px 16px',
+                                    background: 'var(--bg-input)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid rgba(16,185,129,0.2)',
+                                }}
+                            >
+                                <span
+                                    style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        background: 'var(--accent-green)',
+                                        flexShrink: 0,
+                                    }}
+                                />
                                 <span style={{ fontWeight: 600, flex: 1 }}>{m.name}</span>
                                 <span className="badge">{m.type}</span>
-                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{Math.round(m.uptime_seconds)}s uptime</span>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                    {Math.round(m.uptime_seconds)}s uptime
+                                </span>
                                 <button className="btn btn-sm btn-danger" onClick={() => unloadModel(m.name)}>
                                     <Square size={12} /> Unload
                                 </button>
@@ -172,11 +210,15 @@ console.log(data.choices[0].message.content);`,
             </div>
 
             <div className="grid-2">
-                {/* Model Registry */}
                 <div className="card">
                     <div className="card-header">
                         <h3 className="card-title">Model Registry</h3>
-                        <select value={modelFilter} onChange={e => setModelFilter(e.target.value)} className="form-select" style={{ width: 'auto', fontSize: '12px', padding: '4px 24px 4px 8px', minHeight: '28px' }}>
+                        <select
+                            value={modelFilter}
+                            onChange={(e) => setModelFilter(e.target.value)}
+                            className="form-select"
+                            style={{ width: 'auto', fontSize: '12px', padding: '4px 24px 4px 8px', minHeight: '28px' }}
+                        >
                             <option value="all">All Formats</option>
                             <option value="gguf">GGUF</option>
                             <option value="onnx">ONNX</option>
@@ -191,12 +233,24 @@ console.log(data.choices[0].message.content);`,
                         <p className="text-secondary">No models registered. Upload or download a model first.</p>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '400px', overflowY: 'auto' }}>
-                            {models.filter(m => modelFilter === 'all' || m.framework?.toLowerCase() === modelFilter || m.format?.toLowerCase() === modelFilter).length === 0 ? (
-                                <p className="text-secondary" style={{ textAlign: 'center', padding: '20px 0', fontSize: '13px' }}>No models match the selected filter.</p>
+                            {models.filter((m) => modelFilter === 'all' || m.framework?.toLowerCase() === modelFilter || m.format?.toLowerCase() === modelFilter).length === 0 ? (
+                                <p className="text-secondary" style={{ textAlign: 'center', padding: '20px 0', fontSize: '13px' }}>
+                                    No models match the selected filter.
+                                </p>
                             ) : models
-                                .filter(m => modelFilter === 'all' || m.framework?.toLowerCase() === modelFilter || m.format?.toLowerCase() === modelFilter)
+                                .filter((m) => modelFilter === 'all' || m.framework?.toLowerCase() === modelFilter || m.format?.toLowerCase() === modelFilter)
                                 .map((m, index) => (
-                                    <div key={`model-${m.id}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)' }}>
+                                    <div
+                                        key={`model-${m.id}-${index}`}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '10px',
+                                            padding: '10px 14px',
+                                            background: 'var(--bg-input)',
+                                            borderRadius: 'var(--radius-md)',
+                                        }}
+                                    >
                                         <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{m.id}</span>
                                         {loadedNames.has(m.id) ? (
                                             <span className="badge badge-green">Loaded</span>
@@ -211,23 +265,38 @@ console.log(data.choices[0].message.content);`,
                     )}
                 </div>
 
-                {/* Chat Test */}
                 <div className="card">
                     <div className="card-header">
                         <h3 className="card-title">Chat Test</h3>
                         {loadedModels.length > 0 && (
-                            <select value={chatModel} onChange={e => setChatModel(e.target.value)} className="form-select" style={{ width: 'auto', fontSize: '12px' }}>
-                                {loadedModels.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                            <select value={chatModel} onChange={(e) => setChatModel(e.target.value)} className="form-select" style={{ width: 'auto', fontSize: '12px' }}>
+                                {loadedModels.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
                             </select>
                         )}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '200px', maxHeight: '350px', overflowY: 'auto', marginBottom: '12px' }}>
                         {chatMessages.length === 0 && (
-                            <p className="text-secondary" style={{ textAlign: 'center', marginTop: '40px' }}>Load a model and start chatting</p>
+                            <p className="text-secondary" style={{ textAlign: 'center', marginTop: '40px' }}>
+                                Load a model and start chatting
+                            </p>
                         )}
                         {chatMessages.map((msg, i) => (
-                            <div key={i} style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', background: msg.role === 'user' ? 'rgba(59,130,246,0.1)' : msg.role === 'system' ? 'rgba(239,68,68,0.1)' : 'var(--bg-input)', borderLeft: `3px solid ${msg.role === 'user' ? 'var(--accent-blue)' : msg.role === 'system' ? 'var(--accent-red)' : 'var(--accent-green)'}` }}>
-                                <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>{msg.role}</span>
+                            <div
+                                key={i}
+                                style={{
+                                    padding: '10px 14px',
+                                    borderRadius: 'var(--radius-md)',
+                                    background: msg.role === 'user'
+                                        ? 'rgba(59,130,246,0.1)'
+                                        : msg.role === 'system'
+                                            ? 'rgba(239,68,68,0.1)'
+                                            : 'var(--bg-input)',
+                                    borderLeft: `3px solid ${msg.role === 'user' ? 'var(--accent-blue)' : msg.role === 'system' ? 'var(--accent-red)' : 'var(--accent-green)'}`,
+                                }}
+                            >
+                                <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>
+                                    {msg.role}
+                                </span>
                                 <span style={{ fontSize: '14px', whiteSpace: 'pre-wrap' }}>{msg.content}</span>
                             </div>
                         ))}
@@ -237,9 +306,9 @@ console.log(data.choices[0].message.content);`,
                         <input
                             type="text"
                             value={chatInput}
-                            onChange={e => setChatInput(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && sendChat()}
-                            placeholder={loadedModels.length ? "Type a message..." : "Load a model first..."}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && sendChat()}
+                            placeholder={loadedModels.length ? 'Type a message...' : 'Load a model first...'}
                             disabled={!loadedModels.length || chatLoading}
                             className="form-input"
                             style={{ flex: 1 }}
@@ -251,7 +320,6 @@ console.log(data.choices[0].message.content);`,
                 </div>
             </div>
 
-            {/* Code Snippets */}
             <div className="card mt-4">
                 <div className="card-header">
                     <h3 className="card-title"><Terminal size={16} /> API Usage</h3>
@@ -260,18 +328,31 @@ console.log(data.choices[0].message.content);`,
                     Use NPU-STACK as a drop-in replacement for OpenAI. Works with any client library.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
-                    {['python', 'javascript', 'curl'].map(lang => (
+                    {['python', 'javascript', 'curl'].map((lang) => (
                         <div key={lang} style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', background: 'rgba(0,0,0,0.3)', borderRadius: '10px 10px 0 0', borderBottom: '1px solid var(--border)' }}>
                                 <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{lang}</span>
-                                <button onClick={() => copySnippet(lang)} style={{ background: 'none', border: 'none', color: copied === lang ? 'var(--accent-green)' : 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <button
+                                    onClick={() => copySnippet(lang)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: copied === lang ? 'var(--accent-green)' : 'var(--text-muted)',
+                                        cursor: 'pointer',
+                                        fontSize: '12px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                    }}
+                                >
                                     <Copy size={12} /> {copied === lang ? 'Copied!' : 'Copy'}
                                 </button>
                             </div>
                             <pre style={{ margin: 0, padding: '14px', background: 'var(--bg-input)', borderRadius: '0 0 10px 10px', fontSize: '12px', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', overflowX: 'auto', lineHeight: 1.5, color: 'var(--accent-green)' }}>
-                                {lang === 'python' && `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="http://localhost:8000/v1",\n    api_key="any"\n)\n\nresponse = client.chat.completions.create(\n    model="${chatModel || 'your-model'}",\n    messages=[{"role": "user", "content": "Hello!"}]\n)\nprint(response.choices[0].message.content)`}
-                                {lang === 'javascript' && `const res = await fetch(\n  "http://localhost:8000/v1/chat/completions",\n  {\n    method: "POST",\n    headers: {"Content-Type": "application/json"},\n    body: JSON.stringify({\n      model: "${chatModel || 'your-model'}",\n      messages: [{role: "user", content: "Hello!"}]\n    })\n  }\n);\nconst data = await res.json();\nconsole.log(data.choices[0].message.content);`}
-                                {lang === 'curl' && `curl http://localhost:8000/v1/chat/completions \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "${chatModel || 'your-model'}",\n    "messages": [{"role":"user","content":"Hello!"}]\n  }'`}
+                                {lang === 'python' && `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${openAIBaseUrl}",\n    api_key="any"\n)\n\nresponse = client.chat.completions.create(\n    model="${chatModel || 'your-model'}",\n    messages=[{"role": "user", "content": "Hello!"}]\n)\nprint(response.choices[0].message.content)`}
+                                {lang === 'javascript' && `const res = await fetch(\n  "${chatCompletionsUrl}",\n  {\n    method: "POST",\n    headers: {"Content-Type": "application/json"},\n    body: JSON.stringify({\n      model: "${chatModel || 'your-model'}",\n      messages: [{role: "user", content: "Hello!"}]\n    })\n  }\n);\nconst data = await res.json();\nconsole.log(data.choices[0].message.content);`}
+                                {lang === 'curl' && `curl ${chatCompletionsUrl} \\\n  -H "Content-Type: application/json" \\
+  -d '{\n    "model": "${chatModel || 'your-model'}",\n    "messages": [{"role":"user","content":"Hello!"}]\n  }'`}
                             </pre>
                         </div>
                     ))}

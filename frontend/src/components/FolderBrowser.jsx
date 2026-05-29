@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Folder, HardDrive, ChevronRight, ArrowUp, X, Check } from 'lucide-react';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../api/client';
 
 /**
  * Reusable folder browser modal.
@@ -29,7 +28,7 @@ export default function FolderBrowser({ open, onClose, onSelect, showFiles = fal
         setLoading(true);
         setError('');
         try {
-            const res = await fetch(`${API}/api/browse/drives`);
+            const res = await fetch(apiUrl('/browse/drives'));
             const data = await res.json();
             setDrives(data.drives || []);
             setCurrentPath('');
@@ -46,7 +45,7 @@ export default function FolderBrowser({ open, onClose, onSelect, showFiles = fal
         setLoading(true);
         setError('');
         try {
-            const res = await fetch(`${API}/api/browse?path=${encodeURIComponent(path)}`);
+            const res = await fetch(`${apiUrl('/browse')}?path=${encodeURIComponent(path)}`);
             if (!res.ok) {
                 const err = await res.json();
                 setError(err.detail || 'Access denied');

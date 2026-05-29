@@ -4,9 +4,47 @@
  */
 
 export const API_BASE = '/api';
+export const OPENAI_BASE = '/v1';
+
+function normalizePath(path = '') {
+    if (!path) return '';
+    return path.startsWith('/') ? path : `/${path}`;
+}
+
+export function apiUrl(path = '') {
+    return `${API_BASE}${normalizePath(path)}`;
+}
+
+export function openAIUrl(path = '') {
+    return `${OPENAI_BASE}${normalizePath(path)}`;
+}
+
+export function absoluteUrl(path = '') {
+    const normalized = path || '/';
+    if (typeof window === 'undefined') return normalized;
+    return new URL(normalized, window.location.origin).toString();
+}
+
+export function websocketUrl(path = '') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${normalizePath(path)}`;
+}
+
+function titleCaseSlug(value = '') {
+    return value
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatFlmModelName(tag = '') {
+    if (!tag) return 'Unknown Model';
+    const [base, variant] = tag.split(':');
+    const baseName = titleCaseSlug(base);
+    return variant ? `${baseName} ${variant}` : baseName;
+}
 
 async function request(path, options = {}) {
-    const url = `${API_BASE}${path}`;
+    const url = apiUrl(path);
     const res = await fetch(url, {
         headers: {
             'Content-Type': 'application/json',
@@ -73,8 +111,7 @@ export async function stopJob(id) {
 }
 
 export function connectTrainingWS(jobId, onMessage) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/training/${jobId}`);
+    const ws = new WebSocket(websocketUrl(`/ws/training/${jobId}`));
 
     ws.onmessage = (event) => {
         try {
@@ -225,4 +262,225 @@ export async function healthCheck() {
 
 export async function getStatus() {
     return request('/status');
+}
+
+// ─── FastFlowLM ───────────────────────────────────────
+export async function getFLMStatus() {
+    const status = await request('/flm/status');
+    return {
+        ...status,
+        npu_ready: Boolean(status.server_running || status.installed),
+        server: {
+            running: Boolean(status.server_running),
+            managed: Boolean(status.server_managed),
+            model: status.active_model || status.server_models?.[0] || null,
+            models: status.server_models || [],
+        },
+    };
+}
+
+export async function listFLMModels() {
+    const data = await request('/flm/models');
+
+    const normalizeModel = (model = {}) => ({
+        ...model,
+        name: model.name || formatFlmModelName(model.tag),
+        size: model.size || model.params || '—',
+        context: model.context || model.ctx || 'n/a',
+    });
+
+    return {
+        ...data,
+        local: (data.local || []).map(normalizeModel),
+        catalog: (data.catalog || []).map(normalizeModel),
+    };
+}
+
+export async function pullFLMModel(tag, onProgress) {
+    const res = await fetch(`${API_BASE}/flm/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag }),
+    });
+
+    if (!res.ok) throw new Error('Pull failed');
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (line) {
+                const payload = line.startsWith('data:') ? line.slice(5).trim() : line;
+                if (!payload || payload === '[DONE]') {
+                    continue;
+                }
+
+                try {
+                    const data = JSON.parse(payload);
+                    onProgress({
+                        ...data,
+                        status: data.status === 'complete' ? 'completed' : data.status,
+                    });
+                } catch (e) {
+                    console.error('Failed to parse progress:', payload);
+                }
+            }
+        }
+    }
+}
+
+export async function serveFLMModel(model, port = 52625) {
+    return request('/flm/serve', {
+        method: 'POST',
+        body: JSON.stringify({ model, port }),
+    });
+}
+
+export async function stopFLMServer() {
+    return request('/flm/stop', { method: 'POST' });
+}
+
+export async function chatFLM(messages, model, temperature = 0.7, maxTokens = 1024, onDelta) {
+    const res = await fetch(`${API_BASE}/flm/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            messages,
+            model,
+            temperature,
+            max_tokens: maxTokens,
+            stream: true
+        }),
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Chat failed' }));
+        throw new Error(err.detail);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunks = decoder.decode(value).split('\n');
+        for (const chunk of chunks) {
+            if (chunk.startsWith('data: ')) {
+                const dataStr = chunk.slice(6).trim();
+                if (dataStr === '[DONE]') break;
+                try {
+                    const data = JSON.parse(dataStr);
+                    const content = data.choices[0]?.delta?.content || '';
+                    if (content) onDelta(content);
+                } catch (e) {
+                    // Ignore malformed JSON in stream
+                }
+            }
+        }
+    }
+}
+
+// ─── Edge Fleet (Device Management) ──────────────────
+export async function scanDevices(methods = {}) {
+    const params = new URLSearchParams();
+    Object.entries(methods).forEach(([k, v]) => params.set(k, String(v)));
+    return request(`/devices/scan?${params}`);
+}
+
+export async function listDevices() {
+    return request('/devices');
+}
+
+export async function listDeviceProfiles(deviceId) {
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    return request(`/devices/profiles${params}`);
+}
+
+export async function listPreparedBundles(deviceId) {
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
+    return request(`/devices/prepared${params}`);
+}
+
+export function downloadPreparedBundleUrl(bundleId) {
+    return apiUrl(`/devices/prepared/${bundleId}/download`);
+}
+
+export async function updateDevice(deviceId, data) {
+    return request(`/devices/${deviceId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+    });
+}
+
+export async function pairDevice(deviceId) {
+    return request(`/devices/${deviceId}/pair`, { method: 'POST' });
+}
+
+export async function unpairDevice(deviceId) {
+    return request(`/devices/${deviceId}/unpair`, { method: 'POST' });
+}
+
+export async function prepareDevice(deviceId, data = {}) {
+    return request(`/devices/${deviceId}/prepare`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+}
+
+export async function installPreparedBundle(deviceId, bundleId) {
+    return request(`/devices/${deviceId}/install`, {
+        method: 'POST',
+        body: JSON.stringify({ bundle_id: bundleId }),
+    });
+}
+
+export async function removeDevice(deviceId) {
+    return request(`/devices/${deviceId}`, { method: 'DELETE' });
+}
+
+export async function espDetect(port) {
+    return request('/devices/esp/detect', {
+        method: 'POST',
+        body: JSON.stringify({ port }),
+    });
+}
+
+export async function detectDeviceChip(deviceId) {
+    return request(`/devices/${deviceId}/detect-chip`, {
+        method: 'POST',
+    });
+}
+
+export async function espBackup(port, flashSizeMb = 4) {
+    return request('/devices/esp/backup', {
+        method: 'POST',
+        body: JSON.stringify({ port, flash_size_mb: flashSizeMb }),
+    });
+}
+
+export async function espFlash(port, firmwarePath) {
+    return request('/devices/esp/flash', {
+        method: 'POST',
+        body: JSON.stringify({ port, firmware_path: firmwarePath }),
+    });
+}
+
+export async function rp2040Detect() {
+    return request('/devices/rp2040/detect');
+}
+
+export async function listBackups() {
+    return request('/devices/backups');
 }

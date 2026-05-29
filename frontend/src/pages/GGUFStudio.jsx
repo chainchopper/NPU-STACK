@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import FolderBrowser from '../components/FolderBrowser';
 import ContextWizard from '../components/ContextWizard';
+import { apiUrl } from '../api/client';
 
 const GGUF_WIZARD_STEPS = [
     {
@@ -29,8 +30,6 @@ const GGUF_WIZARD_STEPS = [
         body: 'Split models into ≤4 GB shards when uploading to HuggingFace, transferring via FAT32 external drives, or distributing across multi-GPU nodes. Llama.cpp loads shards automatically.',
     },
 ];
-
-const API = 'http://localhost:8000';
 
 const humanSize = (bytes) => {
     if (!bytes) return '—';
@@ -89,9 +88,9 @@ export default function GGUFStudio() {
 
     useEffect(() => {
         Promise.all([
-            fetch(`${API}/api/gguf/pipeline/status`).then(r => r.json()),
-            fetch(`${API}/api/models`).then(r => r.json()),
-            fetch(`${API}/api/gguf/pipeline/quant-types`).then(r => r.json()).catch(() => ({ quant_types: [] })),
+            fetch(apiUrl('/gguf/pipeline/status')).then(r => r.json()),
+            fetch(apiUrl('/models')).then(r => r.json()),
+            fetch(apiUrl('/gguf/pipeline/quant-types')).then(r => r.json()).catch(() => ({ quant_types: [] })),
         ]).then(([statusData, modelsData, quantData]) => {
             setStatus(statusData);
             setModels(modelsData.models || []);
@@ -126,7 +125,7 @@ export default function GGUFStudio() {
         setRunning(true);
         resetResult();
         try {
-            const res = await fetch(`${API}${endpoint}`, {
+            const res = await fetch(apiUrl(endpoint), {
                 method: 'POST',
                 body: formData,
             });
@@ -148,7 +147,7 @@ export default function GGUFStudio() {
         if (!path) return;
         const fd = new FormData();
         fd.append('model_path', path);
-        postForm('/api/gguf/inspect', fd);
+        postForm('/gguf/inspect', fd);
     };
 
     const handleQuantize = () => {
@@ -159,7 +158,7 @@ export default function GGUFStudio() {
         fd.append('quant_type', quantType);
         if (quantOutputName) fd.append('output_name', quantOutputName);
         if (quantThreads > 0) fd.append('n_threads', quantThreads.toString());
-        postForm('/api/gguf/quantize', fd);
+        postForm('/gguf/quantize', fd);
     };
 
     const handleConvert = () => {
@@ -167,7 +166,7 @@ export default function GGUFStudio() {
         const fd = new FormData();
         fd.append('model_dir', hfModelDir);
         fd.append('output_type', hfOutputType);
-        postForm('/api/gguf/convert/hf-to-gguf', fd);
+        postForm('/gguf/convert/hf-to-gguf', fd);
     };
 
     const handleMergeLora = () => {
@@ -178,7 +177,7 @@ export default function GGUFStudio() {
         fd.append('lora_path', loraPath);
         if (loraOutputName) fd.append('output_name', loraOutputName);
         fd.append('scale', loraScale.toString());
-        postForm('/api/gguf/merge/lora', fd);
+        postForm('/gguf/merge/lora', fd);
     };
 
     const handleSplit = () => {
@@ -187,7 +186,7 @@ export default function GGUFStudio() {
         const fd = new FormData();
         fd.append('input_path', model.file_path);
         fd.append('max_size_gb', splitMaxSize.toString());
-        postForm('/api/gguf/split', fd);
+        postForm('/gguf/split', fd);
     };
 
     const ToolStatus = ({ toolKey, label }) => {

@@ -345,12 +345,96 @@ def _generate_text(model_entry: dict, prompt: str, max_tokens: int = 256,
         session = model_entry["session"]
         tokenizer = model_entry["tokenizer"]
         inputs = tokenizer(prompt, return_tensors="np")
-        input_feed = {k: v for k, v in inputs.items() if k in [i.name for i in session.get_inputs()]}
-        outputs = session.run(None, input_feed)
-        # Take argmax of logits for greedy decode
-        logits = outputs[0]
-        next_tokens = np.argmax(logits[:, -1, :], axis=-1)
-        decoded = tokenizer.decode(next_tokens, skip_special_tokens=True)
+
+        # Discover which inputs the ONNX model expects
+        model_input_names = [i.name for i in session.get_inputs()]
+        model_input_shapes = {i.name: i.shape for i in session.get_inputs()}
+
+        # Build initial feed from tokenizer outputs (input_ids, attention_mask)
+        input_feed = {k: v for k, v in inputs.items() if k in model_input_names}
+
+        # Add position_ids if required
+        if "position_ids" in model_input_names and "position_ids" not in input_feed:
+            seq_len = input_feed["input_ids"].shape[1]
+            input_feed["position_ids"] = np.arange(seq_len, dtype=np.int64).reshape(1, -1)
+
+        # Add zero-initialized past_key_values if required (KV-cache models)
+        kv_inputs = [n for n in model_input_names if n.startswith("past_key_values")]
+        if kv_inputs:
+            batch_size = input_feed["input_ids"].shape[0]
+            for kv_name in kv_inputs:
+                shape = model_input_shapes[kv_name]
+                # shape is typically [batch, num_heads, past_seq_len, head_dim]
+                # Replace dynamic dims with concrete values
+                concrete_shape = []
+                for dim in shape:
+                    if isinstance(dim, int) and dim > 0:
+                        concrete_shape.append(dim)
+                    elif isinstance(dim, str) and "batch" in dim.lower():
+                        concrete_shape.append(batch_size)
+                    elif isinstance(dim, str) and ("past" in dim.lower() or "seq" in dim.lower()):
+                        concrete_shape.append(0)  # empty past for first inference
+                    else:
+                        concrete_shape.append(0 if dim == 0 or (isinstance(dim, str) and "past" in dim.lower()) else 1)
+                input_feed[kv_name] = np.zeros(concrete_shape, dtype=np.float32)
+
+        # Autoregressive generation loop
+        generated_tokens = []
+        eos_id = getattr(tokenizer, "eos_token_id", None)
+
+        for step in range(min(max_tokens, 512)):
+            try:
+                outputs = session.run(None, input_feed)
+            except Exception as e:
+                if not generated_tokens:
+                    raise HTTPException(500, f"ONNX inference failed: {e}")
+                break
+
+            logits = outputs[0]
+            next_token_logits = logits[:, -1, :]
+
+            # Apply temperature
+            if temperature > 0 and temperature != 1.0:
+                next_token_logits = next_token_logits / max(temperature, 0.01)
+
+            next_token_id = int(np.argmax(next_token_logits, axis=-1)[0])
+
+            if eos_id is not None and next_token_id == eos_id:
+                break
+
+            generated_tokens.append(next_token_id)
+
+            # Check stop sequences
+            partial = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+            if stop:
+                should_stop = False
+                for s in stop:
+                    if s in partial:
+                        partial = partial[:partial.index(s)]
+                        should_stop = True
+                        break
+                if should_stop:
+                    return partial
+
+            # Update inputs for next step
+            next_id_arr = np.array([[next_token_id]], dtype=np.int64)
+            input_feed["input_ids"] = next_id_arr
+            if "attention_mask" in input_feed:
+                input_feed["attention_mask"] = np.concatenate(
+                    [input_feed["attention_mask"], np.ones((1, 1), dtype=np.int64)], axis=1
+                )
+            if "position_ids" in input_feed:
+                last_pos = input_feed["position_ids"][0, -1] if input_feed["position_ids"].shape[1] > 0 else -1
+                input_feed["position_ids"] = np.array([[int(last_pos) + 1]], dtype=np.int64)
+
+            # Update KV cache from model outputs (outputs[1:] are typically the new KV states)
+            if kv_inputs and len(outputs) > 1:
+                kv_outputs = outputs[1:]
+                for i, kv_name in enumerate(sorted(kv_inputs)):
+                    if i < len(kv_outputs):
+                        input_feed[kv_name] = kv_outputs[i]
+
+        decoded = tokenizer.decode(generated_tokens, skip_special_tokens=True)
         return decoded
 
     else:

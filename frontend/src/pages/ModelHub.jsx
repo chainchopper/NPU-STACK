@@ -4,8 +4,7 @@ import {
     Check, Loader2, Filter, LayoutGrid, List, Info, Image as ImageIcon,
     DownloadCloud, Layers
 } from 'lucide-react';
-
-const API_BASE = 'http://localhost:8000/api';
+import { apiUrl } from '../api/client';
 
 const TASK_FILTERS = [
     { label: 'All Tasks', value: '' },
@@ -54,11 +53,11 @@ export default function ModelHub() {
                 const params = new URLSearchParams({ q: query, limit: '24' });
                 if (task) params.set('task', task);
                 if (tags) params.set('tags', tags);
-                res = await fetch(`${API_BASE}/huggingface/search?${params}`);
+                res = await fetch(`${apiUrl('/huggingface/search')}?${params}`);
             } else {
                 const params = new URLSearchParams({ q: query, limit: '24' });
                 if (tags) params.set('type', tags.split(',')[0]); // Civitai uses 'types' for major category
-                res = await fetch(`${API_BASE}/civitai/search?${params}`);
+                res = await fetch(`${apiUrl('/civitai/search')}?${params}`);
             }
 
             const data = await res.json();
@@ -77,9 +76,9 @@ export default function ModelHub() {
         try {
             let res;
             if (source === 'huggingface') {
-                res = await fetch(`${API_BASE}/huggingface/model/${encodeURIComponent(m.id)}`);
+                res = await fetch(`${apiUrl(`/huggingface/model/${encodeURIComponent(m.id)}`)}`);
             } else {
-                res = await fetch(`${API_BASE}/civitai/model/${m.id}`);
+                res = await fetch(apiUrl(`/civitai/model/${m.id}`));
             }
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Failed to fetch details');
@@ -98,7 +97,7 @@ export default function ModelHub() {
             const fd = new FormData();
             fd.append('repo_id', repoId);
             if (filename) fd.append('filename', filename);
-            const res = await fetch(`${API_BASE}/huggingface/download`, { method: 'POST', body: fd });
+            const res = await fetch(apiUrl('/huggingface/download'), { method: 'POST', body: fd });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Download failed');
             setDownloaded(prev => ({ ...prev, [key]: data }));
@@ -114,7 +113,7 @@ export default function ModelHub() {
         try {
             const fd = new FormData();
             fd.append('repo_id', repoId);
-            const res = await fetch(`${API_BASE}/huggingface/snapshot`, { method: 'POST', body: fd });
+            const res = await fetch(apiUrl('/huggingface/snapshot'), { method: 'POST', body: fd });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Snapshot download failed');
             setDownloaded(prev => ({ ...prev, [repoId]: data }));
@@ -133,7 +132,7 @@ export default function ModelHub() {
             const fd = new FormData();
             fd.append('version_id', versionId);
             fd.append('model_name', modelName);
-            const res = await fetch(`${API_BASE}/civitai/download`, { method: 'POST', body: fd });
+            const res = await fetch(apiUrl('/civitai/download'), { method: 'POST', body: fd });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Download failed');
             setDownloaded(prev => ({ ...prev, [key]: data }));

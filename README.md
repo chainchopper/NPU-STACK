@@ -46,6 +46,16 @@ NPU-STACK is an **open-source, full-stack AI toolkit** for developing, serving, 
 
 ---
 
+## ✅ Verified current snapshot
+
+- **Backend:** FastAPI app imports successfully and currently mounts **136 routes**.
+- **Frontend:** React 18 + Vite SPA with **17 navigable pages** in `frontend/src/App.jsx`.
+- **Serving:** OpenAI-compatible `/v1` API is wired into the frontend via shared URL helpers instead of hardcoded `localhost` origins.
+- **Dev proxy:** Vite proxies `/api`, `/v1`, and `/ws` to the backend during local development.
+- **Validation:** Frontend production build passes, and backend smoke coverage now lives in `tests/test_backend_smoke.py`.
+
+---
+
 ## 📸 Screenshots
 
 <div align="center">
@@ -116,14 +126,17 @@ Fine-tune any model in the registry with parameter-efficient methods:
 ```python
 import requests
 
-requests.post("http://localhost:8000/api/finetune/start", json={
-    "model_id": 1,
-    "dataset": "my-dataset",
-    "epochs": 3,
-    "learning_rate": 2e-4,
-    "use_lora": True,
-    "lora_r": 16,
-    "lora_alpha": 32
+requests.post("http://localhost:8000/api/finetune/start", data={
+  "model_id": 1,
+  "dataset": "my-dataset.jsonl",
+  "epochs": 3,
+  "batch_size": 4,
+  "learning_rate": 2e-4,
+  "use_lora": True,
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "text_column": "text",
+  "max_length": 512,
 })
 ```
 
@@ -195,18 +208,38 @@ cd backend && pip install -r requirements.txt && python main.py
 cd frontend && npm install && npm run dev
 ```
 
+The frontend development server uses relative API calls and proxies these backend surfaces automatically:
+
+- `/api` → `http://localhost:8000`
+- `/v1` → `http://localhost:8000`
+- `/ws` → `ws://localhost:8000`
+
 **Access:**
+
 - 🌐 Dashboard: `http://localhost:5173`
 - 📡 API Docs: `http://localhost:8000/api/docs`
 - 🤖 OpenAI API: `http://localhost:8000/v1`
+
+### Quick validation
+
+```bash
+# Frontend smoke tests
+cd frontend && npm run test
+
+# Frontend production build
+cd frontend && npm run build
+
+# Backend smoke tests
+python -m unittest discover -s tests -p test_backend_smoke.py
+```
 
 ---
 
 ## 🏗️ Architecture
 
-```
+```text
 ├── backend/
-│   ├── main.py                # FastAPI entry (11 routers)
+│   ├── main.py                # FastAPI entry (23 feature routers, 136 total routes verified)
 │   ├── database.py            # SQLAlchemy models
 │   ├── routers/
 │   │   ├── models.py          # Model registry CRUD
@@ -220,6 +253,14 @@ cd frontend && npm install && npm run dev
 │   │   ├── datasets.py        # Dataset management
 │   │   ├── scanner.py         # Local model scanner (12+ formats)
 │   │   ├── webcam.py          # WebSocket webcam inference
+│   │   ├── gguf_pipeline.py   # GGUF inspect / quantize / split / LoRA merge
+│   │   ├── flm.py             # FastFlowLM runtime integration
+│   │   ├── devices.py         # Edge Fleet device registry + flashing helpers
+│   │   ├── nim.py             # NVIDIA NIM integration
+│   │   ├── cvedia.py          # CVEDIA-RT integration
+│   │   ├── vitis_compiler.py  # AMD Vitis compilation pipeline
+│   │   ├── civitai.py         # Civitai search / download flows
+│   │   ├── agent.py           # Agent-oriented backend endpoints
 │   │   └── filebrowser.py     # Interactive file/folder browser
 │   └── services/              # Business logic
 │       ├── benchmark_service.py  # 12-capability hardware detection
@@ -228,23 +269,29 @@ cd frontend && npm install && npm run dev
 │       └── gguf_service.py       # llama.cpp GGUF inference
 ├── frontend/
 │   └── src/
-│       ├── App.jsx            # Router + sidebar (12 pages)
+│       ├── App.jsx            # Router + sidebar (17 pages verified)
 │       ├── components/
 │       │   └── FolderBrowser.jsx  # Modal folder picker
 │       └── pages/
 │           ├── Dashboard.jsx  # Overview + system info
 │           ├── Playground.jsx # Interactive model testing
 │           ├── Models.jsx     # Model registry
-│           ├── HuggingFaceHub.jsx # Model discovery
+│           ├── ModelHub.jsx   # HuggingFace / Civitai discovery
+│           ├── HubPublisher.jsx # Hub publishing workflow
 │           ├── Datasets.jsx   # Dataset manager
+│           ├── DataIngestion.jsx # Upload / extract / dataset build
 │           ├── Serving.jsx    # Model serving UI
 │           ├── Training.jsx   # Training console
 │           ├── FineTuning.jsx # Fine-tuning config & jobs
 │           ├── Conversion.jsx # Format & quantization studio
 │           ├── GGUFStudio.jsx # llama.cpp GGUF tooling suite
+│           ├── FastFlowLM.jsx # FLM runtime management
 │           ├── Scanner.jsx    # Model file scanner
 │           ├── WebcamTest.jsx # Real-time object detection
-│           └── Benchmark.jsx  # Performance lab
+│           ├── Benchmark.jsx  # Performance lab
+│           └── EdgeFleet.jsx  # Edge device discovery / firmware ops
+├── tests/
+│   └── test_backend_smoke.py  # Core backend smoke coverage
 ├── docs/screenshots/          # App screenshots
 ├── web/                       # Promotional website
 └── docker-compose.yml

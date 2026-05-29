@@ -10,14 +10,34 @@ export default function Dashboard() {
     const [wizardDismissed, setWizardDismissed] = useState(() => localStorage.getItem('npu-wizard-dismissed') === 'true');
 
     useEffect(() => {
-        Promise.all([
-            getStatus().catch(() => ({ models: 0, training_jobs: 0, running_jobs: 0, benchmarks: 0 })),
-            getSystemInfo().catch(() => null),
-        ]).then(([s, sys]) => {
-            setStatus(s);
-            setSysInfo(sys);
-            setLoading(false);
-        });
+        let cancelled = false;
+        const fallbackStatus = { models: 0, training_jobs: 0, running_jobs: 0, benchmarks: 0 };
+
+        getStatus()
+            .catch(() => fallbackStatus)
+            .then((nextStatus) => {
+                if (cancelled) return;
+                setStatus(nextStatus);
+                setLoading(false);
+            });
+
+        getSystemInfo()
+            .catch(() => null)
+            .then((nextSysInfo) => {
+                if (cancelled) return;
+                setSysInfo(nextSysInfo);
+            });
+
+        const unblockTimer = setTimeout(() => {
+            if (!cancelled) {
+                setLoading(false);
+            }
+        }, 3000);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(unblockTimer);
+        };
     }, []);
 
     if (loading) {
@@ -393,7 +413,7 @@ function PipelineFlow() {
                     <div style={{ flex: 1, background: 'var(--bg-tertiary)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
                         <Cloud size={28} style={{ color: 'var(--accent-green)', marginBottom: '12px' }} />
                         <h4 style={{ fontWeight: 600, fontSize: '14px', marginBottom: '8px' }}>4. Deployment</h4>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>FastAPI Server<br />NVIDIA NIM Cloud<br />CVEDIA-RT Edge</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>FastFlowLM Runtime<br />FastAPI / NVIDIA NIM<br />CVEDIA-RT Edge</div>
                     </div>
                 </div>
             </div>
@@ -413,6 +433,7 @@ function HardwareMatrix({ capabilities }) {
         { capKey: 'vitis_ai', name: 'Xilinx/AMD Alveo', formats: 'vitis_xmodel', deploy: 'Vitis DPU API' },
         { capKey: 'directml', name: 'DirectML (Windows)', formats: 'ONNX', deploy: 'Windows GPU API' },
         { capKey: 'vulkan', name: 'Vulkan Compute', formats: 'ONNX, GGUF (via vulkan)', deploy: 'Cross-platform' },
+        { capKey: 'fastflowlm', name: 'FastFlowLM NPU', formats: 'FLM (NPU Optimized)', deploy: 'Ryzen AI Runtime' },
         { capKey: 'cpu', name: 'CPU Inference', formats: 'All formats', deploy: 'API, Edge' },
     ];
 

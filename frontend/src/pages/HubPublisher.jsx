@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { CloudUpload, Share2, Tag } from 'lucide-react';
+import { apiUrl } from '../api/client';
 
 export default function HubPublisher() {
     const [status, setStatus] = useState(null);
 
     useEffect(() => {
-        fetch('http://localhost:8000/api/finetune/jobs')
+        fetch(apiUrl('/finetune/jobs'))
             .then(res => res.json())
             .then(data => setStatus(data))
             .catch(err => console.error(err));

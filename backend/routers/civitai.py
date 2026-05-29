@@ -20,6 +20,23 @@ CIVITAI_API_URL = "https://civitai.com/api/v1"
 def _get_api_key():
     return os.environ.get("CIVITAI_API_KEY") or None
 
+
+def _build_headers() -> dict:
+    headers = {"Accept": "application/json"}
+    api_key = _get_api_key()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _first_image_url(item: dict) -> Optional[str]:
+    for version in item.get("modelVersions", []) or []:
+        for image in version.get("images", []) or []:
+            url = image.get("url")
+            if url:
+                return url
+    return None
+
 @router.get("/search")
 async def search_models(
     q: str = "",
@@ -31,19 +48,20 @@ async def search_models(
     params = {
         "query": q,
         "limit": limit,
-        "page": page,
     }
+    if not q.strip() and page:
+        params["page"] = page
     if type:
         params["types"] = type
 
     async with httpx.AsyncClient() as client:
         try:
-            headers = {}
-            api_key = _get_api_key()
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            
-            response = await client.get(f"{CIVITAI_API_URL}/models", params=params, headers=headers)
+            response = await client.get(
+                f"{CIVITAI_API_URL}/models",
+                params=params,
+                headers=_build_headers(),
+                timeout=30.0,
+            )
             response.raise_for_status()
             data = response.json()
             
@@ -57,7 +75,7 @@ async def search_models(
                     "creator": item.get("creator", {}).get("username"),
                     "stats": item.get("stats", {}),
                     "tags": item.get("tags", []),
-                    "thumbnail": item.get("modelVersions", [{}])[0].get("images", [{}])[0].get("url") if item.get("modelVersions") else None,
+                    "thumbnail": _first_image_url(item),
                     "versions": [
                         {
                             "id": v.get("id"),
@@ -76,12 +94,11 @@ async def get_model_details(model_id: str):
     """Get detailed info about a Civitai model."""
     async with httpx.AsyncClient() as client:
         try:
-            headers = {}
-            api_key = _get_api_key()
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-                
-            response = await client.get(f"{CIVITAI_API_URL}/models/{model_id}", headers=headers)
+            response = await client.get(
+                f"{CIVITAI_API_URL}/models/{model_id}",
+                headers=_build_headers(),
+                timeout=30.0,
+            )
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -97,9 +114,7 @@ async def download_model(
     api_key = _get_api_key()
     url = f"{CIVITAI_API_URL}/model-versions/{version_id}/download"
     
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    headers = _build_headers()
 
     # We use a stream to download to avoid loading large files into memory
     try:

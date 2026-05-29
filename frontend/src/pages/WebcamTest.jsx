@@ -4,8 +4,7 @@ import {
     Monitor, Cpu, Zap, Loader, AlertCircle, Search,
     FolderOpen, RefreshCw
 } from 'lucide-react';
-
-const API = 'http://localhost:8000';
+import { apiUrl, websocketUrl } from '../api/client';
 
 // Detection class colors palette
 const CLASS_COLORS = [
@@ -52,7 +51,7 @@ export default function WebcamTest() {
     const fetchModels = async () => {
         setLoadingModels(true);
         try {
-            const res = await fetch(`${API}/api/models`);
+            const res = await fetch(apiUrl('/models'));
             const data = await res.json();
             setModels(data.models || []);
         } catch (e) {
@@ -64,7 +63,7 @@ export default function WebcamTest() {
     useEffect(() => {
         fetchModels();
         // Also check if a model is already loaded
-        fetch(`${API}/api/webcam/status`).then(r => r.json()).then(data => {
+        fetch(apiUrl('/webcam/status')).then(r => r.json()).then(data => {
             if (data.model_loaded) {
                 setModelLoaded(true);
                 setLoadedModelName(data.model_path || 'Previously loaded');
@@ -100,7 +99,7 @@ export default function WebcamTest() {
         }
         try {
             const res = await fetch(
-                `${API}/api/webcam/load?model_path=${encodeURIComponent(path)}&backend=${backend}`,
+                `${apiUrl('/webcam/load')}?model_path=${encodeURIComponent(path)}&backend=${backend}`,
                 { method: 'POST' }
             );
             const data = await res.json();
@@ -128,7 +127,7 @@ export default function WebcamTest() {
                 await videoRef.current.play();
             }
 
-            const ws = new WebSocket(`ws://localhost:8000/api/webcam/stream`);
+            const ws = new WebSocket(websocketUrl('/api/webcam/stream'));
             wsRef.current = ws;
 
             ws.onopen = () => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRightLeft, Minimize2, Zap, Loader, AlertCircle, CheckCircle, Info, FileBox } from 'lucide-react';
 import ContextWizard from '../components/ContextWizard';
+import { apiUrl } from '../api/client';
 
 const CONVERSION_WIZARD_STEPS = [
     {
@@ -20,8 +21,6 @@ const CONVERSION_WIZARD_STEPS = [
         body: 'Provide the exact input tensor shape your model was trained with, e.g. [1, 3, 224, 224] for a standard vision model. Mismatched shapes will cause inference errors downstream.',
     },
 ];
-
-const API = 'http://localhost:8000';
 
 const humanSize = (bytes) => {
     if (!bytes) return '—';
@@ -60,8 +59,8 @@ export default function Conversion() {
 
     useEffect(() => {
         Promise.all([
-            fetch(`${API}/api/models`).then(r => r.json()),
-            fetch(`${API}/api/convert/cross/paths`).then(r => r.json()),
+            fetch(apiUrl('/models')).then(r => r.json()),
+            fetch(apiUrl('/convert/cross/paths')).then(r => r.json()),
         ]).then(([modelsData, pathsData]) => {
             setModels(modelsData.models || []);
             setConversionPaths(pathsData.paths || []);
@@ -118,7 +117,7 @@ export default function Conversion() {
                 input_shape: inputShape ? JSON.parse(inputShape) : undefined,
             };
 
-            const res = await fetch(`${API}/api/convert/cross`, {
+            const res = await fetch(apiUrl('/convert/cross'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -127,7 +126,7 @@ export default function Conversion() {
             if (res.ok) {
                 setResult({ success: true, ...data });
                 // Refresh models list
-                fetch(`${API}/api/models`).then(r => r.json()).then(d => setModels(d.models || []));
+                fetch(apiUrl('/models')).then(r => r.json()).then(d => setModels(d.models || []));
             } else {
                 setError(data.detail || 'Conversion failed');
             }
@@ -152,7 +151,7 @@ export default function Conversion() {
                 calibration_samples: calibSamples,
             };
 
-            const res = await fetch(`${API}/api/convert/quantize`, {
+            const res = await fetch(apiUrl('/convert/quantize'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -160,7 +159,7 @@ export default function Conversion() {
             const data = await res.json();
             if (res.ok) {
                 setResult({ success: true, ...data });
-                fetch(`${API}/api/models`).then(r => r.json()).then(d => setModels(d.models || []));
+                fetch(apiUrl('/models')).then(r => r.json()).then(d => setModels(d.models || []));
             } else {
                 setError(data.detail || 'Quantization failed');
             }

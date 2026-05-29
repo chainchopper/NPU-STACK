@@ -1868,3 +1868,287 @@ tbody tr:last-child td {
   color: var(--text-muted);
   font-size: 14px;
 }
+
+/* ============================================
+   Edge Fleet Page
+   ============================================ */
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 20px;
+}
+
+.fleet-device-card {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.fleet-device-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 20px 16px;
+}
+
+.fleet-device-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--accent-blue-glow);
+  color: var(--accent-blue);
+  transition: transform var(--transition-spring);
+}
+
+.fleet-device-card.green .fleet-device-icon { background: var(--accent-green-glow); color: var(--accent-green); }
+.fleet-device-card.amber .fleet-device-icon { background: var(--accent-amber-glow); color: var(--accent-amber); }
+.fleet-device-card.purple .fleet-device-icon { background: var(--accent-purple-glow); color: var(--accent-purple); }
+
+.fleet-device-card:hover .fleet-device-icon { transform: scale(1.08); }
+
+.fleet-device-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.fleet-device-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fleet-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+  padding: 2px;
+}
+
+.fleet-device-card:hover .fleet-edit-btn { opacity: 1; }
+.fleet-edit-btn:hover { color: var(--accent-blue); }
+
+.fleet-device-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fleet-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid;
+}
+
+.fleet-badge.blue { color: var(--accent-blue); background: var(--accent-blue-glow); border-color: rgba(59, 130, 246, 0.15); }
+.fleet-badge.green { color: var(--accent-green); background: var(--accent-green-glow); border-color: rgba(16, 185, 129, 0.15); }
+.fleet-badge.amber { color: var(--accent-amber); background: var(--accent-amber-glow); border-color: rgba(245, 158, 11, 0.15); }
+.fleet-badge.purple { color: var(--accent-purple); background: var(--accent-purple-glow); border-color: rgba(139, 92, 246, 0.15); }
+
+.fleet-port {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.fleet-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+.fleet-status-dot.green {
+  background: var(--accent-green);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.fleet-status-dot.blue {
+  background: var(--accent-blue);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+.fleet-status-dot.amber {
+  background: var(--accent-amber);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.fleet-expand-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.fleet-expand-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.fleet-device-detail {
+  border-top: 1px solid var(--border-color);
+  padding: 16px 20px 20px;
+  animation: fadeIn 0.25s var(--ease-smooth);
+}
+
+.fleet-detail-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.fleet-detail-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.fleet-detail-grid > span:nth-child(even) {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fleet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fleet-actions .btn {
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.fleet-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.fleet-icon-btn.green { color: var(--accent-green); }
+.fleet-icon-btn.green:hover { background: var(--accent-green-glow); }
+.fleet-icon-btn.red { color: var(--accent-red); }
+.fleet-icon-btn.red:hover { background: var(--accent-red-glow); }
+
+/* Scan Method Toggle */
+.fleet-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.fleet-toggle:hover { border-color: var(--border-focus); color: var(--text-secondary); }
+
+.fleet-toggle[data-active="true"] {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: var(--accent-blue-glow);
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+/* Filter Tabs */
+.fleet-filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fleet-filter-btn {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.fleet-filter-btn:hover { color: var(--text-secondary); }
+.fleet-filter-btn.active { background: var(--bg-tertiary); color: var(--text-primary); }
+
+/* Log */
+.fleet-log {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.fleet-log-line {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.fleet-log-line:last-child { border-bottom: none; }
+
+/* Backups */
+.fleet-backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fleet-backup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.btn-loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
