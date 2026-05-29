@@ -2,15 +2,17 @@
 setlocal EnableDelayedExpansion
 title NPU-STACK
 
+set "BACKEND_PORT=8010"
+
 :: Capture root dir (no trailing backslash)
 set "ROOT=%~dp0"
 if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 
 echo  ============================================
 echo    NPU-STACK  ^|  Neural Processor Toolkit
-echo    Backend:  http://localhost:8000
+echo    Backend:  http://localhost:!BACKEND_PORT!
 echo    Frontend: http://localhost:5173
-echo    API Docs: http://localhost:8000/docs
+echo    API Docs: http://localhost:!BACKEND_PORT!/api/docs
 echo  ============================================
 echo.
 
@@ -32,7 +34,7 @@ if not exist "!ROOT!\frontend\node_modules" (
 :: Start Backend in new window
 :: Note: call the activate script by full path, then cd to backend by full path
 start "NPU-STACK Backend" cmd /k ^
-call "!ROOT!\.venv\Scripts\activate.bat" ^& cd /d "!ROOT!\backend" ^& python main.py
+set NPU_STACK_BACKEND_PORT=!BACKEND_PORT! ^& call "!ROOT!\.venv\Scripts\activate.bat" ^& cd /d "!ROOT!" ^& python -m uvicorn backend.main:app --host 127.0.0.1 --port !BACKEND_PORT!
 
 timeout /t 3 /nobreak >nul
 

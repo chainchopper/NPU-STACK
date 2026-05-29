@@ -3,8 +3,33 @@
  * Wraps fetch calls and provides WebSocket connection management.
  */
 
-export const API_BASE = '/api';
-export const OPENAI_BASE = '/v1';
+const DEV_FRONTEND_PORTS = new Set(['5173', '5174']);
+const DEFAULT_DEV_BACKEND_PORT = (import.meta.env?.VITE_BACKEND_PORT || '8010').trim();
+const CONFIGURED_DEV_BACKEND_ORIGIN = (import.meta.env?.VITE_BACKEND_ORIGIN || '').trim().replace(/\/$/, '');
+
+function resolveDevBackendOrigin(currentUrl = null) {
+    if (CONFIGURED_DEV_BACKEND_ORIGIN) return CONFIGURED_DEV_BACKEND_ORIGIN;
+
+    const fallbackUrl = currentUrl || (typeof window !== 'undefined' ? window.location.href : '');
+    if (!fallbackUrl) return '';
+
+    try {
+        const url = new URL(fallbackUrl, typeof window !== 'undefined' ? window.location.origin : undefined);
+        if (!DEV_FRONTEND_PORTS.has(url.port)) return '';
+        url.port = DEFAULT_DEV_BACKEND_PORT;
+        return url.origin;
+    } catch {
+        return '';
+    }
+}
+
+function resolveRuntimeBase(basePath) {
+    const devOrigin = resolveDevBackendOrigin();
+    return devOrigin ? `${devOrigin}${basePath}` : basePath;
+}
+
+export const API_BASE = resolveRuntimeBase('/api');
+export const OPENAI_BASE = resolveRuntimeBase('/v1');
 
 function normalizePath(path = '') {
     if (!path) return '';
@@ -22,18 +47,21 @@ export function openAIUrl(path = '') {
 export function absoluteUrl(path = '') {
     const normalized = path || '/';
     if (typeof window === 'undefined') return normalized;
-    return new URL(normalized, window.location.origin).toString();
+
+    const backendOrigin = resolveDevBackendOrigin();
+    const useBackendOrigin = backendOrigin && /^\/(api|v1|ws)(\/|$)/.test(normalized);
+    return new URL(normalized, useBackendOrigin ? backendOrigin : window.location.origin).toString();
 }
 
 export function inferBackendOrigin(currentUrl = null) {
+    const devOrigin = resolveDevBackendOrigin(currentUrl);
+    if (devOrigin) return devOrigin;
+
     const fallbackUrl = currentUrl || (typeof window !== 'undefined' ? window.location.href : '');
     if (!fallbackUrl) return '';
 
     try {
         const url = new URL(fallbackUrl, typeof window !== 'undefined' ? window.location.origin : undefined);
-        if (url.port === '5173' || url.port === '5174') {
-            url.port = '8000';
-        }
         return url.origin;
     } catch {
         return typeof window !== 'undefined' ? window.location.origin : '';
@@ -41,8 +69,10 @@ export function inferBackendOrigin(currentUrl = null) {
 }
 
 export function websocketUrl(path = '') {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}${normalizePath(path)}`;
+    const backendOrigin = resolveDevBackendOrigin() || window.location.origin;
+    const url = new URL(normalizePath(path), backendOrigin);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString();
 }
 
 function titleCaseSlug(value = '') {
@@ -410,7 +440,11 @@ export async function chatFLM(messages, model, temperature = 0.7, maxTokens = 10
 // ─── Edge Fleet (Device Management) ──────────────────
 export async function scanDevices(methods = {}) {
     const params = new URLSearchParams();
-    Object.entries(methods).forEach(([k, v]) => params.set(k, String(v)));
+    Object.entries(methods).forEach(([k, v]) => {
+        if (v == null) return;
+        if (typeof v === 'string' && !v.trim()) return;
+        params.set(k, String(v));
+    });
     return request(`/devices/scan?${params}`);
 }
 

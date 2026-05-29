@@ -3,15 +3,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_PORT="${NPU_STACK_BACKEND_PORT:-8010}"
 
 echo "NPU-STACK - Starting Full Platform"
-echo "Backend:  http://localhost:8000"
+echo "Backend:  http://localhost:${BACKEND_PORT}"
 echo "Frontend: http://localhost:5173"
-echo "API Docs: http://localhost:8000/docs"
+echo "API Docs: http://localhost:${BACKEND_PORT}/api/docs"
 echo ""
 
 # Start backend in background
 echo "Starting backend..."
+export NPU_STACK_BACKEND_PORT="$BACKEND_PORT"
 "$SCRIPT_DIR/run-backend.sh" &
 BACKEND_PID=$!
 

@@ -4,7 +4,7 @@ import {
     Check, Loader2, Filter, LayoutGrid, List, Info, Image as ImageIcon,
     DownloadCloud, Layers
 } from 'lucide-react';
-import { apiUrl } from '../api/client';
+import { absoluteUrl, apiUrl } from '../api/client';
 
 const TASK_FILTERS = [
     { label: 'All Tasks', value: '' },
@@ -23,6 +23,83 @@ const FRAMEWORK_TAGS = [
     { label: 'SafeTensors', value: 'safetensors' },
     { label: 'TensorRT', value: 'tensorrt' },
 ];
+
+function normalizeCivitaiMedia(media) {
+    if (!media) return null;
+    if (typeof media === 'string') {
+        return { proxy_url: media, media_kind: 'image', aspect_ratio: '1 / 1', aspect_preset: 'square' };
+    }
+    return media;
+}
+
+function civitaiMediaSrc(media) {
+    const normalized = normalizeCivitaiMedia(media);
+    const source = normalized?.proxy_url || normalized?.thumbnail || normalized?.url || '';
+    return source.startsWith('/') ? absoluteUrl(source) : source;
+}
+
+function civitaiMediaKind(media) {
+    const normalized = normalizeCivitaiMedia(media) || {};
+    const explicit = String(normalized.media_kind || normalized.thumbnail_type || normalized.type || '').toLowerCase();
+    const src = civitaiMediaSrc(normalized).toLowerCase();
+    if (explicit === 'video' || src.endsWith('.webm')) return 'video';
+    return 'image';
+}
+
+function civitaiAspectRatio(media) {
+    const normalized = normalizeCivitaiMedia(media) || {};
+    if (normalized.aspect_ratio) return normalized.aspect_ratio;
+    if (normalized.width && normalized.height) return `${normalized.width} / ${normalized.height}`;
+    if ((normalized.aspect_preset || '').toLowerCase() === 'portrait') return '9 / 16';
+    return '1 / 1';
+}
+
+function civitaiFormatLabel(media) {
+    const src = civitaiMediaSrc(media);
+    const explicit = String(media?.media_kind || media?.type || '').toLowerCase();
+    if (explicit === 'video' || src.toLowerCase().endsWith('.webm')) return 'WEBM';
+    if (src.toLowerCase().endsWith('.gif')) return 'GIF';
+    if (src.toLowerCase().endsWith('.apng')) return 'APNG';
+    if (src.toLowerCase().endsWith('.png')) return 'PNG';
+    if (src.toLowerCase().endsWith('.webp')) return 'WEBP';
+    return 'IMG';
+}
+
+function CivitaiMediaPreview({ media, alt, maxHeight = '100%' }) {
+    const normalized = normalizeCivitaiMedia(media);
+    const src = civitaiMediaSrc(normalized);
+    if (!normalized || !src) return null;
+
+    const kind = civitaiMediaKind(normalized);
+    const aspectRatio = civitaiAspectRatio(normalized);
+
+    return (
+        <div style={{ position: 'relative', aspectRatio, width: '100%', overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+            {kind === 'video' ? (
+                <video
+                    src={src}
+                    muted
+                    loop
+                    playsInline
+                    autoPlay
+                    preload="metadata"
+                    style={{ width: '100%', height: '100%', maxHeight, objectFit: 'cover', display: 'block' }}
+                />
+            ) : (
+                <img
+                    src={src}
+                    alt={alt}
+                    loading="lazy"
+                    style={{ width: '100%', height: '100%', maxHeight, objectFit: 'cover', display: 'block' }}
+                />
+            )}
+            <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <span className="badge badge-secondary">{civitaiFormatLabel(normalized)}</span>
+                <span className="badge badge-blue">{normalized.aspect_preset || 'square'}</span>
+            </div>
+        </div>
+    );
+}
 
 export default function ModelHub() {
     const [source, setSource] = useState('huggingface'); // 'huggingface' | 'civitai'
@@ -269,6 +346,19 @@ export default function ModelHub() {
                             <div key={i} className="card skeleton" style={{ height: '180px', borderRadius: 'var(--radius-lg)' }}></div>
                         ))
                     ) : results.map(m => (
+                        (() => {
+                            const previewMedia = source === 'civitai'
+                                ? (m.preview_media || (m.thumbnail ? {
+                                    proxy_url: m.thumbnail,
+                                    media_kind: m.thumbnail_type,
+                                    width: m.thumbnail_width,
+                                    height: m.thumbnail_height,
+                                    aspect_ratio: m.thumbnail_aspect_ratio,
+                                    aspect_preset: m.thumbnail_aspect_preset,
+                                } : null))
+                                : null;
+
+                            return (
                         <div
                             key={m.id}
                             className={`card model-card ${detail?.id === m.id ? 'active' : ''}`}
@@ -281,9 +371,9 @@ export default function ModelHub() {
                                 boxShadow: detail?.id === m.id ? '0 0 0 2px var(--primary-alpha)' : 'none'
                             }}
                         >
-                            {source === 'civitai' && m.thumbnail && (
-                                <div style={{ height: '140px', overflow: 'hidden', position: 'relative' }}>
-                                    <img src={m.thumbnail} alt={m.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            {source === 'civitai' && previewMedia && (
+                                <div style={{ overflow: 'hidden', position: 'relative' }}>
+                                    <CivitaiMediaPreview media={previewMedia} alt={m.name} />
                                     <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
                                         <span className="badge badge-blue">{m.type}</span>
                                     </div>
@@ -321,6 +411,8 @@ export default function ModelHub() {
                                 </div>
                             </div>
                         </div>
+                            );
+                        })()
                     ))}
                     {!searching && results.length === 0 && (
                         <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '80px 0', color: 'var(--text-muted)' }}>
@@ -407,9 +499,23 @@ export default function ModelHub() {
                                 ) : (
                                     <>
                                         {/* Civitai Detail */}
-                                        <div style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '20px' }}>
-                                            <img src={detail.modelVersions?.[0]?.images?.[0]?.url} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover' }} />
-                                        </div>
+                                        {(() => {
+                                            const previewMedia = detail.modelVersions?.flatMap((version) => version.images || []) || [];
+                                            return previewMedia.length > 0 ? (
+                                                <div style={{ marginBottom: '20px' }}>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: previewMedia.length > 1 ? 'repeat(2, minmax(0, 1fr))' : '1fr', gap: '10px' }}>
+                                                        {previewMedia.slice(0, 4).map((media) => (
+                                                            <div key={media.id || media.url} style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                                                                <CivitaiMediaPreview media={media} alt={detail.name} maxHeight="220px" />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                                        Preview media is proxied through NPU-STACK and cached locally to avoid hammering Civitai.
+                                                    </div>
+                                                </div>
+                                            ) : null;
+                                        })()}
 
                                         <div style={{ display: 'flex', gap: '20px', fontSize: '13px', marginBottom: '24px', color: 'var(--text-secondary)', background: 'var(--bg-tertiary)', padding: '12px', borderRadius: 'var(--radius-md)' }}>
                                             <span><ArrowDown size={14} /> {formatNum(detail.stats?.downloadCount)}</span>

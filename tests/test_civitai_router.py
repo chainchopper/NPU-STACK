@@ -70,10 +70,23 @@ class CivitaiRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, msg=response.text)
         payload = response.json()
         self.assertEqual(len(payload.get('models', [])), 1)
-        self.assertEqual(payload['models'][0]['thumbnail'], 'https://example.com/thumb.jpg')
+        self.assertEqual(
+            payload['models'][0]['thumbnail'],
+            '/api/civitai/media?url=https%3A%2F%2Fexample.com%2Fthumb.jpg',
+        )
+        self.assertEqual(payload['models'][0]['thumbnail_type'], 'image')
+        self.assertEqual(payload['models'][0]['thumbnail_aspect_ratio'], '1 / 1')
         self.assertEqual(len(dummy_client.calls), 1)
         self.assertNotIn('page', dummy_client.calls[0]['params'])
         self.assertEqual(dummy_client.calls[0]['params'].get('query'), 'sdxl')
+
+    def test_sentinel_push_endpoint_acknowledges_payload(self):
+        response = self.client.post('/api/v1/sentinel/push', json={'event': 'heartbeat'})
+
+        self.assertEqual(response.status_code, 200, msg=response.text)
+        payload = response.json()
+        self.assertEqual(payload['status'], 'acknowledged')
+        self.assertTrue(payload['received'])
 
 
 if __name__ == '__main__':

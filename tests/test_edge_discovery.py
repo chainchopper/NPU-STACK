@@ -1,7 +1,10 @@
 import unittest
+from unittest.mock import patch
 
 from backend.services.edge_discovery import (
     _classify_network_endpoint,
+    _parse_known_host_tokens,
+    _parse_probe_target,
     _parse_http_probe,
 )
 
@@ -45,6 +48,23 @@ class EdgeDiscoveryTests(unittest.TestCase):
         self.assertEqual(detected["family"], "esp32-s3")
         self.assertEqual(detected["chip"], "ESP32-S3")
         self.assertFalse(detected["has_npu"])
+
+    def test_parse_known_host_tokens_merges_user_input_and_registry(self):
+        registry = {
+            "devices": {
+                "net-1": {"connection": "wifi", "paired": True, "ip": "192.168.1.20", "host": "luckfox.local", "status": "reachable"},
+                "net-2": {"connection": "wifi", "paired": False, "ip": "192.168.1.21", "host": "esphome.local", "status": "reachable"},
+            }
+        }
+
+        with patch('backend.services.edge_discovery.load_registry', return_value=registry):
+            tokens = _parse_known_host_tokens('192.168.1.20, 192.168.1.50; tasmota.local')
+
+        self.assertCountEqual(tokens, ['192.168.1.20', '192.168.1.50', 'tasmota.local', 'luckfox.local', '192.168.1.21', 'esphome.local'])
+
+    def test_parse_probe_target_extracts_scheme_host_and_port(self):
+        self.assertEqual(_parse_probe_target('https://luckfox.local:8443'), ('luckfox.local', 8443, 'https'))
+        self.assertEqual(_parse_probe_target('192.168.1.44'), ('192.168.1.44', None, None))
 
 
 if __name__ == '__main__':

@@ -98,6 +98,8 @@ async def scan_devices(
     mdns: bool = Query(True, description="Scan mDNS services on WiFi"),
     ble: bool = Query(False, description="Scan Bluetooth Low Energy (slower)"),
     subnet: bool = Query(False, description="Ping sweep local subnet (slow)"),
+    known_only: bool = Query(False, description="When subnet scan is enabled, probe only known edge hosts instead of the full subnet"),
+    known_hosts: Optional[str] = Query(None, description="Optional comma-separated known IPs/hosts for targeted edge probing"),
     mdns_timeout: float = Query(5.0, description="mDNS scan duration in seconds"),
     ble_timeout: float = Query(10.0, description="BLE scan duration in seconds"),
 ):
@@ -110,6 +112,8 @@ async def scan_devices(
         mdns=mdns,
         ble=ble,
         subnet=subnet,
+        known_only=known_only,
+        known_hosts=known_hosts,
         mdns_timeout=mdns_timeout,
         ble_timeout=ble_timeout,
     )

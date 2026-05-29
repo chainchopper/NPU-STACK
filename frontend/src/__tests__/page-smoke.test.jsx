@@ -165,11 +165,12 @@ describe('Frontend page smoke coverage', () => {
 
         expect(await screen.findByText(/Registered Devices/i)).toBeInTheDocument();
         expect(screen.getByText(/No devices found/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/Known hosts \/ IPs/i)).toBeInTheDocument();
     });
 
     it('maps frontend dev origins to the backend origin for bundle provisioning', () => {
-        expect(inferBackendOrigin('http://127.0.0.1:5174/edge-fleet')).toBe('http://127.0.0.1:8000');
-        expect(inferBackendOrigin('http://127.0.0.1:5173/hub')).toBe('http://127.0.0.1:8000');
+        expect(inferBackendOrigin('http://127.0.0.1:5174/edge-fleet')).toBe('http://127.0.0.1:8010');
+        expect(inferBackendOrigin('http://127.0.0.1:5173/hub')).toBe('http://127.0.0.1:8010');
         expect(inferBackendOrigin('http://127.0.0.1:8000/edge-fleet')).toBe('http://127.0.0.1:8000');
     });
 

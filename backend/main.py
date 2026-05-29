@@ -68,15 +68,18 @@ MODEL_STORE = os.path.join(DATA_DIR, "models")
 os.makedirs(MODEL_STORE, exist_ok=True)
 os.makedirs(os.path.join(DATA_DIR, "datasets"), exist_ok=True)
 
+DEFAULT_BACKEND_PORT = int(os.getenv("NPU_STACK_BACKEND_PORT", "8010"))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Modern lifespan handler — replaces deprecated on_event('startup')."""
     init_db()
+    backend_port = int(os.getenv("NPU_STACK_BACKEND_PORT", str(DEFAULT_BACKEND_PORT)))
     print("=" * 60)
     print("  NPU-STACK Backend Server")
-    print("  API Docs:    http://localhost:8000/api/docs")
-    print("  OpenAI API:  http://localhost:8000/v1")
+    print(f"  API Docs:    http://localhost:{backend_port}/api/docs")
+    print(f"  OpenAI API:  http://localhost:{backend_port}/v1")
     print("=" * 60)
     yield  # App runs here
     print("NPU-STACK Backend shutting down...")
@@ -177,6 +180,16 @@ def system_status():
         db.close()
 
 
+@app.post("/api/v1/sentinel/push")
+async def sentinel_push_ack(payload: dict | None = None):
+    """Acknowledge external sentinel pushes so noisy integrations stop generating 404s."""
+    return {
+        "status": "acknowledged",
+        "received": bool(payload),
+        "message": "Sentinel push accepted by NPU-STACK.",
+    }
+
+
 # WebSocket endpoint for training progress
 @app.websocket("/ws/training/{job_id}")
 async def ws_training(websocket: WebSocket, job_id: int):
@@ -188,7 +201,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=DEFAULT_BACKEND_PORT,
         reload=True,
         reload_dirs=[os.path.dirname(__file__)],
     )

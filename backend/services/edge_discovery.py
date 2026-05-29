@@ -12,11 +12,13 @@ import os
 import platform
 import re
 import shutil
+import ssl
 import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -786,120 +788,209 @@ def get_local_subnets() -> list[str]:
     return subnets
 
 
+def _parse_known_host_tokens(raw_hosts: Optional[str] = None) -> list[str]:
+    tokens: list[str] = []
+    raw_sources = [raw_hosts, os.getenv("EDGE_KNOWN_HOSTS", "")]
+
+    try:
+        registry = load_registry()
+        for device in registry.get("devices", {}).values():
+            if device.get("connection") != "wifi":
+                continue
+            if not (device.get("paired") or device.get("status") in {"online", "reachable"}):
+                continue
+            raw_sources.extend([device.get("host", ""), device.get("ip", "")])
+    except Exception:
+        pass
+
+    for raw_source in raw_sources:
+        for token in re.split(r"[\s,;]+", str(raw_source or "")):
+            token = token.strip()
+            if token:
+                tokens.append(token)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        lowered = token.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped.append(token)
+    return deduped
+
+
+def _parse_probe_target(target: str) -> tuple[str, Optional[int], Optional[str]]:
+    candidate = str(target or "").strip()
+    if not candidate:
+        return "", None, None
+
+    parsed = urlparse(candidate if "://" in candidate else f"//{candidate}")
+    host = parsed.hostname or candidate
+    scheme = parsed.scheme or None
+    port = parsed.port
+
+    if port is None and scheme == "https":
+        port = 443
+    elif port is None and scheme == "http":
+        port = 80
+
+    return host, port, scheme
+
+
+async def _probe_http_endpoint(host: str, port: int, timeout: float = 0.5, use_ssl: bool = False) -> dict:
+    reader = None
+    writer = None
+    ssl_context = None
+    if use_ssl:
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port, ssl=ssl_context if use_ssl else None),
+            timeout=timeout,
+        )
+        request = (
+            f"GET / HTTP/1.0\r\n"
+            f"Host: {host}\r\n"
+            "User-Agent: NPU-STACK/1.0\r\n"
+            "Accept: text/html, */*\r\n"
+            "Connection: close\r\n\r\n"
+        )
+        writer.write(request.encode("ascii", errors="ignore"))
+        await writer.drain()
+        raw = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+        return _parse_http_probe(raw.decode("utf-8", errors="ignore"))
+    except Exception:
+        return {}
+    finally:
+        if writer is not None:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+
+async def _probe_ssh_banner(host: str, port: int, timeout: float = 0.5) -> str:
+    reader = None
+    writer = None
+    try:
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+        raw = await asyncio.wait_for(reader.read(256), timeout=timeout)
+        return _compact_text(raw.decode("utf-8", errors="ignore"), limit=160)
+    except Exception:
+        return ""
+    finally:
+        if writer is not None:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+
+async def _probe_network_target(target: str, ports: Optional[list[int]] = None, timeout: float = 0.5) -> Optional[dict]:
+    host, hinted_port, scheme = _parse_probe_target(target)
+    if not host:
+        return None
+
+    default_ports = ports or [80, 81, 8080, 8000, 22]
+    probe_ports = [hinted_port] if hinted_port else default_ports
+
+    for port in probe_ports:
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+            peer = writer.get_extra_info("peername") or ()
+            resolved_ip = peer[0] if peer else host
+            writer.close()
+            await writer.wait_closed()
+
+            hostname = host if resolved_ip != host else ""
+
+            server_header = ""
+            page_title = ""
+            body_preview = ""
+            location = ""
+            ssh_banner = ""
+            service = "tcp"
+
+            use_ssl = scheme == "https" or port == 443
+            if port in {80, 81, 443, 8080, 8000} or scheme in {"http", "https"}:
+                service = "https" if use_ssl else "http"
+                probe = await _probe_http_endpoint(host, port, timeout=timeout, use_ssl=use_ssl)
+                server_header = probe.get("server_header", "")
+                page_title = probe.get("page_title", "")
+                body_preview = probe.get("body_preview", "")
+                location = probe.get("location", "")
+            elif port == 22:
+                service = "ssh"
+                ssh_banner = await _probe_ssh_banner(host, port, timeout=timeout)
+
+            classification = _classify_network_endpoint(
+                hostname=hostname or host,
+                server_header=server_header,
+                page_title=page_title,
+                body_preview=body_preview,
+                ssh_banner=ssh_banner,
+            )
+
+            safe_id_host = str(resolved_ip or host).replace(".", "-").replace(":", "-")
+            return {
+                "id": f"net-{safe_id_host}-{port}",
+                "ip": resolved_ip,
+                "host": hostname or (host if host != resolved_ip else None),
+                "target": target,
+                "port": port,
+                "connection": "wifi",
+                "service": service,
+                "family": classification.get("family", "unknown"),
+                "chip": classification.get("chip", hostname or host or "unknown"),
+                "description": classification.get("description", hostname or host or "Network device"),
+                "has_npu": classification.get("has_npu", False),
+                "status": "reachable",
+                "server_header": server_header or None,
+                "page_title": page_title or None,
+                "location": location or None,
+                "ssh_banner": ssh_banner or None,
+                "discovered_at": _utcnow_iso(),
+            }
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            continue
+
+    return None
+
+
+async def scan_known_hosts(targets: list[str], ports: Optional[list[int]] = None, timeout: float = 0.5) -> list[dict]:
+    if not targets:
+        return []
+
+    results = await asyncio.gather(*[_probe_network_target(target, ports=ports, timeout=timeout) for target in targets])
+    devices = [device for device in results if device]
+
+    unique: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    for device in devices:
+        key = (str(device.get("ip") or device.get("host") or device.get("target")), int(device.get("port") or 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(device)
+    return unique
+
+
 async def scan_subnet(subnet: str, ports: Optional[list[int]] = None, timeout: float = 0.5) -> list[dict]:
     devices: list[dict] = []
-
-    import socket
-
     ports = ports or [80, 81, 8080, 8000, 22]
-
-    async def _probe_http_endpoint(ip: str, port: int) -> dict:
-        reader = None
-        writer = None
-        try:
-            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
-            request = (
-                f"GET / HTTP/1.0\r\n"
-                f"Host: {ip}\r\n"
-                "User-Agent: NPU-STACK/1.0\r\n"
-                "Accept: text/html, */*\r\n"
-                "Connection: close\r\n\r\n"
-            )
-            writer.write(request.encode("ascii", errors="ignore"))
-            await writer.drain()
-            raw = await asyncio.wait_for(reader.read(4096), timeout=timeout)
-            return _parse_http_probe(raw.decode("utf-8", errors="ignore"))
-        except Exception:
-            return {}
-        finally:
-            if writer is not None:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception:
-                    pass
-
-    async def _probe_ssh_banner(ip: str, port: int) -> str:
-        reader = None
-        writer = None
-        try:
-            reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
-            raw = await asyncio.wait_for(reader.read(256), timeout=timeout)
-            return _compact_text(raw.decode("utf-8", errors="ignore"), limit=160)
-        except Exception:
-            return ""
-        finally:
-            if writer is not None:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception:
-                    pass
-
-    async def check_host(ip: str):
-        for port in ports:
-            try:
-                _, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
-                writer.close()
-                await writer.wait_closed()
-
-                hostname = ""
-                try:
-                    hostname = socket.gethostbyaddr(ip)[0]
-                except Exception:
-                    hostname = ""
-
-                server_header = ""
-                page_title = ""
-                body_preview = ""
-                location = ""
-                ssh_banner = ""
-                service = "tcp"
-
-                if port in {80, 81, 8080, 8000}:
-                    service = "http"
-                    probe = await _probe_http_endpoint(ip, port)
-                    server_header = probe.get("server_header", "")
-                    page_title = probe.get("page_title", "")
-                    body_preview = probe.get("body_preview", "")
-                    location = probe.get("location", "")
-                elif port == 22:
-                    service = "ssh"
-                    ssh_banner = await _probe_ssh_banner(ip, port)
-
-                classification = _classify_network_endpoint(
-                    hostname=hostname,
-                    server_header=server_header,
-                    page_title=page_title,
-                    body_preview=body_preview,
-                    ssh_banner=ssh_banner,
-                )
-
-                devices.append({
-                    "id": f"net-{ip.replace('.', '-')}-{port}",
-                    "ip": ip,
-                    "host": hostname or None,
-                    "port": port,
-                    "connection": "wifi",
-                    "service": service,
-                    "family": classification.get("family", "unknown"),
-                    "chip": classification.get("chip", hostname or "unknown"),
-                    "description": classification.get("description", hostname or "Network device"),
-                    "has_npu": classification.get("has_npu", False),
-                    "status": "reachable",
-                    "server_header": server_header or None,
-                    "page_title": page_title or None,
-                    "location": location or None,
-                    "ssh_banner": ssh_banner or None,
-                    "discovered_at": _utcnow_iso(),
-                })
-                break
-            except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
-                continue
 
     for batch_start in range(1, 255, 50):
         batch_end = min(batch_start + 50, 255)
-        await asyncio.gather(*[check_host(f"{subnet}.{index}") for index in range(batch_start, batch_end)])
+        batch_results = await asyncio.gather(
+            *[_probe_network_target(f"{subnet}.{index}", ports=ports, timeout=timeout) for index in range(batch_start, batch_end)]
+        )
+        devices.extend([device for device in batch_results if device])
 
     return devices
 
@@ -1474,6 +1565,8 @@ async def run_full_discovery(
     mdns: bool = True,
     ble: bool = False,
     subnet: bool = False,
+    known_only: bool = False,
+    known_hosts: Optional[str] = None,
     mdns_timeout: float = 5.0,
     ble_timeout: float = 10.0,
 ) -> dict:
@@ -1494,9 +1587,14 @@ async def run_full_discovery(
         all_devices.extend(await scan_ble(timeout=ble_timeout))
 
     if subnet:
-        scan_methods.append("subnet")
-        for subnet_prefix in get_local_subnets():
-            all_devices.extend(await scan_subnet(subnet_prefix))
+        if known_only:
+            known_targets = _parse_known_host_tokens(known_hosts)
+            scan_methods.append("known-hosts")
+            all_devices.extend(await scan_known_hosts(known_targets))
+        else:
+            scan_methods.append("subnet")
+            for subnet_prefix in get_local_subnets():
+                all_devices.extend(await scan_subnet(subnet_prefix))
 
     merge_into_registry(all_devices)
     registry_view = list_registry_devices(include_low_confidence=False)

@@ -2,12 +2,14 @@
 setlocal EnableDelayedExpansion
 title NPU-STACK Backend
 
+set "BACKEND_PORT=8010"
+
 set "ROOT=%~dp0"
 if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 
 echo   Starting NPU-STACK Backend...
-echo   API:  http://localhost:8000
-echo   Docs: http://localhost:8000/docs
+echo   API:  http://localhost:!BACKEND_PORT!
+echo   Docs: http://localhost:!BACKEND_PORT!/api/docs
 echo   Press Ctrl+C to stop.
 echo.
 
@@ -22,6 +24,7 @@ if exist "!ROOT!\llama.cpp\llama.dll" (
 )
 
 call "!ROOT!\.venv\Scripts\activate.bat"
-cd /d "!ROOT!\backend"
-python main.py
+cd /d "!ROOT!"
+set "NPU_STACK_BACKEND_PORT=!BACKEND_PORT!"
+python -m uvicorn backend.main:app --host 127.0.0.1 --port !BACKEND_PORT!
 pause

@@ -68,13 +68,34 @@ function formatBundleDownloadUrl(bundle) {
     return '#';
 }
 
+function buildSignalBadges(device) {
+    const evidence = [
+        device.family,
+        device.chip,
+        device.description,
+        device.server_header,
+        device.page_title,
+        device.ssh_banner,
+        device.host,
+    ].join(' ').toLowerCase();
+
+    const badges = [];
+    if (evidence.includes('esphome')) badges.push({ label: 'ESPHome', tone: 'green' });
+    if (evidence.includes('tasmota')) badges.push({ label: 'Tasmota', tone: 'amber' });
+    if (evidence.includes('luckfox') || evidence.includes('rv1103') || evidence.includes('rv1106')) {
+        badges.push({ label: 'LuckFox', tone: 'purple' });
+    }
+    return badges;
+}
+
 export default function EdgeFleet() {
     const [devices, setDevices] = useState([]);
     const [summary, setSummary] = useState({ count: 0, paired_count: 0, detected_count: 0, available_count: 0, hidden_low_confidence: 0 });
     const [preparedBundles, setPreparedBundles] = useState([]);
     const [bundleSelectionByDevice, setBundleSelectionByDevice] = useState({});
     const [scanning, setScanning] = useState(false);
-    const [scanOpts, setScanOpts] = useState({ usb: true, mdns: true, ble: false, subnet: false });
+    const [scanOpts, setScanOpts] = useState({ usb: true, mdns: true, ble: false, subnet: false, known_only: false });
+    const [knownHostsInput, setKnownHostsInput] = useState('');
     const [filter, setFilter] = useState('all');
     const [log, setLog] = useState([]);
     const [backups, setBackups] = useState([]);
@@ -155,22 +176,47 @@ export default function EdgeFleet() {
 
     const runScan = async () => {
         setScanning(true);
-        const methods = Object.entries(scanOpts).filter(([, enabled]) => enabled).map(([key]) => key);
+        const requestOptions = knownHostsInput.trim()
+            ? { ...scanOpts, known_hosts: knownHostsInput.trim() }
+            : { ...scanOpts };
+        const methods = [];
+        if (scanOpts.usb) methods.push('usb');
+        if (scanOpts.mdns) methods.push('mdns');
+        if (scanOpts.ble) methods.push('ble');
+        if (scanOpts.subnet && scanOpts.known_only) methods.push('known-hosts');
+        else if (scanOpts.subnet) methods.push('subnet');
         addLog(`Scanning via ${methods.join(', ')}...`);
         try {
-            const data = await scanDevices(scanOpts);
-            setDevices(data.devices || []);
-            setSummary((prev) => ({
-                ...prev,
-                count: data.devices?.length || prev.count,
-                available_count: (data.devices || []).filter((device) => device.available).length,
+            const data = await scanDevices(requestOptions);
+            const nextDevices = data.devices || [];
+            setDevices(nextDevices);
+            setSummary({
+                count: data.total_registered || nextDevices.length,
+                paired_count: nextDevices.filter((device) => device.paired).length,
+                detected_count: nextDevices.filter((device) => !device.paired).length,
+                available_count: nextDevices.filter((device) => device.available).length,
                 hidden_low_confidence: data.hidden_low_confidence || 0,
-            }));
+            });
             addLog(`Found ${data.devices_found || 0} device(s), ${data.total_registered || 0} registered`);
         } catch (error) {
             addLog(`Scan failed: ${error.message}`);
         }
         setScanning(false);
+    };
+
+    const toggleScanOption = (key) => {
+        setScanOpts((prev) => {
+            if (key === 'known_only') {
+                const nextKnownOnly = !prev.known_only;
+                return { ...prev, known_only: nextKnownOnly, subnet: nextKnownOnly ? true : prev.subnet };
+            }
+
+            if (key === 'subnet' && prev.subnet && prev.known_only) {
+                return { ...prev, subnet: false, known_only: false };
+            }
+
+            return { ...prev, [key]: !prev[key] };
+        });
     };
 
     const handleUpdate = async (id) => {
@@ -316,6 +362,7 @@ export default function EdgeFleet() {
         const selectedBundleId = bundleSelectionByDevice[device.id] || latestBundleByDevice[device.id]?.bundle_id || compatibleBundles[0]?.bundle_id || '';
         const selectedBundle = compatibleBundles.find((bundle) => bundle.bundle_id === selectedBundleId) || latestBundleByDevice[device.id] || null;
         const family = String(device.family || '');
+        const signalBadges = buildSignalBadges(device);
 
         return (
             <div key={device.id} className={`card fleet-device-card ${color}`}>
@@ -350,6 +397,11 @@ export default function EdgeFleet() {
                         </div>
                         <div className="fleet-device-badges">
                             <span className={`fleet-badge ${color}`}>{family.toUpperCase() || 'UNKNOWN'}</span>
+                            {signalBadges.map((badge) => (
+                                <span key={`${device.id}-${badge.label}`} className={`fleet-badge ${badge.tone}`}>
+                                    {badge.label}
+                                </span>
+                            ))}
                             {device.paired && <span className="fleet-badge purple"><Link2 size={10} /> PAIRED</span>}
                             {device.has_npu && <span className="fleet-badge purple"><Zap size={10} /> NPU</span>}
                             <span className="fleet-port">{device.port || device.drive || device.ip || device.address || ''}</span>
@@ -375,6 +427,23 @@ export default function EdgeFleet() {
                             <span className="fleet-detail-label">Recommended Bundle</span><span>{device.recommended_profile || '—'}</span>
                             {device.last_seen && <><span className="fleet-detail-label">Last Seen</span><span>{new Date(device.last_seen).toLocaleString()}</span></>}
                         </div>
+
+                        {(device.connection === 'wifi' || device.server_header || device.page_title || device.ssh_banner) && (
+                            <div style={{ marginBottom: 14, padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>
+                                    Network Probe
+                                </div>
+                                <div className="fleet-detail-grid">
+                                    {(device.target || device.host) && <><span className="fleet-detail-label">Probe Target</span><span>{device.target || device.host}</span></>}
+                                    {device.port && <><span className="fleet-detail-label">Service Port</span><span>{device.port}</span></>}
+                                    {device.service && <><span className="fleet-detail-label">Service</span><span>{device.service}</span></>}
+                                    {device.server_header && <><span className="fleet-detail-label">Server Header</span><span>{device.server_header}</span></>}
+                                    {device.page_title && <><span className="fleet-detail-label">Page Title</span><span>{device.page_title}</span></>}
+                                    {device.location && <><span className="fleet-detail-label">Redirect</span><span>{device.location}</span></>}
+                                    {device.ssh_banner && <><span className="fleet-detail-label">SSH Banner</span><span>{device.ssh_banner}</span></>}
+                                </div>
+                            </div>
+                        )}
 
                         {selectedBundle && (
                             <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -504,17 +573,30 @@ export default function EdgeFleet() {
                         ['mdns', Wifi, 'WiFi (mDNS)'],
                         ['ble', Bluetooth, 'Bluetooth LE'],
                         ['subnet', Server, 'Subnet Scan'],
+                        ['known_only', Shield, 'Known Edge Hosts'],
                     ].map(([key, Icon, label]) => (
                         <label
                             key={key}
                             className="fleet-toggle"
                             data-active={scanOpts[key]}
-                            onClick={() => setScanOpts((prev) => ({ ...prev, [key]: !prev[key] }))}
+                            onClick={() => toggleScanOption(key)}
                         >
                             <Icon size={14} />
                             {label}
                         </label>
                     ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr)', gap: 12, marginBottom: 16 }}>
+                    <input
+                        className="input"
+                        placeholder="Known hosts / IPs — 192.168.1.41, luckfox.local, esphome.local"
+                        value={knownHostsInput}
+                        onChange={(event) => setKnownHostsInput(event.target.value)}
+                    />
+                </div>
+                <div style={{ marginBottom: 16, color: 'var(--text-muted)', fontSize: 12 }}>
+                    Known-host mode probes only the saved lab targets above plus previously paired/reachable Wi-Fi devices instead of sweeping the whole subnet.
                 </div>
 
                 <div className="fleet-filters">
