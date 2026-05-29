@@ -14,6 +14,9 @@ export default function Benchmark() {
     const [systemInfo, setSystemInfo] = useState(null);
     const [browserAccel, setBrowserAccel] = useState({ webgpu: false, webgl: false });
 
+    const ortCudaError = systemInfo?.onnxruntime_cuda_error;
+    const ortDirectMLError = systemInfo?.onnxruntime_directml_error;
+
     const [form, setForm] = useState({
         model_id: '',
         runtime: 'onnxruntime',
@@ -146,6 +149,16 @@ export default function Benchmark() {
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                                 ONNX Runtime providers: {systemInfo?.onnxruntime_providers?.length ? systemInfo.onnxruntime_providers.join(', ') : 'not detected'}
                             </div>
+                            {ortCudaError && (
+                                <div style={{ marginTop: '10px', fontSize: '12px', color: '#ef4444' }}>
+                                    ONNX Runtime CUDA provider error: {ortCudaError}
+                                </div>
+                            )}
+                            {!ortCudaError && ortDirectMLError && (
+                                <div style={{ marginTop: '10px', fontSize: '12px', color: '#ef4444' }}>
+                                    ONNX Runtime DirectML provider error: {ortDirectMLError}
+                                </div>
+                            )}
                         </div>
                     </form>
                 </div>

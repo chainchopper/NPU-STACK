@@ -1,6 +1,8 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from backend.services.benchmark_service import _plan_onnxruntime_execution
+from backend.services.benchmark_service import _plan_onnxruntime_execution, _probe_onnxruntime_provider_libraries
 
 
 class BenchmarkServicePlanTests(unittest.TestCase):
@@ -22,6 +24,36 @@ class BenchmarkServicePlanTests(unittest.TestCase):
         self.assertEqual(plan['attempts'][0]['device'], 'openvino-npu')
         self.assertEqual(plan['attempts'][0]['primary_provider'], 'OpenVINOExecutionProvider')
         self.assertTrue(plan['attempts'][-1]['fallback'])
+
+    def test_probe_onnxruntime_provider_libraries_reports_missing_dependency(self):
+        fake_ort = SimpleNamespace(__file__='J:/NPU-STACK/.venv/Lib/site-packages/onnxruntime/__init__.py')
+
+        class FakePath(str):
+            def resolve(self):
+                return self
+
+            @property
+            def parent(self):
+                return self
+
+            def __truediv__(self, other):
+                return FakePath(f'{self}/{other}')
+
+            def exists(self):
+                return True
+
+            @property
+            def name(self):
+                return self.split('/')[-1]
+
+        with patch('platform.system', return_value='Windows'), \
+             patch('pathlib.Path', side_effect=lambda value: FakePath(value)), \
+             patch('ctypes.WinDLL', side_effect=OSError('cublasLt64_12.dll is missing')):
+            status = _probe_onnxruntime_provider_libraries(fake_ort)
+
+        self.assertIn('CUDAExecutionProvider', status)
+        self.assertFalse(status['CUDAExecutionProvider']['loadable'])
+        self.assertIn('cublasLt64_12.dll', status['CUDAExecutionProvider']['error'])
 
 
 if __name__ == '__main__':

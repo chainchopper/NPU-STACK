@@ -232,6 +232,9 @@ export default function Dashboard() {
                             <InfoRow label="Memory" value={`${sysInfo.memory_available_gb} / ${sysInfo.memory_total_gb} GB`} />
                             <InfoRow label="NVIDIA Driver" value={sysInfo.nvidia_driver_version || 'N/A'} />
                             <InfoRow label="CUDA" value={sysInfo.cuda_available ? `✅ v${sysInfo.cuda_version || '?'} — ${sysInfo.cuda_device || 'GPU'}` : '❌ Not available'} />
+                            {sysInfo.onnxruntime_cuda_error && (
+                                <InfoRow label="ORT CUDA" value={`❌ ${sysInfo.onnxruntime_cuda_error}`} />
+                            )}
                             {sysInfo.cuda_available && sysInfo.cuda_memory_gb && (
                                 <InfoRow label="VRAM" value={`${sysInfo.cuda_memory_gb} GB`} />
                             )}
@@ -426,6 +429,7 @@ function HardwareMatrix({ capabilities }) {
     // Map backend capability keys to hardware compatibility rows
     const hwMap = [
         { capKey: 'cuda_gpu', name: 'NVIDIA CUDA GPU', formats: 'PyTorch, ONNX, GGUF, TensorRT', deploy: 'API, NIM, CVEDIA' },
+        { capKey: 'onnxruntime_cuda', name: 'ONNX Runtime CUDA EP', formats: 'ONNX', deploy: 'Benchmark / Inference' },
         { capKey: 'rocm_gpu', name: 'AMD ROCm GPU', formats: 'PyTorch, ONNX, GGUF', deploy: 'API, CVEDIA' },
         { capKey: 'intel_npu', name: 'Intel NPU / Arc', formats: 'OpenVINO, ONNX', deploy: 'API, CVEDIA' },
         { capKey: 'coral_tpu', name: 'Google Coral TPU', formats: 'LiteRT (TFLite)', deploy: 'MediaPipe, CVEDIA' },

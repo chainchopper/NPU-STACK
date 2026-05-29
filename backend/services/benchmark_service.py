@@ -10,6 +10,51 @@ import numpy as np
 MODEL_STORE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "models")
 
 
+def _probe_onnxruntime_provider_libraries(ort_module) -> dict:
+    status = {}
+
+    try:
+        import ctypes
+        import platform
+        from pathlib import Path
+
+        if platform.system() != "Windows":
+            return status
+
+        capi_dir = Path(getattr(ort_module, "__file__", "")).resolve().parent / "capi"
+        provider_dlls = {
+            "CUDAExecutionProvider": capi_dir / "onnxruntime_providers_cuda.dll",
+            "DmlExecutionProvider": capi_dir / "onnxruntime_providers_dml.dll",
+        }
+
+        for provider_name, dll_path in provider_dlls.items():
+            if not dll_path.exists():
+                status[provider_name] = {
+                    "dll": str(dll_path),
+                    "loadable": False,
+                    "error": f"Provider DLL not found: {dll_path.name}",
+                }
+                continue
+
+            try:
+                ctypes.WinDLL(str(dll_path))
+                status[provider_name] = {
+                    "dll": str(dll_path),
+                    "loadable": True,
+                    "error": None,
+                }
+            except OSError as exc:
+                status[provider_name] = {
+                    "dll": str(dll_path),
+                    "loadable": False,
+                    "error": str(exc),
+                }
+    except Exception:
+        return status
+
+    return status
+
+
 def _provider_spec(name: str, options: Optional[dict] = None):
     return (name, options) if options else name
 
@@ -774,11 +819,27 @@ def get_system_info() -> dict:
         import onnxruntime as ort
         info["onnxruntime_providers"] = ort.get_available_providers()
         info["onnxruntime_version"] = ort.__version__
+        info["onnxruntime_provider_status"] = _probe_onnxruntime_provider_libraries(ort)
+        cuda_provider_status = info["onnxruntime_provider_status"].get("CUDAExecutionProvider", {})
+        info["onnxruntime_cuda_ready"] = bool(
+            "CUDAExecutionProvider" in info["onnxruntime_providers"] and cuda_provider_status.get("loadable", True)
+        )
+        info["onnxruntime_cuda_error"] = cuda_provider_status.get("error")
+        dml_provider_status = info["onnxruntime_provider_status"].get("DmlExecutionProvider", {})
+        info["onnxruntime_directml_ready"] = bool(
+            "DmlExecutionProvider" in info["onnxruntime_providers"] and dml_provider_status.get("loadable", True)
+        )
+        info["onnxruntime_directml_error"] = dml_provider_status.get("error")
     except ImportError:
         info["onnxruntime_providers"] = []
+        info["onnxruntime_provider_status"] = {}
+        info["onnxruntime_cuda_ready"] = False
+        info["onnxruntime_cuda_error"] = None
+        info["onnxruntime_directml_ready"] = False
+        info["onnxruntime_directml_error"] = None
 
     # ── DirectML (Windows GPU fallback for AMD/Intel/NVIDIA) ──
-    info["directml_available"] = "DmlExecutionProvider" in info.get("onnxruntime_providers", [])
+    info["directml_available"] = info.get("onnxruntime_directml_ready", False)
 
     # ── OpenCV detection ─────────────────────────────────
     info["opencv_available"] = False
@@ -858,6 +919,10 @@ def get_system_info() -> dict:
     # ── Capabilities summary with check/cross marks ──────
     info["capabilities"] = {
         "cuda_gpu": {"available": info.get("cuda_available", False), "label": f"NVIDIA CUDA GPU (CUDA {info.get('cuda_version', 'N/A')})"},
+        "onnxruntime_cuda": {
+            "available": info.get("onnxruntime_cuda_ready", False),
+            "label": "ONNX Runtime CUDA Provider",
+        },
         "rocm_gpu": {"available": info.get("rocm_available", False), "label": "AMD ROCm GPU (RDNA/CDNA)"},
         "vitis_ai": {"available": info.get("vitis_ai_available", False), "label": "AMD Vitis AI Quantization"},
         "alveo_fpga": {"available": info.get("alveo_available", False), "label": "AMD/Xilinx Alveo FPGA"},
