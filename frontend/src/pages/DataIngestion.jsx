@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FolderOpen, FileText, Database, Trash2, Eye, Play, Settings, ChevronDown, X, Check } from 'lucide-react';
 import FolderBrowser from '../components/FolderBrowser';
-import { apiUrl } from '../api/client';
+import ActivityLogCard from '../components/ActivityLogCard';
+import OperationNotice from '../components/OperationNotice';
+import { apiUrl, diagnoseBackendError } from '../api/client';
 
 export default function DataIngestion() {
     const [uploads, setUploads] = useState([]);
@@ -14,7 +16,14 @@ export default function DataIngestion() {
     const [buildResult, setBuildResult] = useState(null);
     const [previewData, setPreviewData] = useState(null);
     const [dragOver, setDragOver] = useState(false);
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
     const fileInputRef = useRef(null);
+
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-59), `${timestamp} — ${line}`]);
+    };
 
     // Config
     const [config, setConfig] = useState({
@@ -48,33 +57,51 @@ export default function DataIngestion() {
 
     const uploadFiles = async (files) => {
         setLoading(true);
+        setNotice(null);
         const formData = new FormData();
         for (const f of files) formData.append('files', f);
         formData.append('ocr', config.ocr);
+        addLog(`Uploading ${files.length} file(s)...`);
 
         try {
             const res = await fetch(apiUrl('/ingest/upload'), { method: 'POST', body: formData });
             const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data?.detail || 'Upload failed');
+            }
             setExtractionResults(prev => [...prev, ...(data.files || [])]);
+            setNotice({ tone: 'success', title: 'Upload complete', message: `${(data.files || []).length} file(s) processed.` });
+            addLog(`Upload complete: ${(data.files || []).length} extracted item(s)`);
             refreshUploads();
-        } catch {
-            alert('Upload failed');
+        } catch (error) {
+            const message = diagnoseBackendError(error, 'Data ingestion upload');
+            setNotice({ tone: 'danger', title: 'Upload failed', message, details: error?.message || null });
+            addLog(`Upload failed: ${message}`);
         }
         setLoading(false);
     };
 
     const extractFolder = async (path) => {
         setLoading(true);
+        setNotice(null);
         const formData = new FormData();
         formData.append('path', path);
         formData.append('recursive', 'true');
         formData.append('ocr', config.ocr);
+        addLog(`Extracting folder ${path}...`);
         try {
             const res = await fetch(apiUrl('/ingest/extract-folder'), { method: 'POST', body: formData });
             const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data?.detail || 'Folder extraction failed');
+            }
             setExtractionResults(prev => [...prev, ...(data.files || [])]);
-        } catch {
-            alert('Folder extraction failed');
+            setNotice({ tone: 'success', title: 'Folder extraction complete', message: `${(data.files || []).length} file(s) extracted from folder.` });
+            addLog(`Folder extraction complete: ${(data.files || []).length} item(s)`);
+        } catch (error) {
+            const message = diagnoseBackendError(error, 'Folder extraction');
+            setNotice({ tone: 'danger', title: 'Folder extraction failed', message, details: error?.message || null });
+            addLog(`Folder extraction failed: ${message}`);
         }
         setLoading(false);
     };
@@ -82,6 +109,7 @@ export default function DataIngestion() {
     const buildDataset = async () => {
         setBuilding(true);
         setBuildResult(null);
+        setNotice(null);
         const formData = new FormData();
         const filePaths = extractionResults.filter(r => r.success).map(r => r.metadata?.file_path || r.uploaded_path).filter(Boolean);
         formData.append('uploaded_files', JSON.stringify(filePaths));
@@ -93,22 +121,42 @@ export default function DataIngestion() {
         formData.append('min_length', config.min_length);
         formData.append('output_type', config.output_type);
         formData.append('ocr', config.ocr);
+        addLog(`Dataset build requested: ${config.dataset_name} (${filePaths.length} files)`);
 
         try {
             const res = await fetch(apiUrl('/ingest/build-dataset'), { method: 'POST', body: formData });
             const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data?.detail || 'Build request failed');
+            }
             setBuildResult(data);
-        } catch {
-            setBuildResult({ success: false, error: 'Build request failed' });
+            setNotice({ tone: 'success', title: 'Dataset build complete', message: `${data.record_count || 0} records generated.` });
+            addLog(`Dataset build complete: ${data.record_count || 0} records`);
+        } catch (error) {
+            const message = diagnoseBackendError(error, 'Dataset build');
+            setBuildResult({ success: false, error: message });
+            setNotice({ tone: 'danger', title: 'Dataset build failed', message, details: error?.message || null });
+            addLog(`Dataset build failed: ${message}`);
         }
         setBuilding(false);
     };
 
     const clearUploads = async () => {
-        await fetch(apiUrl('/ingest/uploads/clear'), { method: 'DELETE' });
-        setUploads([]);
-        setExtractionResults([]);
-        setBuildResult(null);
+        try {
+            const res = await fetch(apiUrl('/ingest/uploads/clear'), { method: 'DELETE' });
+            if (!res.ok) {
+                throw new Error('Failed to clear uploads');
+            }
+            setUploads([]);
+            setExtractionResults([]);
+            setBuildResult(null);
+            setNotice({ tone: 'info', title: 'Uploads cleared', message: 'All staged ingestion files were removed.' });
+            addLog('Cleared uploaded and extracted files');
+        } catch (error) {
+            const message = diagnoseBackendError(error, 'Clear uploads');
+            setNotice({ tone: 'danger', title: 'Clear failed', message, details: error?.message || null });
+            addLog(`Clear failed: ${message}`);
+        }
     };
 
     const successCount = extractionResults.filter(r => r.success).length;
@@ -121,6 +169,13 @@ export default function DataIngestion() {
             <p style={{ color: '#888', marginTop: 6 }}>
                 Extract data from documents, images, and audio → build training datasets for fine-tuning.
             </p>
+
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
 
             {/* Supported Types */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
@@ -359,6 +414,14 @@ export default function DataIngestion() {
                     )}
                 </div>
             )}
+
+            <ActivityLogCard
+                title="Data Ingestion Activity"
+                lines={activityLog}
+                emptyMessage="No ingestion activity recorded yet."
+                onClear={() => setActivityLog([])}
+                style={{ marginTop: 20 }}
+            />
         </div>
     );
 }

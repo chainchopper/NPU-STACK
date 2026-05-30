@@ -4,7 +4,7 @@ import {
     Monitor, Cpu, Zap, Loader, AlertCircle, Search,
     FolderOpen, RefreshCw
 } from 'lucide-react';
-import { apiUrl, websocketUrl } from '../api/client';
+import { apiUrl, websocketUrl, diagnoseBackendError } from '../api/client';
 
 // Detection class colors palette
 const CLASS_COLORS = [
@@ -55,7 +55,7 @@ export default function WebcamTest() {
             const data = await res.json();
             setModels(data.models || []);
         } catch (e) {
-            console.error('Failed to fetch models', e);
+            setError(diagnoseBackendError(e, 'Webcam models list'));
         }
         setLoadingModels(false);
     };

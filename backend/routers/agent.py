@@ -205,6 +205,7 @@ class ChatRequest(BaseModel):
     messages: List[Dict[str, str]]
     temperature: float = 0.7
     max_tokens: int = 512
+    use_fleet_tools: bool = False
 
 
 @router.post("/chat")
@@ -218,8 +219,31 @@ def agent_chat(req: ChatRequest):
     if not any(m.get("filename") == AGENT_MODEL_FILENAME for m in loaded):
         raise HTTPException(400, "Agent model is not loaded. Call /start first.")
 
-    # Prepend system prompt
-    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + req.messages
+    # Prepend system prompt and optional fleet tool context
+    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if req.use_fleet_tools:
+        try:
+            from services.fleet_orchestrator import build_tool_context
+
+            fleet_context = build_tool_context(include_jobs=True)
+            full_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Fleet tools are available through the following live context. "
+                        "Use it before recommending or executing fleet actions:\n"
+                        + json.dumps(fleet_context, indent=2)
+                    ),
+                }
+            )
+        except Exception as exc:
+            full_messages.append(
+                {
+                    "role": "system",
+                    "content": f"Fleet tool context could not be loaded: {exc}",
+                }
+            )
+    full_messages.extend(req.messages)
 
     result = chat_completion(
         model_path=model_path,

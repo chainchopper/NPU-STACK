@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import FolderBrowser from '../components/FolderBrowser';
 import ContextWizard from '../components/ContextWizard';
-import { apiUrl } from '../api/client';
+import { apiUrl, diagnoseBackendError } from '../api/client';
 
 const GGUF_WIZARD_STEPS = [
     {
@@ -95,7 +95,7 @@ export default function GGUFStudio() {
             setStatus(statusData);
             setModels(modelsData.models || []);
             setQuantTypes(quantData.quant_types || []);
-        }).catch(e => console.error(e))
+        }).catch((e) => setError(diagnoseBackendError(e, 'GGUF studio setup')))
             .finally(() => setLoading(false));
     }, []);
 

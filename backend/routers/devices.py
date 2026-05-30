@@ -84,6 +84,7 @@ class PrepareFirmwareRequest(BaseModel):
     mqtt_broker: Optional[str] = None
     command_center_url: Optional[str] = None
     agent_port: Optional[int] = 9200
+    shared_secret: Optional[str] = None
 
 
 class InstallPreparedRequest(BaseModel):

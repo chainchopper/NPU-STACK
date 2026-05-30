@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Wrench, Play, Loader, Square, ChevronDown, ChevronRight } from 'lucide-react';
+import ActivityLogCard from '../components/ActivityLogCard';
+import CapabilityPill from '../components/CapabilityPill';
 import ContextWizard from '../components/ContextWizard';
-import { apiUrl } from '../api/client';
+import OperationNotice from '../components/OperationNotice';
+import { apiUrl, diagnoseBackendError, inferBackendOrigin } from '../api/client';
 
 const FINETUNE_WIZARD_STEPS = [
     {
@@ -30,6 +33,19 @@ export default function FineTuning() {
     const [starting, setStarting] = useState(false);
     const [expandedJob, setExpandedJob] = useState(null);
     const [jobDetails, setJobDetails] = useState({});
+    const [ecosystem, setEcosystem] = useState(null);
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
+    const [copyHint, setCopyHint] = useState('');
+    const [checkingEcosystem, setCheckingEcosystem] = useState(false);
+    const [lastEcosystemCheckAt, setLastEcosystemCheckAt] = useState(null);
+    const [ecosystemCheckFailures, setEcosystemCheckFailures] = useState(0);
+    const [ecosystemCheckError, setEcosystemCheckError] = useState('');
+
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-59), `${timestamp} — ${line}`]);
+    };
 
     // Form state
     const [selectedModel, setSelectedModel] = useState('');
@@ -59,6 +75,46 @@ export default function FineTuning() {
         }
     }, [selectedModel, selectedDataset, useLora, loraR, epochs]);
 
+    const refreshEcosystemStatus = async ({ logResult = false } = {}) => {
+        setCheckingEcosystem(true);
+        try {
+            const ecosystemRes = await fetch(apiUrl('/finetune/status'));
+            if (!ecosystemRes.ok) {
+                throw new Error(`Ecosystem status HTTP ${ecosystemRes.status}`);
+            }
+
+            const ecosystemData = await ecosystemRes.json();
+            setEcosystem(ecosystemData);
+            setEcosystemCheckFailures(0);
+            setEcosystemCheckError('');
+
+            const now = new Date();
+            setLastEcosystemCheckAt(now);
+
+            if (logResult) {
+                const unslothState = ecosystemData?.unsloth || {};
+                const missing = [
+                    !unslothState.unsloth_available ? 'unsloth' : null,
+                    !unslothState.peft_available ? 'peft' : null,
+                    !unslothState.trl_available ? 'trl' : null,
+                    !unslothState.bitsandbytes_available ? 'bitsandbytes' : null,
+                ].filter(Boolean);
+
+                addLog(`Environment check @ ${now.toLocaleString()}: ready=${unslothState.ready ? 'yes' : 'no'}, cuda=${unslothState.cuda_available ? 'yes' : 'no'}, missing=${missing.length ? missing.join(',') : 'none'}`);
+            }
+        } catch (statusErr) {
+            const reason = diagnoseBackendError(statusErr, 'Fine-tune ecosystem status');
+            setEcosystemCheckFailures((prev) => prev + 1);
+            setEcosystemCheckError(reason);
+            if (logResult) {
+                addLog(`Environment check failed @ ${new Date().toLocaleString()}: ${reason}`);
+            }
+            throw statusErr;
+        } finally {
+            setCheckingEcosystem(false);
+        }
+    };
+
     const fetchData = async () => {
         try {
             const [modelsRes, datasetsRes, jobsRes] = await Promise.all([
@@ -69,7 +125,21 @@ export default function FineTuning() {
             setModels(modelsRes.models || []);
             setDatasets(datasetsRes.datasets || []);
             setJobs(jobsRes.jobs || []);
-        } catch (e) { console.error(e); }
+
+            try {
+                await refreshEcosystemStatus({ logResult: false });
+            } catch (statusErr) {
+                addLog(`Ecosystem status unavailable: ${diagnoseBackendError(statusErr, 'Fine-tune ecosystem status')}`);
+            }
+        } catch (e) {
+            setNotice({
+                tone: 'warning',
+                title: 'Fine-tuning data unavailable',
+                message: diagnoseBackendError(e, 'Fine-tuning setup'),
+                details: e?.message || null,
+            });
+            addLog(`Fine-tuning setup failed: ${diagnoseBackendError(e, 'Fine-tuning setup')}`);
+        }
         setLoading(false);
     };
 
@@ -88,6 +158,7 @@ export default function FineTuning() {
     const startJob = async () => {
         if (!selectedModel || !selectedDataset) return;
         setStarting(true);
+        addLog(`Starting fine-tuning job (model ${selectedModel}, dataset ${selectedDataset})`);
         try {
             const form = new FormData();
             form.append('model_id', selectedModel);
@@ -101,15 +172,36 @@ export default function FineTuning() {
 
             await fetch(apiUrl('/finetune/start'), { method: 'POST', body: form });
             await fetchData();
-        } catch (e) { console.error(e); }
+            setNotice({ tone: 'success', title: 'Fine-tuning started', message: 'New fine-tuning job has been submitted.' });
+            addLog('Fine-tuning job submitted');
+        } catch (e) {
+            setNotice({
+                tone: 'danger',
+                title: 'Failed to start fine-tuning',
+                message: diagnoseBackendError(e, 'Fine-tuning start'),
+                details: e?.message || null,
+            });
+            addLog(`Fine-tuning start failed: ${diagnoseBackendError(e, 'Fine-tuning start')}`);
+        }
         setStarting(false);
     };
 
     const stopJob = async (jobId) => {
+        addLog(`Stop requested for fine-tuning job ${jobId}`);
         try {
             await fetch(apiUrl(`/finetune/stop/${jobId}`), { method: 'POST' });
             await fetchData();
-        } catch (e) { console.error(e); }
+            setNotice({ tone: 'info', title: 'Stop requested', message: `Stop requested for job ${jobId}.` });
+            addLog(`Stop request submitted for job ${jobId}`);
+        } catch (e) {
+            setNotice({
+                tone: 'danger',
+                title: 'Failed to stop job',
+                message: diagnoseBackendError(e, 'Fine-tuning stop'),
+                details: e?.message || null,
+            });
+            addLog(`Stop failed for job ${jobId}: ${diagnoseBackendError(e, 'Fine-tuning stop')}`);
+        }
     };
 
     const toggleJob = async (jobId) => {
@@ -118,11 +210,21 @@ export default function FineTuning() {
             return;
         }
         setExpandedJob(jobId);
+        addLog(`Loading details for fine-tuning job ${jobId}`);
         try {
             const res = await fetch(apiUrl(`/finetune/status/${jobId}`));
             const data = await res.json();
             setJobDetails(prev => ({ ...prev, [jobId]: data }));
-        } catch (e) { console.error(e); }
+            addLog(`Loaded details for job ${jobId}`);
+        } catch (e) {
+            setNotice({
+                tone: 'warning',
+                title: 'Job details unavailable',
+                message: diagnoseBackendError(e, 'Fine-tuning job details'),
+                details: e?.message || null,
+            });
+            addLog(`Job detail fetch failed for ${jobId}: ${diagnoseBackendError(e, 'Fine-tuning job details')}`);
+        }
     };
 
     const statusColor = (status) => {
@@ -131,7 +233,55 @@ export default function FineTuning() {
             case 'completed': return 'var(--accent-green)';
             case 'failed': return 'var(--accent-red)';
             case 'stopping': return 'var(--accent-amber)';
+            case 'stopped': return 'var(--accent-amber)';
             default: return 'var(--text-muted)';
+        }
+    };
+
+    const unsloth = ecosystem?.unsloth || {};
+    const hub = ecosystem?.hub || {};
+    const backendOrigin = inferBackendOrigin();
+    const missingDeps = [
+        !unsloth.unsloth_available ? 'unsloth' : null,
+        !unsloth.peft_available ? 'peft' : null,
+        !unsloth.trl_available ? 'trl' : null,
+        !unsloth.bitsandbytes_available ? 'bitsandbytes' : null,
+    ].filter(Boolean);
+
+    const installCommand = (() => {
+        if (missingDeps.length === 0) return '';
+
+        const deps = [];
+        if (missingDeps.includes('peft')) deps.push('peft');
+        if (missingDeps.includes('trl')) deps.push('trl');
+        if (missingDeps.includes('bitsandbytes')) deps.push('bitsandbytes');
+
+        const pieces = [];
+        if (missingDeps.includes('unsloth')) {
+            pieces.push("pip install \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"");
+        }
+        if (deps.length > 0) {
+            pieces.push(`pip install ${deps.join(' ')}`);
+        }
+        return pieces.join(' && ');
+    })();
+
+    const copyInstallCommand = async () => {
+        if (!installCommand) return;
+        try {
+            await navigator.clipboard.writeText(installCommand);
+            setCopyHint('Install command copied. Running environment check...');
+            addLog('Copied Unsloth dependency install command');
+
+            try {
+                await refreshEcosystemStatus({ logResult: true });
+                setCopyHint('Install command copied. Environment check refreshed.');
+            } catch {
+                setCopyHint('Install command copied. Environment check failed; see notices/log.');
+            }
+        } catch {
+            setCopyHint('Copy failed. Select and copy the command manually.');
+            addLog('Clipboard copy failed for Unsloth dependency command');
         }
     };
 
@@ -142,6 +292,100 @@ export default function FineTuning() {
                     <Wrench size={24} /> Fine-Tuning
                 </h2>
                 <p className="text-secondary">LoRA / QLoRA parameter-efficient fine-tuning</p>
+            </div>
+
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
+
+            <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header">
+                    <h3 className="card-title">Unsloth Ecosystem Readiness</h3>
+                    <button className="btn btn-sm btn-outline" onClick={() => refreshEcosystemStatus({ logResult: true })} disabled={checkingEcosystem}>
+                        {checkingEcosystem ? <><Loader size={12} className="spin" /> Checking…</> : 'Run Environment Check'}
+                    </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                    <CapabilityPill active={Boolean(unsloth.ready)} label={`Unsloth Ready: ${unsloth.ready ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(unsloth.accelerated_available)} label={`Accelerated Mode: ${unsloth.accelerated_available ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(unsloth.fallback_available)} label={`CPU Fallback: ${unsloth.fallback_available ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(unsloth.unsloth_available)} label={`Unsloth Installed: ${unsloth.unsloth_available ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(unsloth.cuda_available)} label={`CUDA: ${unsloth.cuda_available ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(unsloth.peft_available)} label={`PEFT: ${unsloth.peft_available ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(unsloth.trl_available)} label={`TRL: ${unsloth.trl_available ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(unsloth.bitsandbytes_available)} label={`bitsandbytes: ${unsloth.bitsandbytes_available ? 'Yes' : 'No'}`} />
+                    <CapabilityPill active={Boolean(hub.authenticated)} label={`HF Auth: ${hub.authenticated ? 'Yes' : 'No'}`} />
+                </div>
+
+                <p className="text-secondary" style={{ fontSize: 13, marginBottom: 8 }}>
+                    Best mode available: <strong>{unsloth.best_mode === 'cuda-accelerated' ? 'CUDA accelerated' : unsloth.best_mode === 'cpu-fallback' ? 'CPU fallback' : 'missing dependencies'}</strong>
+                </p>
+                {unsloth.recommendation && (
+                    <p className="text-secondary" style={{ fontSize: 12, marginBottom: 12, fontStyle: 'italic' }}>
+                        {unsloth.recommendation}
+                    </p>
+                )}
+
+                {missingDeps.length > 0 ? (
+                    <OperationNotice
+                        tone="warning"
+                        title="Missing optional Unsloth dependencies"
+                        message={`Current environment is missing: ${missingDeps.join(', ')}.`}
+                        details="This page's classic fine-tuning route can still run with PEFT/Transformers. Unsloth can run in CPU fallback mode when CUDA is unavailable, but acceleration needs CUDA plus the full stack installed portably via pip on the target machine."
+                    />
+                ) : (
+                    <p className="text-secondary" style={{ fontSize: 13 }}>
+                        Unsloth stack is available; CUDA will unlock accelerated QLoRA, while CPU fallback remains supported.
+                    </p>
+                )}
+
+                {ecosystemCheckFailures >= 2 && (
+                    <OperationNotice
+                        tone="danger"
+                        title="Backend environment checks are unstable"
+                        message="Repeated readiness checks failed. Backend may be down or on a different port."
+                        details={ecosystemCheckError || 'Verify backend availability and configured API port.'}
+                        footer={(
+                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                    Detected backend origin: <code>{backendOrigin || 'unknown'}</code>
+                                </span>
+                                <button
+                                    className="btn btn-sm btn-outline"
+                                    onClick={() => refreshEcosystemStatus({ logResult: true })}
+                                    disabled={checkingEcosystem}
+                                >
+                                    {checkingEcosystem ? 'Retrying…' : 'Retry now'}
+                                </button>
+                            </div>
+                        )}
+                    />
+                )}
+
+                {lastEcosystemCheckAt && (
+                    <p className="text-secondary" style={{ fontSize: 12, marginTop: 8 }}>
+                        Last check: {lastEcosystemCheckAt.toLocaleString()}
+                    </p>
+                )}
+
+                {missingDeps.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Suggested install command</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <code style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', padding: '6px 10px', borderRadius: 8, fontSize: 12 }}>
+                                {installCommand}
+                            </code>
+                            <button className="btn btn-sm btn-outline" onClick={copyInstallCommand}>Copy</button>
+                        </div>
+                        {copyHint && <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>{copyHint}</div>}
+                        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                            Portable install only — no local Unsloth checkout is assumed by this repo.
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="grid-2">
@@ -285,6 +529,14 @@ export default function FineTuning() {
                     )}
                 </div>
             </div>
+
+            <ActivityLogCard
+                title="Fine-Tuning Activity"
+                lines={activityLog}
+                emptyMessage="No fine-tuning activity recorded yet."
+                onClear={() => setActivityLog([])}
+                style={{ marginTop: 16 }}
+            />
             <ContextWizard id="finetune" steps={FINETUNE_WIZARD_STEPS} accentVar="--accent-purple" />
         </div>
     );

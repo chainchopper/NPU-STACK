@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Gauge, Play, BarChart3, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts';
-import { getSystemInfo, listModels, runBenchmark, listBenchmarks } from '../api/client';
+import { diagnoseBackendError, getSystemInfo, listModels, runBenchmark, listBenchmarks } from '../api/client';
+import ActivityLogCard from '../components/ActivityLogCard';
+import CapabilityPill from '../components/CapabilityPill';
+import OperationNotice from '../components/OperationNotice';
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -13,6 +16,8 @@ export default function Benchmark() {
     const [latestResult, setLatestResult] = useState(null);
     const [systemInfo, setSystemInfo] = useState(null);
     const [browserAccel, setBrowserAccel] = useState({ webgpu: false, webgl: false });
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
 
     const ortCudaError = systemInfo?.onnxruntime_cuda_error;
     const ortDirectMLError = systemInfo?.onnxruntime_directml_error;
@@ -26,6 +31,52 @@ export default function Benchmark() {
         num_iterations: 100,
     });
 
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-49), `${timestamp} — ${line}`]);
+    };
+
+    const runtimeCompatibleModels = useMemo(() => {
+        const runtime = form.runtime;
+        if (runtime === 'llama-cpp') {
+            return models.filter((m) => m.format === 'gguf');
+        }
+        if (runtime === 'openvino') {
+            return models.filter((m) => ['onnx', 'openvino_ir'].includes(m.format));
+        }
+        return models.filter((m) => m.format === 'onnx');
+    }, [form.runtime, models]);
+
+    const runtimeDeviceOptions = useMemo(() => {
+        const caps = systemInfo?.capabilities || {};
+
+        if (form.runtime === 'llama-cpp') {
+            return [
+                { value: 'cpu', label: 'CPU' },
+                ...(caps.cuda_gpu?.available ? [{ value: 'cuda', label: 'CUDA GPU' }] : []),
+                { value: 'auto', label: 'AUTO' },
+            ];
+        }
+
+        if (form.runtime === 'openvino') {
+            return [
+                { value: 'auto', label: 'AUTO (best accelerator)' },
+                { value: 'cpu', label: 'CPU' },
+                { value: 'gpu', label: 'GPU (generic)' },
+                ...(caps.intel_npu?.available ? [{ value: 'npu', label: 'NPU (Intel)' }] : []),
+            ];
+        }
+
+        return [
+            { value: 'auto', label: 'AUTO (best accelerator)' },
+            { value: 'gpu', label: 'GPU (generic)' },
+            { value: 'cpu', label: 'CPU' },
+            ...(caps.intel_npu?.available ? [{ value: 'npu', label: 'NPU (Intel)' }] : []),
+            ...(caps.cuda_gpu?.available ? [{ value: 'cuda', label: 'CUDA GPU' }] : []),
+            ...(caps.directml?.available ? [{ value: 'directml', label: 'DirectML GPU' }] : []),
+        ];
+    }, [form.runtime, systemInfo]);
+
     useEffect(() => {
         Promise.all([
             listModels().catch(() => []),
@@ -35,6 +86,11 @@ export default function Benchmark() {
             setModels(m);
             setBenchmarks(b);
             setSystemInfo(info);
+            if (!info) {
+                const message = diagnoseBackendError(null, 'Benchmark hardware detection');
+                setNotice({ tone: 'warning', title: 'Backend attention needed', message });
+                addLog(`System info unavailable: ${message}`);
+            }
             setLoading(false);
         });
 
@@ -47,10 +103,26 @@ export default function Benchmark() {
         }
     }, []);
 
+    useEffect(() => {
+        const hasSelectedModel = runtimeCompatibleModels.some((m) => Number(m.id) === Number(form.model_id));
+        if (!hasSelectedModel && form.model_id) {
+            setForm((prev) => ({ ...prev, model_id: '' }));
+        }
+    }, [form.model_id, runtimeCompatibleModels]);
+
+    useEffect(() => {
+        const currentDeviceStillValid = runtimeDeviceOptions.some((option) => option.value === form.device);
+        if (!currentDeviceStillValid && runtimeDeviceOptions.length > 0) {
+            setForm((prev) => ({ ...prev, device: runtimeDeviceOptions[0].value }));
+        }
+    }, [form.device, runtimeDeviceOptions]);
+
     const handleRun = async (e) => {
         e.preventDefault();
         setRunning(true);
         setLatestResult(null);
+        setNotice(null);
+        addLog(`Benchmark requested: runtime=${form.runtime}, device=${form.device}, model_id=${form.model_id}`);
         try {
             const result = await runBenchmark({
                 model_id: Number(form.model_id),
@@ -61,9 +133,19 @@ export default function Benchmark() {
                 num_iterations: form.num_iterations,
             });
             setLatestResult(result);
+            setNotice({
+                tone: result?.fallback_used ? 'warning' : 'success',
+                title: result?.fallback_used ? 'Benchmark completed with fallback' : 'Benchmark completed',
+                message: result?.fallback_used
+                    ? result?.fallback_reason || 'The requested accelerator was unavailable and a fallback provider was used.'
+                    : `${result.runtime} completed using ${result.active_provider || result.device}.`,
+            });
+            addLog(`Benchmark complete: provider=${result.active_provider || 'n/a'}, device=${result.device}`);
             listBenchmarks().then(setBenchmarks);
         } catch (e) {
-            alert('Benchmark failed: ' + e.message);
+            const message = diagnoseBackendError(e, 'Benchmark run');
+            setNotice({ tone: 'danger', title: 'Benchmark failed', message, details: e?.message || null });
+            addLog(`Benchmark failed: ${message}`);
         }
         setRunning(false);
     };
@@ -83,6 +165,13 @@ export default function Benchmark() {
                 <p>Profile and compare model inference performance across devices and runtimes</p>
             </div>
 
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
+
             <div className="grid-2">
                 {/* Benchmark Config */}
                 <div className="card">
@@ -94,7 +183,7 @@ export default function Benchmark() {
                             <label className="form-label">Model</label>
                             <select className="form-select" value={form.model_id} onChange={e => setForm({ ...form, model_id: e.target.value })} required>
                                 <option value="">Select a model...</option>
-                                {models.filter(m => ['onnx', 'openvino_ir', 'gguf'].includes(m.format)).map(m => (
+                                {runtimeCompatibleModels.map(m => (
                                     <option key={m.id} value={m.id}>{m.name} ({m.format.toUpperCase()})</option>
                                 ))}
                             </select>
@@ -111,12 +200,9 @@ export default function Benchmark() {
                             <div className="form-group">
                                 <label className="form-label">Device</label>
                                 <select className="form-select" value={form.device} onChange={e => setForm({ ...form, device: e.target.value })}>
-                                    <option value="auto">AUTO (best accelerator)</option>
-                                    <option value="gpu">GPU (generic)</option>
-                                    <option value="cpu">CPU</option>
-                                    <option value="npu">NPU (Intel)</option>
-                                    <option value="cuda">CUDA GPU</option>
-                                    <option value="directml">DirectML GPU</option>
+                                    {runtimeDeviceOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
                                 </select>
                             </div>
                         </div>
@@ -140,11 +226,12 @@ export default function Benchmark() {
                                 Acceleration detected
                             </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-                                <span className={`badge ${systemInfo?.capabilities?.cuda_gpu?.available ? 'badge-success' : ''}`}>CUDA</span>
-                                <span className={`badge ${systemInfo?.capabilities?.directml?.available ? 'badge-info' : ''}`}>DirectML</span>
-                                <span className={`badge ${systemInfo?.capabilities?.openvino?.available ? 'badge-purple' : ''}`}>OpenVINO</span>
-                                <span className={`badge ${systemInfo?.capabilities?.vulkan?.available ? 'badge-purple' : ''}`}>Vulkan</span>
-                                <span className={`badge ${browserAccel.webgpu ? 'badge-purple' : ''}`}>WebGPU (browser)</span>
+                                <CapabilityPill label="CUDA" active={Boolean(systemInfo?.capabilities?.cuda_gpu?.available)} activeClassName="badge-success" />
+                                <CapabilityPill label="DirectML" active={Boolean(systemInfo?.capabilities?.directml?.available)} activeClassName="badge-info" />
+                                <CapabilityPill label="OpenVINO" active={Boolean(systemInfo?.capabilities?.openvino?.available)} activeClassName="badge-purple" />
+                                <CapabilityPill label="Vulkan" active={Boolean(systemInfo?.capabilities?.vulkan?.available)} activeClassName="badge-purple" />
+                                <CapabilityPill label="WebGPU (browser)" active={browserAccel.webgpu} activeClassName="badge-purple" />
+                                <CapabilityPill label="AVX2" active={Boolean(systemInfo?.capabilities?.avx2?.available)} activeClassName="badge-info" />
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                                 ONNX Runtime providers: {systemInfo?.onnxruntime_providers?.length ? systemInfo.onnxruntime_providers.join(', ') : 'not detected'}
@@ -293,6 +380,14 @@ export default function Benchmark() {
                     </div>
                 )}
             </div>
+
+            <ActivityLogCard
+                title="Benchmark Activity Log"
+                lines={activityLog}
+                emptyMessage="No benchmark actions yet."
+                onClear={() => setActivityLog([])}
+                style={{ marginTop: 24 }}
+            />
         </div>
     );
 }

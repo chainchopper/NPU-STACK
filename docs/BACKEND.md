@@ -116,6 +116,23 @@ Relevant inputs include:
 - `text_column`
 - `max_length`
 
+### Unsloth ecosystem detection
+
+`GET /api/finetune/status` performs runtime capability detection and returns a `recommendation` field that tells the UI exactly what action to take:
+
+- **`best_mode: "cuda-accelerated"`** → `recommendation: "Full Unsloth stack ready. Training will use CUDA acceleration (2-4x faster, 70% less VRAM)."`
+- **`best_mode: "cpu-fallback"`** → `recommendation: "Unsloth is available in CPU fallback mode. Training will work but will be slow. Install CUDA + bitsandbytes for acceleration."`
+- **`best_mode: "missing-dependencies"`** → `recommendation: "Missing dependencies: [list]. Use the install command on this page."`
+
+The status payload also includes:
+
+- Individual capability flags: `unsloth_available`, `torch_available`, `cuda_available`, `peft_available`, `transformers_available`, `trl_available`, `bitsandbytes_available`
+- Composite flags: `fallback_available`, `accelerated_available`, `ready`
+- GPU info (when CUDA is available): `name`, `vram_gb`, `compute_capability`
+- List of supported Unsloth 4-bit model IDs
+
+**Note**: Unsloth is treated as an optional, portable dependency. It is installed via pip and can run on CPU (slower) or with CUDA/bitsandbytes acceleration (faster). No local repository checkout is required or assumed.
+
 ### FastFlowLM
 
 `/api/flm/status` is safe for smoke testing because it reports install and server state without requiring FLM to be running.

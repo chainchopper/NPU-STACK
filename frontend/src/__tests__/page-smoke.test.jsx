@@ -20,6 +20,9 @@ vi.mock('../api/client', async () => {
         serveFLMModel: vi.fn(),
         stopFLMServer: vi.fn(),
         chatFLM: vi.fn(),
+        listModels: vi.fn(),
+        listBenchmarks: vi.fn(),
+        runBenchmark: vi.fn(),
         scanDevices: vi.fn(),
         listDevices: vi.fn(),
         listPreparedBundles: vi.fn(),
@@ -43,6 +46,7 @@ import Serving from '../pages/Serving';
 import FineTuning from '../pages/FineTuning';
 import FastFlowLM from '../pages/FastFlowLM';
 import EdgeFleet from '../pages/EdgeFleet';
+import Benchmark from '../pages/Benchmark';
 import ModelHub from '../pages/ModelHub';
 import DataIngestion from '../pages/DataIngestion';
 import {
@@ -50,6 +54,8 @@ import {
     getSystemInfo,
     getFLMStatus,
     inferBackendOrigin,
+    listBenchmarks,
+    listModels,
     listFLMModels,
     listDevices,
     listBackups,
@@ -82,6 +88,10 @@ describe('Frontend page smoke coverage', () => {
         localStorage.clear();
         fetch.mockReset();
         localStorage.setItem('npu-wizard-dismissed', 'true');
+        HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+            canvas: {},
+            createLinearGradient: () => ({ addColorStop: vi.fn() }),
+        }));
     });
 
     it('renders Dashboard with empty-state hardware data', async () => {
@@ -207,5 +217,44 @@ describe('Frontend page smoke coverage', () => {
         expect(await screen.findByText(/Drop files here or click to upload/i)).toBeInTheDocument();
         expect(screen.getByText(/text: \.txt, \.md/i)).toBeInTheDocument();
         await waitFor(() => expect(fetch).toHaveBeenCalled());
+    });
+
+    it('filters Benchmark device choices by runtime and detected capabilities', async () => {
+        const user = userEvent.setup();
+        listModels.mockResolvedValue([
+            { id: 1, name: 'test_model', format: 'onnx' },
+            { id: 2, name: 'openvino_model', format: 'openvino_ir' },
+            { id: 3, name: 'phi-gguf', format: 'gguf' },
+        ]);
+        listBenchmarks.mockResolvedValue([]);
+        getSystemInfo.mockResolvedValue({
+            onnxruntime_providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'],
+            capabilities: {
+                cuda_gpu: { available: true },
+                directml: { available: false },
+                openvino: { available: true },
+                intel_npu: { available: false },
+                avx2: { available: true },
+                vulkan: { available: true },
+            },
+        });
+
+        render(<Benchmark />);
+
+        expect(await screen.findByText(/Acceleration detected/i)).toBeInTheDocument();
+
+        const [, runtimeSelect, deviceSelect] = screen.getAllByRole('combobox');
+
+        await user.selectOptions(runtimeSelect, 'openvino');
+        expect(screen.queryByRole('option', { name: /CUDA GPU/i })).not.toBeInTheDocument();
+        expect(screen.getByRole('option', { name: /GPU \(generic\)/i })).toBeInTheDocument();
+
+        await user.selectOptions(runtimeSelect, 'llama-cpp');
+        expect(screen.getByRole('option', { name: /^CPU$/i })).toBeInTheDocument();
+        expect(screen.getByRole('option', { name: /CUDA GPU/i })).toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: /DirectML GPU/i })).not.toBeInTheDocument();
+
+        expect(deviceSelect).toBeInTheDocument();
+        expect(screen.getByText(/AVX2/i)).toBeInTheDocument();
     });
 });

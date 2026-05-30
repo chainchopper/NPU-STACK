@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Play, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio } from 'lucide-react';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Models = lazy(() => import('./pages/Models'));
@@ -19,6 +19,7 @@ const GGUFStudio = lazy(() => import('./pages/GGUFStudio'));
 const HubPublisher = lazy(() => import('./pages/HubPublisher'));
 const FastFlowLM = lazy(() => import('./pages/FastFlowLM'));
 const EdgeFleet = lazy(() => import('./pages/EdgeFleet'));
+const FleetCommand = lazy(() => import('./pages/FleetCommand'));
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -38,6 +39,7 @@ const navItems = [
     { path: '/webcam', icon: Camera, label: 'Webcam' },
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
     { path: '/edge-fleet', icon: MonitorSmartphone, label: 'Edge Fleet' },
+    { path: '/fleet-command', icon: Radio, label: 'Fleet Command' },
 ];
 
 function RouteLoadingFallback() {
@@ -144,6 +146,7 @@ export default function App() {
                             <Route path="/webcam" element={<WebcamTest />} />
                             <Route path="/benchmark" element={<Benchmark />} />
                             <Route path="/edge-fleet" element={<EdgeFleet />} />
+                            <Route path="/fleet-command" element={<FleetCommand />} />
                         </Routes>
                     </Suspense>
                 </main>

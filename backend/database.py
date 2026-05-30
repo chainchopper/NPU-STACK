@@ -63,6 +63,29 @@ class TrainingJob(Base):
     created_at = Column(DateTime, default=utcnow)
 
 
+class FinetuneJob(Base):
+    """Fine-tuning job tracking (LoRA / QLoRA / PEFT workflows)."""
+    __tablename__ = "finetune_jobs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    model_id = Column(Integer, nullable=False)
+    model_name = Column(String(255), nullable=False)
+    dataset = Column(String(512), nullable=False)
+    dataset_path = Column(String(1024), nullable=True)
+    status = Column(String(50), default="pending")  # pending, initializing, running, stopping, completed, failed
+    config = Column(JSON, nullable=True)
+    current_step = Column(Integer, default=0)
+    current_epoch = Column(Float, default=0)
+    metrics_history = Column(JSON, nullable=True)
+    log_history = Column(JSON, nullable=True)
+    output_dir = Column(String(1024), nullable=True)
+    resulting_model_id = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
 class BenchmarkResult(Base):
     """Inference benchmark results."""
     __tablename__ = "benchmark_results"

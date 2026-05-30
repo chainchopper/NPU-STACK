@@ -4,7 +4,9 @@ import {
     Check, Loader2, Filter, LayoutGrid, List, Info, Image as ImageIcon,
     DownloadCloud, Layers
 } from 'lucide-react';
-import { absoluteUrl, apiUrl } from '../api/client';
+import ActivityLogCard from '../components/ActivityLogCard';
+import OperationNotice from '../components/OperationNotice';
+import { absoluteUrl, apiUrl, diagnoseBackendError } from '../api/client';
 
 const TASK_FILTERS = [
     { label: 'All Tasks', value: '' },
@@ -114,6 +116,13 @@ export default function ModelHub() {
     const [detail, setDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
+
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-59), `${timestamp} — ${line}`]);
+    };
 
     // Initial search
     useEffect(() => {
@@ -123,7 +132,9 @@ export default function ModelHub() {
     const searchModels = async () => {
         setSearching(true);
         setError(null);
+        setNotice(null);
         setResults([]);
+        addLog(`Search requested (${source}) query="${query || 'all'}"`);
         try {
             let res;
             if (source === 'huggingface') {
@@ -140,8 +151,12 @@ export default function ModelHub() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Search failed');
             setResults(data.models || []);
+            addLog(`Search complete: ${(data.models || []).length} model(s)`);
         } catch (e) {
-            setError(e.message);
+            const message = diagnoseBackendError(e, 'Model search');
+            setError(message);
+            setNotice({ tone: 'danger', title: 'Search failed', message, details: e?.message || null });
+            addLog(`Search failed: ${message}`);
         } finally {
             setSearching(false);
         }
@@ -150,6 +165,7 @@ export default function ModelHub() {
     const getDetails = async (m) => {
         setDetailLoading(true);
         setError(null);
+        setNotice(null);
         try {
             let res;
             if (source === 'huggingface') {
@@ -160,8 +176,12 @@ export default function ModelHub() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Failed to fetch details');
             setDetail(data);
+            addLog(`Loaded details for ${m.name || m.id}`);
         } catch (e) {
-            setError(e.message);
+            const message = diagnoseBackendError(e, 'Model details');
+            setError(message);
+            setNotice({ tone: 'warning', title: 'Details unavailable', message, details: e?.message || null });
+            addLog(`Details failed: ${message}`);
         } finally {
             setDetailLoading(false);
         }
@@ -170,6 +190,7 @@ export default function ModelHub() {
     const downloadHF = async (repoId, filename) => {
         const key = `${repoId}/${filename || 'auto'}`;
         setDownloading(prev => ({ ...prev, [key]: true }));
+        addLog(`HuggingFace download requested: ${key}`);
         try {
             const fd = new FormData();
             fd.append('repo_id', repoId);
@@ -178,8 +199,13 @@ export default function ModelHub() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Download failed');
             setDownloaded(prev => ({ ...prev, [key]: data }));
+            setNotice({ tone: 'success', title: 'Download complete', message: `Imported ${filename || repoId}` });
+            addLog(`Download complete: ${key}`);
         } catch (e) {
-            setError(e.message);
+            const message = diagnoseBackendError(e, 'HuggingFace download');
+            setError(message);
+            setNotice({ tone: 'danger', title: 'Download failed', message, details: e?.message || null });
+            addLog(`Download failed: ${message}`);
         } finally {
             setDownloading(prev => ({ ...prev, [key]: false }));
         }
@@ -187,6 +213,8 @@ export default function ModelHub() {
 
     const downloadHFSnapshot = async (repoId) => {
         setSnapshotDownloading(true);
+        setNotice(null);
+        addLog(`Snapshot import requested: ${repoId}`);
         try {
             const fd = new FormData();
             fd.append('repo_id', repoId);
@@ -194,9 +222,13 @@ export default function ModelHub() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Snapshot download failed');
             setDownloaded(prev => ({ ...prev, [repoId]: data }));
-            alert(`Completed full import of ${repoId}`);
+            setNotice({ tone: 'success', title: 'Full import complete', message: `Completed full import of ${repoId}` });
+            addLog(`Snapshot import complete: ${repoId}`);
         } catch (e) {
-            setError(e.message);
+            const message = diagnoseBackendError(e, 'Snapshot import');
+            setError(message);
+            setNotice({ tone: 'danger', title: 'Full import failed', message, details: e?.message || null });
+            addLog(`Snapshot import failed: ${message}`);
         } finally {
             setSnapshotDownloading(false);
         }
@@ -205,6 +237,7 @@ export default function ModelHub() {
     const downloadCivitai = async (versionId, modelName) => {
         const key = `civitai-${versionId}`;
         setDownloading(prev => ({ ...prev, [key]: true }));
+        addLog(`Civitai download requested: ${modelName} (version ${versionId})`);
         try {
             const fd = new FormData();
             fd.append('version_id', versionId);
@@ -213,8 +246,13 @@ export default function ModelHub() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Download failed');
             setDownloaded(prev => ({ ...prev, [key]: data }));
+            setNotice({ tone: 'success', title: 'Civitai import complete', message: `Imported ${modelName}` });
+            addLog(`Civitai import complete: ${modelName}`);
         } catch (e) {
-            setError(e.message);
+            const message = diagnoseBackendError(e, 'Civitai download');
+            setError(message);
+            setNotice({ tone: 'danger', title: 'Civitai import failed', message, details: e?.message || null });
+            addLog(`Civitai import failed: ${message}`);
         } finally {
             setDownloading(prev => ({ ...prev, [key]: false }));
         }
@@ -263,6 +301,13 @@ export default function ModelHub() {
                     </div>
                 </div>
             </header>
+
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
 
             {/* Search & Filter Bar */}
             <div className="card" style={{ marginBottom: '24px', background: 'linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%)', border: '1px solid var(--border-subtle)' }}>
@@ -561,6 +606,14 @@ export default function ModelHub() {
                     </div>
                 )}
             </div>
+
+            <ActivityLogCard
+                title="Model Hub Activity"
+                lines={activityLog}
+                emptyMessage="No model hub activity recorded yet."
+                onClear={() => setActivityLog([])}
+                style={{ marginTop: 24 }}
+            />
         </div>
     );
 }

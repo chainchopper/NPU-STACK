@@ -40,8 +40,20 @@ def detect_hub() -> dict:
         except Exception:
             pass
 
-        # Check token
-        token = huggingface_hub.HfFolder.get_token()
+        # Check token (support old and new huggingface_hub APIs)
+        token = None
+        try:
+            # Newer versions expose get_token at module level
+            token = huggingface_hub.get_token()
+        except Exception:
+            try:
+                # Older versions exposed HfFolder.get_token
+                HfFolder = getattr(huggingface_hub, "HfFolder", None)
+                if HfFolder and hasattr(HfFolder, "get_token"):
+                    token = HfFolder.get_token()
+            except Exception:
+                token = None
+
         info["token_set"] = token is not None
 
     except ImportError:

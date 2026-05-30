@@ -61,6 +61,8 @@ from routers.agent import router as agent_router
 from routers.civitai import router as civitai_router
 from routers.flm import router as flm_router
 from routers.devices import router as devices_router
+from routers.fleet_command import router as fleet_command_router
+from routers.fleet_agent import router as fleet_agent_router
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -146,6 +148,8 @@ app.include_router(devices_router)
 app.include_router(agent_router)
 app.include_router(civitai_router)
 app.include_router(flm_router)
+app.include_router(fleet_command_router)
+app.include_router(fleet_agent_router)
 
 
 @app.get("/api/health")

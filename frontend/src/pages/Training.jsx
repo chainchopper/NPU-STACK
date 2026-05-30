@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Square, GraduationCap, Clock } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { startTraining, listJobs, stopJob, connectTrainingWS } from '../api/client';
+import { diagnoseBackendError, startTraining, listJobs, stopJob, connectTrainingWS } from '../api/client';
+import OperationNotice from '../components/OperationNotice';
 
 export default function Training() {
     const [jobs, setJobs] = useState([]);
@@ -10,6 +11,7 @@ export default function Training() {
     const [activeJob, setActiveJob] = useState(null);
     const [liveMetrics, setLiveMetrics] = useState([]);
     const [liveLogs, setLiveLogs] = useState([]);
+    const [notice, setNotice] = useState(null);
     const wsRef = useRef(null);
 
     const [form, setForm] = useState({
@@ -24,7 +26,13 @@ export default function Training() {
     });
 
     const loadJobs = () => {
-        listJobs().then(setJobs).catch(() => setJobs([])).finally(() => setLoading(false));
+        listJobs()
+            .then(setJobs)
+            .catch((error) => {
+                setJobs([]);
+                setNotice({ tone: 'warning', title: 'Training history unavailable', message: diagnoseBackendError(error, 'Training jobs') });
+            })
+            .finally(() => setLoading(false));
     };
 
     useEffect(() => { loadJobs(); }, []);
@@ -32,11 +40,13 @@ export default function Training() {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSubmitting(true);
+        setNotice(null);
         try {
             const result = await startTraining(form);
             setActiveJob(result.job_id);
             setLiveMetrics([]);
-            setLiveLogs([]);
+            setLiveLogs([{ time: new Date().toLocaleTimeString(), type: 'status', message: `Training job ${result.job_id} started.` }]);
+            setNotice({ tone: 'success', title: 'Training started', message: `Job #${result.job_id} is now running.` });
 
             // Connect WebSocket for live updates
             wsRef.current = connectTrainingWS(result.job_id, (data) => {
@@ -59,7 +69,8 @@ export default function Training() {
 
             loadJobs();
         } catch (e) {
-            alert('Failed to start training: ' + e.message);
+            const message = diagnoseBackendError(e, 'Training start');
+            setNotice({ tone: 'danger', title: 'Failed to start training', message, details: e.message });
         }
         setSubmitting(false);
     };
@@ -67,9 +78,12 @@ export default function Training() {
     const handleStop = async (jobId) => {
         try {
             await stopJob(jobId);
+            setNotice({ tone: 'success', title: 'Training stop requested', message: `Job #${jobId} has been asked to stop.` });
+            setLiveLogs(prev => [...prev.slice(-50), { time: new Date().toLocaleTimeString(), type: 'status', message: `Stop requested for job ${jobId}.` }]);
             loadJobs();
         } catch (e) {
-            alert('Failed to stop: ' + e.message);
+            const message = diagnoseBackendError(e, 'Training stop');
+            setNotice({ tone: 'danger', title: 'Failed to stop training', message, details: e.message });
         }
     };
 
@@ -99,6 +113,13 @@ export default function Training() {
                 <h2>Training Console</h2>
                 <p>Train models with real PyTorch and export to NPU-compatible formats</p>
             </div>
+
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
 
             <div className="grid-2">
                 {/* Configuration Form */}

@@ -143,6 +143,7 @@ requests.post("http://localhost:8000/api/finetune/start", data={
 - Background training with real-time step/epoch/loss tracking
 - Supports custom uploaded datasets and HuggingFace datasets
 - Fine-tuned adapters saved to model registry
+- Unsloth is treated as an external dependency: use the portable pip install path on any machine; no local repo checkout is required or assumed
 
 ---
 

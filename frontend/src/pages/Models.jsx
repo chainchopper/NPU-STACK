@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, Trash2, Download, FileText, Box, Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import { listModels, uploadModel, deleteModel } from '../api/client';
+import { diagnoseBackendError, listModels, uploadModel, deleteModel } from '../api/client';
+import ActivityLogCard from '../components/ActivityLogCard';
+import OperationNotice from '../components/OperationNotice';
 
 export default function Models() {
     const [models, setModels] = useState([]);
@@ -9,11 +11,29 @@ export default function Models() {
     const [dragOver, setDragOver] = useState(false);
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'created_at', direction: 'desc' });
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
     const fileRef = useRef(null);
+
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-49), `${timestamp} — ${line}`]);
+    };
 
     const loadModels = () => {
         setLoading(true);
-        listModels().then(setModels).catch(() => setModels([])).finally(() => setLoading(false));
+        listModels()
+            .then((data) => {
+                setModels(data);
+                setNotice(null);
+            })
+            .catch((error) => {
+                setModels([]);
+                const message = diagnoseBackendError(error, 'Model registry');
+                setNotice({ tone: 'warning', title: 'Backend attention needed', message });
+                addLog(`Load failed: ${message}`);
+            })
+            .finally(() => setLoading(false));
     };
 
     useEffect(() => { loadModels(); }, []);
@@ -21,13 +41,19 @@ export default function Models() {
     const handleUpload = async (files) => {
         if (!files?.length) return;
         setUploading(true);
+        setNotice(null);
+        addLog(`Uploading ${files.length} model file(s)...`);
         try {
             for (const file of files) {
                 await uploadModel(file);
+                addLog(`Uploaded ${file.name}`);
             }
+            setNotice({ tone: 'success', title: 'Upload complete', message: `${files.length} file(s) uploaded to the model registry.` });
             loadModels();
         } catch (e) {
-            alert('Upload failed: ' + e.message);
+            const message = diagnoseBackendError(e, 'Model upload');
+            setNotice({ tone: 'danger', title: 'Upload failed', message, details: e.message });
+            addLog(`Upload failed: ${message}`);
         }
         setUploading(false);
     };
@@ -36,9 +62,13 @@ export default function Models() {
         if (!confirm(`Delete model "${name}"?`)) return;
         try {
             await deleteModel(id);
+            setNotice({ tone: 'success', title: 'Model removed', message: `Deleted ${name} from the registry.` });
+            addLog(`Deleted model ${name}`);
             loadModels();
         } catch (e) {
-            alert('Delete failed: ' + e.message);
+            const message = diagnoseBackendError(e, 'Model deletion');
+            setNotice({ tone: 'danger', title: 'Delete failed', message, details: e.message });
+            addLog(`Delete failed for ${name}: ${message}`);
         }
     };
 
@@ -103,6 +133,13 @@ export default function Models() {
                 <h2>Model Registry</h2>
                 <p>Upload, manage, and inspect your ML models</p>
             </div>
+
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
 
             {/* Upload Zone */}
             <div
@@ -223,6 +260,14 @@ export default function Models() {
                     </table>
                 </div>
             )}
+
+            <ActivityLogCard
+                title="Model Registry Activity"
+                lines={activityLog}
+                emptyMessage="No model actions recorded yet."
+                onClear={() => setActivityLog([])}
+                style={{ marginTop: 24 }}
+            />
         </div>
     );
 }

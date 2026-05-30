@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Server, Play, Square, Loader, Copy, Terminal, Zap } from 'lucide-react';
-import { OPENAI_BASE, openAIUrl, absoluteUrl } from '../api/client';
+import ActivityLogCard from '../components/ActivityLogCard';
+import OperationNotice from '../components/OperationNotice';
+import { OPENAI_BASE, openAIUrl, absoluteUrl, diagnoseBackendError } from '../api/client';
 
 export default function Serving() {
     const [models, setModels] = useState([]);
@@ -13,9 +15,16 @@ export default function Serving() {
     const [chatInput, setChatInput] = useState('');
     const [chatLoading, setChatLoading] = useState(false);
     const [copied, setCopied] = useState(null);
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
 
     const openAIBaseUrl = absoluteUrl(OPENAI_BASE);
     const chatCompletionsUrl = absoluteUrl(openAIUrl('/chat/completions'));
+
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-59), `${timestamp} — ${line}`]);
+    };
 
     const fetchModels = async () => {
         try {
@@ -23,7 +32,13 @@ export default function Serving() {
             const data = await res.json();
             setModels(data.data || []);
         } catch (e) {
-            console.error(e);
+            setNotice({
+                tone: 'warning',
+                title: 'Model registry unavailable',
+                message: diagnoseBackendError(e, 'Serving models list'),
+                details: e?.message || null,
+            });
+            addLog(`Model registry unavailable: ${diagnoseBackendError(e, 'Serving models list')}`);
         }
     };
 
@@ -36,7 +51,13 @@ export default function Serving() {
                 setChatModel(data.models[0].name);
             }
         } catch (e) {
-            console.error(e);
+            setNotice({
+                tone: 'warning',
+                title: 'Serving status unavailable',
+                message: diagnoseBackendError(e, 'Serving status'),
+                details: e?.message || null,
+            });
+            addLog(`Serving status unavailable: ${diagnoseBackendError(e, 'Serving status')}`);
         }
     };
 
@@ -48,6 +69,7 @@ export default function Serving() {
 
     const loadModel = async (name) => {
         setLoadingModel(name);
+        addLog(`Load requested for model ${name}`);
         try {
             await fetch(openAIUrl('/models/load'), {
                 method: 'POST',
@@ -56,13 +78,22 @@ export default function Serving() {
             });
             await fetchStatus();
             setChatModel(name);
+            setNotice({ tone: 'success', title: 'Model loaded', message: `${name} is now active.` });
+            addLog(`Model loaded: ${name}`);
         } catch (e) {
-            console.error(e);
+            setNotice({
+                tone: 'danger',
+                title: 'Load failed',
+                message: diagnoseBackendError(e, 'Model load'),
+                details: e?.message || null,
+            });
+            addLog(`Load failed for ${name}: ${diagnoseBackendError(e, 'Model load')}`);
         }
         setLoadingModel(null);
     };
 
     const unloadModel = async (name) => {
+        addLog(`Unload requested for model ${name}`);
         try {
             await fetch(openAIUrl('/models/unload'), {
                 method: 'POST',
@@ -70,8 +101,16 @@ export default function Serving() {
                 body: JSON.stringify({ name }),
             });
             await fetchStatus();
+            setNotice({ tone: 'info', title: 'Model unloaded', message: `${name} was removed from active serving.` });
+            addLog(`Model unloaded: ${name}`);
         } catch (e) {
-            console.error(e);
+            setNotice({
+                tone: 'danger',
+                title: 'Unload failed',
+                message: diagnoseBackendError(e, 'Model unload'),
+                details: e?.message || null,
+            });
+            addLog(`Unload failed for ${name}: ${diagnoseBackendError(e, 'Model unload')}`);
         }
     };
 
@@ -83,6 +122,7 @@ export default function Serving() {
         setChatMessages(newMsgs);
         setChatInput('');
         setChatLoading(true);
+        addLog(`Chat message sent using ${chatModel}`);
 
         try {
             const res = await fetch(openAIUrl('/chat/completions'), {
@@ -98,11 +138,14 @@ export default function Serving() {
             const data = await res.json();
             if (data.choices?.[0]?.message) {
                 setChatMessages([...newMsgs, data.choices[0].message]);
+                addLog(`Chat response received from ${chatModel}`);
             } else if (data.detail) {
                 setChatMessages([...newMsgs, { role: 'system', content: `Error: ${data.detail}` }]);
+                addLog(`Chat returned error: ${data.detail}`);
             }
         } catch (e) {
             setChatMessages([...newMsgs, { role: 'system', content: `Error: ${e.message}` }]);
+            addLog(`Chat failed: ${e.message}`);
         }
 
         setChatLoading(false);
@@ -142,6 +185,7 @@ console.log(data.choices[0].message.content);`,
 
         navigator.clipboard.writeText(snippets[lang]);
         setCopied(lang);
+        addLog(`Copied ${lang} API snippet`);
         setTimeout(() => setCopied(null), 2000);
     };
 
@@ -160,6 +204,13 @@ console.log(data.choices[0].message.content);`,
                     </code>
                 </p>
             </div>
+
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
 
             <div className="card mb-4">
                 <div className="card-header">
@@ -358,6 +409,14 @@ console.log(data.choices[0].message.content);`,
                     ))}
                 </div>
             </div>
+
+            <ActivityLogCard
+                title="Serving Activity"
+                lines={activityLog}
+                emptyMessage="No serving activity recorded yet."
+                onClear={() => setActivityLog([])}
+                style={{ marginTop: 16 }}
+            />
         </div>
     );
 }

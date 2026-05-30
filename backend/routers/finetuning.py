@@ -10,15 +10,14 @@ Endpoints:
 
 import os
 import time
-import uuid
-import json
 import threading
-from typing import Optional, Dict
+from datetime import datetime, timezone
+from typing import Dict
 
 from fastapi import APIRouter, HTTPException, Form, Depends
 from sqlalchemy.orm import Session
 
-from database import get_db, ModelRecord
+from database import get_db, SessionLocal, ModelRecord, FinetuneJob
 
 router = APIRouter(prefix="/api/finetune", tags=["fine-tuning"])
 
@@ -26,16 +25,40 @@ DATASET_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "
 MODEL_STORE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "models")
 os.makedirs(DATASET_DIR, exist_ok=True)
 
-# In-memory job tracking
-_jobs: Dict[str, dict] = {}
-_job_threads: Dict[str, threading.Thread] = {}
+# Runtime helpers for active worker threads (state itself is persisted in DB)
+_job_threads: Dict[int, threading.Thread] = {}
+_job_stop_flags: Dict[int, bool] = {}
 
 
-def _run_finetune_job(job_id: str, config: dict):
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _append_job_log(db, job: FinetuneJob, message: str):
+    history = list(job.log_history or [])
+    history.append(message)
+    job.log_history = history[-250:]
+    db.commit()
+
+
+def _append_job_metric(db, job: FinetuneJob, metric: dict):
+    history = list(job.metrics_history or [])
+    history.append(metric)
+    job.metrics_history = history[-500:]
+    db.commit()
+
+
+def _run_finetune_job(job_id: int, config: dict):
     """Background fine-tuning worker using PEFT/LoRA."""
-    job = _jobs[job_id]
-    job["status"] = "running"
-    job["started_at"] = time.time()
+    db = SessionLocal()
+    job = db.query(FinetuneJob).filter(FinetuneJob.id == job_id).first()
+    if not job:
+        db.close()
+        return
+
+    job.status = "running"
+    job.started_at = _utcnow()
+    db.commit()
 
     try:
         import torch
@@ -47,9 +70,9 @@ def _run_finetune_job(job_id: str, config: dict):
             DataCollatorForLanguageModeling,
         )
 
-        job["log"].append("Loading base model...")
+        _append_job_log(db, job, "Loading base model...")
         model_path = config["model_path"]
-        model_dir = os.path.dirname(model_path)
+        model_dir = model_path if os.path.isdir(model_path) else os.path.dirname(model_path)
 
         tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
         if tokenizer.pad_token is None:
@@ -75,16 +98,16 @@ def _run_finetune_job(job_id: str, config: dict):
                     task_type=TaskType.CAUSAL_LM,
                 )
                 model = get_peft_model(model, lora_config)
-                job["log"].append(f"LoRA applied: r={lora_config.r}, alpha={lora_config.lora_alpha}")
+                _append_job_log(db, job, f"LoRA applied: r={lora_config.r}, alpha={lora_config.lora_alpha}")
                 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
                 total = sum(p.numel() for p in model.parameters())
-                job["log"].append(f"Trainable params: {trainable:,} / {total:,} ({100*trainable/total:.1f}%)")
+                _append_job_log(db, job, f"Trainable params: {trainable:,} / {total:,} ({100*trainable/total:.1f}%)")
             except ImportError:
-                job["log"].append("peft not installed — training full model (pip install peft for LoRA)")
+                _append_job_log(db, job, "peft not installed — training full model (pip install peft for LoRA)")
                 use_lora = False
 
         # Load dataset
-        job["log"].append(f"Loading dataset: {config['dataset_path']}")
+        _append_job_log(db, job, f"Loading dataset: {config['dataset_path']}")
         dataset_path = config["dataset_path"]
 
         from datasets import load_dataset
@@ -106,7 +129,7 @@ def _run_finetune_job(job_id: str, config: dict):
             return tokenizer(texts, truncation=True, max_length=config.get("max_length", 512), padding="max_length")
 
         tokenized_dataset = dataset.map(tokenize_fn, batched=True, remove_columns=dataset.column_names)
-        job["log"].append(f"Dataset tokenized: {len(tokenized_dataset)} examples")
+        _append_job_log(db, job, f"Dataset tokenized: {len(tokenized_dataset)} examples")
 
         # Training args
         output_dir = os.path.join(MODEL_STORE, f"finetune-{job_id}")
@@ -129,46 +152,87 @@ def _run_finetune_job(job_id: str, config: dict):
         data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
         # Custom callback to track metrics
-        class MetricsCallback:
+        from transformers import TrainerCallback
+
+        class MetricsCallback(TrainerCallback):
             def on_log(self, args, state, control, logs=None, **kwargs):
                 if logs:
-                    job["metrics"].append({
+                    metric = {
                         "step": state.global_step,
                         "epoch": round(state.epoch, 2) if state.epoch else 0,
                         "loss": logs.get("loss"),
                         "learning_rate": logs.get("learning_rate"),
-                    })
-                    job["current_step"] = state.global_step
-                    job["current_epoch"] = round(state.epoch, 2) if state.epoch else 0
+                    }
+                    live_job = db.query(FinetuneJob).filter(FinetuneJob.id == job_id).first()
+                    if live_job:
+                        live_job.current_step = state.global_step
+                        live_job.current_epoch = round(state.epoch, 2) if state.epoch else 0
+                        db.commit()
+                        _append_job_metric(db, live_job, metric)
+
+            def on_step_end(self, args, state, control, **kwargs):
+                if _job_stop_flags.get(job_id, False):
+                    control.should_training_stop = True
+                return control
 
         trainer = Trainer(
             model=model,
             args=training_args,
             train_dataset=tokenized_dataset,
             data_collator=data_collator,
+            callbacks=[MetricsCallback()],
         )
 
-        job["log"].append("Training started...")
+        _append_job_log(db, job, "Training started...")
         trainer.train()
 
+        if _job_stop_flags.get(job_id, False):
+            job.status = "stopped"
+            job.completed_at = _utcnow()
+            _append_job_log(db, job, "Training stopped by user")
+            db.commit()
+            return
+
         # Save the model
-        job["log"].append("Saving fine-tuned model...")
+        _append_job_log(db, job, "Saving fine-tuned model...")
         if use_lora:
             model.save_pretrained(output_dir)
         else:
             model.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
 
-        job["status"] = "completed"
-        job["completed_at"] = time.time()
-        job["output_dir"] = output_dir
-        job["log"].append(f"Fine-tuning complete! Model saved to {output_dir}")
+        # Register resulting model directory
+        created_model = ModelRecord(
+            name=f"{job.model_name} (Fine-Tuned)",
+            framework="transformers",
+            format="directory",
+            file_path=output_dir,
+            file_size=0,
+            description=f"Fine-tuned artifact from job {job.id}",
+            metadata_json={"finetune_job_id": job.id},
+        )
+        db.add(created_model)
+        db.commit()
+        db.refresh(created_model)
+
+        job.status = "completed"
+        job.completed_at = _utcnow()
+        job.output_dir = output_dir
+        job.resulting_model_id = created_model.id
+        _append_job_log(db, job, f"Fine-tuning complete! Model saved to {output_dir}")
+        db.commit()
 
     except Exception as e:
-        job["status"] = "failed"
-        job["error"] = str(e)
-        job["completed_at"] = time.time()
-        job["log"].append(f"Error: {str(e)}")
+        live_job = db.query(FinetuneJob).filter(FinetuneJob.id == job_id).first()
+        if live_job:
+            live_job.status = "failed"
+            live_job.error_message = str(e)
+            live_job.completed_at = _utcnow()
+            _append_job_log(db, live_job, f"Error: {str(e)}")
+            db.commit()
+    finally:
+        _job_stop_flags.pop(job_id, None)
+        db.close()
 
 
 @router.post("/start")
@@ -205,109 +269,129 @@ async def start_finetuning(
                 dataset_path = candidate
                 break
 
-    job_id = uuid.uuid4().hex[:8]
-    job = {
-        "id": job_id,
-        "model_id": model_id,
-        "model_name": record.name,
-        "dataset": dataset,
-        "status": "initializing",
-        "created_at": time.time(),
-        "started_at": None,
-        "completed_at": None,
-        "error": None,
-        "output_dir": None,
-        "current_step": 0,
-        "current_epoch": 0,
-        "metrics": [],
-        "log": [],
-        "config": {
-            "epochs": epochs,
-            "batch_size": batch_size,
-            "learning_rate": learning_rate,
-            "use_lora": use_lora,
-            "lora_r": lora_r,
-            "lora_alpha": lora_alpha,
-            "text_column": text_column,
-            "max_length": max_length,
-        },
+    config_payload = {
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "use_lora": use_lora,
+        "lora_r": lora_r,
+        "lora_alpha": lora_alpha,
+        "text_column": text_column,
+        "max_length": max_length,
     }
-    _jobs[job_id] = job
+
+    job = FinetuneJob(
+        model_id=model_id,
+        model_name=record.name,
+        dataset=dataset,
+        dataset_path=dataset_path,
+        status="initializing",
+        config=config_payload,
+        current_step=0,
+        current_epoch=0,
+        metrics_history=[],
+        log_history=[],
+        created_at=_utcnow(),
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    _append_job_log(db, job, "Fine-tune job created")
+    _append_job_log(db, job, f"Base model: {record.name}")
+    _append_job_log(db, job, f"Dataset path: {dataset_path}")
 
     config = {
         "model_path": record.file_path,
         "dataset_path": dataset_path,
-        **job["config"],
+        **config_payload,
     }
 
-    thread = threading.Thread(target=_run_finetune_job, args=(job_id, config), daemon=True)
-    _job_threads[job_id] = thread
+    _job_stop_flags[job.id] = False
+    thread = threading.Thread(target=_run_finetune_job, args=(job.id, config), daemon=True)
+    _job_threads[job.id] = thread
     thread.start()
 
     return {
-        "job_id": job_id,
+        "job_id": job.id,
         "status": "initializing",
         "model": record.name,
         "dataset": dataset,
-        "config": job["config"],
+        "config": config_payload,
     }
 
 
 @router.get("/jobs")
 async def list_jobs():
     """List all fine-tuning jobs."""
-    jobs = []
-    for job in _jobs.values():
-        jobs.append({
-            "id": job["id"],
-            "model_name": job["model_name"],
-            "dataset": job["dataset"],
-            "status": job["status"],
-            "created_at": job["created_at"],
-            "current_step": job["current_step"],
-            "current_epoch": job["current_epoch"],
-            "error": job["error"],
-        })
+    db = SessionLocal()
+    rows = db.query(FinetuneJob).order_by(FinetuneJob.created_at.desc()).all()
+    jobs = [
+        {
+            "id": job.id,
+            "model_name": job.model_name,
+            "dataset": job.dataset,
+            "status": job.status,
+            "created_at": job.created_at.timestamp() if job.created_at else None,
+            "current_step": job.current_step,
+            "current_epoch": job.current_epoch,
+            "error": job.error_message,
+        }
+        for job in rows
+    ]
+    db.close()
     return {"jobs": jobs}
 
 
 @router.get("/status/{job_id}")
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: int):
     """Get detailed status and metrics for a fine-tuning job."""
-    job = _jobs.get(job_id)
+    db = SessionLocal()
+    job = db.query(FinetuneJob).filter(FinetuneJob.id == job_id).first()
     if not job:
+        db.close()
         raise HTTPException(404, f"Job '{job_id}' not found")
 
-    return {
-        "id": job["id"],
-        "model_name": job["model_name"],
-        "dataset": job["dataset"],
-        "status": job["status"],
-        "created_at": job["created_at"],
-        "started_at": job["started_at"],
-        "completed_at": job["completed_at"],
-        "current_step": job["current_step"],
-        "current_epoch": job["current_epoch"],
-        "config": job["config"],
-        "metrics": job["metrics"][-50:],  # Last 50 entries
-        "log": job["log"][-20:],
-        "output_dir": job["output_dir"],
-        "error": job["error"],
+    payload = {
+        "id": job.id,
+        "model_name": job.model_name,
+        "dataset": job.dataset,
+        "status": job.status,
+        "created_at": job.created_at.timestamp() if job.created_at else None,
+        "started_at": job.started_at.timestamp() if job.started_at else None,
+        "completed_at": job.completed_at.timestamp() if job.completed_at else None,
+        "current_step": job.current_step,
+        "current_epoch": job.current_epoch,
+        "config": job.config,
+        "metrics": (job.metrics_history or [])[-50:],
+        "log": (job.log_history or [])[-20:],
+        "output_dir": job.output_dir,
+        "resulting_model_id": job.resulting_model_id,
+        "error": job.error_message,
     }
+    db.close()
+    return payload
 
 
 @router.post("/stop/{job_id}")
-async def stop_job(job_id: str):
+async def stop_job(job_id: int):
     """Stop a running fine-tuning job."""
-    job = _jobs.get(job_id)
+    db = SessionLocal()
+    job = db.query(FinetuneJob).filter(FinetuneJob.id == job_id).first()
     if not job:
+        db.close()
         raise HTTPException(404, f"Job '{job_id}' not found")
 
-    if job["status"] != "running":
-        return {"status": job["status"], "message": "Job is not running"}
+    if job.status != "running":
+        payload = {"status": job.status, "message": "Job is not running"}
+        db.close()
+        return payload
 
     # Signal the thread to stop (best-effort)
-    job["status"] = "stopping"
-    job["log"].append("Stop requested by user")
+    _job_stop_flags[job_id] = True
+    job.status = "stopping"
+    _append_job_log(db, job, "Stop requested by user")
+    db.commit()
+    db.close()
 
     return {"status": "stopping", "job_id": job_id}

@@ -4,7 +4,9 @@ import {
     CheckCircle, AlertCircle, Loader, Search, Database
 } from 'lucide-react';
 import FolderBrowser from '../components/FolderBrowser';
-import { apiUrl } from '../api/client';
+import ActivityLogCard from '../components/ActivityLogCard';
+import OperationNotice from '../components/OperationNotice';
+import { apiUrl, diagnoseBackendError } from '../api/client';
 
 const humanSize = (bytes) => {
     if (!bytes) return '—';
@@ -26,6 +28,13 @@ export default function Scanner() {
     const [filterImport, setFilterImport] = useState('all'); // 'all' | 'not_imported' | 'imported'
     const [browseOpen, setBrowseOpen] = useState(false);
     const [searchText, setSearchText] = useState('');
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
+
+    const addLog = useCallback((line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-59), `${timestamp} — ${line}`]);
+    }, []);
 
     // Existing imported models — keyed by file_path for fast lookups
     const [importedPaths, setImportedPaths] = useState(new Set());
@@ -51,19 +60,31 @@ export default function Scanner() {
         setLoading(true);
         setResults(null);
         setImportResults({});
+        setNotice(null);
+        addLog(`Scanning ${directory}${recursive ? ' recursively' : ''}...`);
         try {
             const res = await fetch(`${apiUrl('/scan')}?directory=${encodeURIComponent(directory)}&recursive=${recursive}`);
             const data = await res.json();
-            if (res.ok) setResults(data);
-            else alert(data.detail || 'Scan failed');
+            if (res.ok) {
+                setResults(data);
+                setNotice({ tone: 'success', title: 'Scan complete', message: `Found ${data.total_files || 0} model file(s).` });
+                addLog(`Scan complete: found ${data.total_files || 0} model file(s)`);
+            } else {
+                const message = data.detail || 'Scan failed';
+                setNotice({ tone: 'danger', title: 'Scan failed', message });
+                addLog(`Scan failed: ${message}`);
+            }
         } catch (e) {
-            alert('Failed to connect to backend');
+            const message = diagnoseBackendError(e, 'Model scanner');
+            setNotice({ tone: 'danger', title: 'Scanner unavailable', message, details: e?.message || null });
+            addLog(`Scanner unavailable: ${message}`);
         }
         setLoading(false);
     };
 
     const importModel = async (model) => {
         setImporting(model.path);
+        addLog(`Importing ${model.filename}...`);
         try {
             const res = await fetch(apiUrl('/scan/import'), {
                 method: 'POST',
@@ -75,9 +96,17 @@ export default function Scanner() {
             // Update imported paths set
             if (data.status === 'imported' || data.status === 'already_exists') {
                 setImportedPaths(prev => new Set([...prev, model.path]));
+                setNotice({ tone: 'success', title: 'Import complete', message: `${model.filename} is now registered.` });
+                addLog(`Imported ${model.filename}`);
+            } else if (data.status === 'error') {
+                setNotice({ tone: 'danger', title: 'Import failed', message: data.message || `Failed to import ${model.filename}` });
+                addLog(`Import failed for ${model.filename}: ${data.message || 'Unknown error'}`);
             }
         } catch (e) {
             setImportResults(prev => ({ ...prev, [model.path]: { status: 'error', message: String(e) } }));
+            const message = diagnoseBackendError(e, 'Model import');
+            setNotice({ tone: 'danger', title: 'Import failed', message, details: String(e) });
+            addLog(`Import failed for ${model.filename}: ${message}`);
         }
         setImporting(null);
     };
@@ -121,6 +150,13 @@ export default function Scanner() {
                     Models are referenced in-place — no files are copied or duplicated.
                 </p>
             </div>
+
+            <OperationNotice
+                tone={notice?.tone || 'info'}
+                title={notice?.title}
+                message={notice?.message}
+                details={notice?.details}
+            />
 
             {/* Scan Input Card */}
             <div className="card" style={{ marginBottom: 16 }}>
@@ -306,6 +342,14 @@ export default function Scanner() {
                     </div>
                 </>
             )}
+
+            <ActivityLogCard
+                title="Scanner Activity"
+                lines={activityLog}
+                emptyMessage="No scanner activity recorded yet."
+                onClear={() => setActivityLog([])}
+                style={{ marginTop: 24 }}
+            />
         </div>
     );
 }

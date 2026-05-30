@@ -232,9 +232,19 @@ export default function Dashboard() {
                             <InfoRow label="Memory" value={`${sysInfo.memory_available_gb} / ${sysInfo.memory_total_gb} GB`} />
                             <InfoRow label="NVIDIA Driver" value={sysInfo.nvidia_driver_version || 'N/A'} />
                             <InfoRow label="CUDA" value={sysInfo.cuda_available ? `✅ v${sysInfo.cuda_version || '?'} — ${sysInfo.cuda_device || 'GPU'}` : '❌ Not available'} />
-                            {sysInfo.onnxruntime_cuda_error && (
-                                <InfoRow label="ORT CUDA" value={`❌ ${sysInfo.onnxruntime_cuda_error}`} />
-                            )}
+                            <InfoRow
+                                label="ORT CUDA"
+                                value={sysInfo.onnxruntime_cuda_ready
+                                    ? '✅ Provider ready'
+                                    : `❌ ${sysInfo.onnxruntime_cuda_error || 'Provider unavailable'}`}
+                            />
+                            <InfoRow
+                                label="ONNX Runtime Providers"
+                                value={sysInfo.onnxruntime_providers?.length
+                                    ? sysInfo.onnxruntime_providers.join(', ')
+                                    : 'N/A'}
+                            />
+                            <InfoRow label="AVX2" value={sysInfo.avx2_available ? '✅ Available' : '❌ Not available'} />
                             {sysInfo.cuda_available && sysInfo.cuda_memory_gb && (
                                 <InfoRow label="VRAM" value={`${sysInfo.cuda_memory_gb} GB`} />
                             )}

@@ -309,11 +309,21 @@ async def run_training(
                 "total_epochs": epochs,
             })
 
-        # Export to ONNX
+        # Export to ONNX (best-effort; do not fail entire job if exporter deps are missing)
         model_filename = f"train_{job_id}_{architecture}_{dataset_name}.onnx"
         onnx_path = os.path.join(MODEL_STORE, model_filename)
+        onnx_exported = False
+        onnx_error = None
         await broadcast({"type": "log", "message": "Exporting model to ONNX format..."})
-        export_to_onnx(model, onnx_path)
+        try:
+            export_to_onnx(model, onnx_path)
+            onnx_exported = True
+        except Exception as export_err:
+            onnx_error = str(export_err)
+            await broadcast({
+                "type": "log",
+                "message": f"ONNX export skipped: {onnx_error}",
+            })
 
         # Also save PyTorch checkpoint
         pt_filename = f"train_{job_id}_{architecture}_{dataset_name}.pt"
@@ -326,7 +336,7 @@ async def run_training(
             "metrics": metrics_history,
         }, pt_path)
 
-        file_size = os.path.getsize(onnx_path)
+        file_size = os.path.getsize(onnx_path) if onnx_exported and os.path.exists(onnx_path) else os.path.getsize(pt_path)
         update_db(
             status="completed",
             completed_at=datetime.now(timezone.utc),
@@ -336,15 +346,23 @@ async def run_training(
         await broadcast({
             "type": "status",
             "status": "completed",
-            "message": f"Training complete! Model exported to ONNX ({file_size / 1024 / 1024:.1f} MB)",
-            "onnx_path": onnx_path,
+            "message": (
+                f"Training complete! Model exported to ONNX ({file_size / 1024 / 1024:.1f} MB)"
+                if onnx_exported
+                else "Training complete! ONNX export unavailable; PyTorch checkpoint saved instead."
+            ),
+            "onnx_path": onnx_path if onnx_exported else None,
             "pt_path": pt_path,
+            "onnx_exported": onnx_exported,
+            "onnx_error": onnx_error,
         })
 
         return {
-            "onnx_path": onnx_path,
+            "onnx_path": onnx_path if onnx_exported else None,
             "pt_path": pt_path,
             "file_size": file_size,
+            "onnx_exported": onnx_exported,
+            "onnx_error": onnx_error,
             "metrics": metrics_history,
         }
 

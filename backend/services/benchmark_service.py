@@ -557,6 +557,17 @@ def get_system_info() -> dict:
         "memory_available_gb": round(psutil.virtual_memory().available / (1024 ** 3), 1),
     }
 
+    # ── CPU ISA features (AVX2, etc.) ───────────────────────
+    info["avx2_available"] = False
+    info["avx_available"] = False
+    try:
+        from numpy.core._multiarray_umath import __cpu_features__  # type: ignore
+
+        info["avx2_available"] = bool(__cpu_features__.get("AVX2", False))
+        info["avx_available"] = bool(__cpu_features__.get("AVX", False))
+    except Exception:
+        pass
+
     # ── ONNX Runtime providers (before torch mutates DLL resolution) ──
     try:
         import onnxruntime as ort
@@ -1049,6 +1060,7 @@ def get_system_info() -> dict:
 
     # ── Capabilities summary with check/cross marks ──────
     info["capabilities"] = {
+        "avx2": {"available": info.get("avx2_available", False), "label": "AVX2 CPU Vector Extensions"},
         "cuda_gpu": {"available": info.get("cuda_available", False), "label": f"NVIDIA CUDA GPU (CUDA {info.get('cuda_version', 'N/A')})"},
         "onnxruntime_cuda": {
             "available": info.get("onnxruntime_cuda_ready", False),

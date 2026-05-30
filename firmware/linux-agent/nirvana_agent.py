@@ -21,6 +21,8 @@ import subprocess
 import threading
 import asyncio
 import logging
+import urllib.request
+import urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -28,10 +30,40 @@ from datetime import datetime, timezone
 AGENT_VERSION = "0.1.0"
 AGENT_PORT = int(os.environ.get("NIRVANA_AGENT_PORT", "9200"))
 DEVICE_NAME = os.environ.get("NIRVANA_DEVICE_NAME", socket.gethostname())
+DEVICE_ID = os.environ.get("NIRVANA_DEVICE_ID", DEVICE_NAME)
 NPU_TYPE = os.environ.get("NIRVANA_NPU_TYPE", "auto")  # auto, rknn, hailo, coral, cpu
+COMMAND_CENTER_URL = os.environ.get("NIRVANA_COMMAND_CENTER_URL", "").rstrip("/")
+AGENT_SHARED_SECRET = os.environ.get("NIRVANA_AGENT_SHARED_SECRET", "")
+HEARTBEAT_INTERVAL_SECONDS = int(os.environ.get("NIRVANA_HEARTBEAT_INTERVAL", "15"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("nirvana-agent")
+
+
+def _hub_headers() -> dict:
+    headers = {"Content-Type": "application/json"}
+    if AGENT_SHARED_SECRET:
+        headers["X-NPU-Agent-Secret"] = AGENT_SHARED_SECRET
+    return headers
+
+
+def _hub_request(method: str, path: str, payload: dict | None = None, timeout: int = 10) -> dict | None:
+    if not COMMAND_CENTER_URL:
+        return None
+
+    url = f"{COMMAND_CENTER_URL}{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(url, data=data, headers=_hub_headers(), method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        logger.warning("Command center HTTP %s on %s: %s", exc.code, path, detail)
+    except Exception as exc:
+        logger.debug("Command center request failed (%s %s): %s", method, path, exc)
+    return None
 
 
 # ── Hardware Detection ────────────────────────────────────────────
@@ -219,6 +251,7 @@ def create_app(hw_info: dict):
         return jsonify({
             "status": "healthy",
             "agent_version": AGENT_VERSION,
+            "device_id": DEVICE_ID,
             "device_name": DEVICE_NAME,
             "npu_type": hw_info.get("npu_type"),
             "uptime_seconds": time.time() - app.config.get("start_time", time.time()),
@@ -310,6 +343,7 @@ def create_app(hw_info: dict):
     @app.route("/api/config", methods=["GET"])
     def get_config():
         return jsonify({
+            "device_id": DEVICE_ID,
             "device_name": DEVICE_NAME,
             "agent_port": AGENT_PORT,
             "npu_type": NPU_TYPE,
@@ -334,6 +368,121 @@ def create_app(hw_info: dict):
     return app
 
 
+def _local_health_payload(hw_info: dict) -> dict:
+    health = {
+        "device_id": DEVICE_ID,
+        "device_name": DEVICE_NAME,
+        "agent_port": AGENT_PORT,
+        "agent_version": AGENT_VERSION,
+        "host": socket.gethostname(),
+        "ip": _get_local_ip(),
+        "status": "online",
+        "family": hw_info.get("machine") or platform.machine(),
+        "chip": hw_info.get("npu_type") or hw_info.get("processor") or "Linux Edge Device",
+        "machine": hw_info.get("machine") or platform.machine(),
+        "description": hw_info.get("platform"),
+        "capabilities": {
+            "http_api": True,
+            "shell_exec": True,
+            "reboot": True,
+        },
+        "telemetry": {
+            "memory_available_mb": hw_info.get("memory_available_mb"),
+            "memory_total_mb": hw_info.get("memory_total_mb"),
+            "disk_free_gb": hw_info.get("disk_free_gb"),
+            "temperature_c": hw_info.get("temperature_c"),
+            "npu_type": hw_info.get("npu_type"),
+            "npu_tops": hw_info.get("npu_tops"),
+        },
+        "agent_transport": "polling",
+        "transport_preference": "agent-poll",
+    }
+    return health
+
+
+def register_with_command_center(hw_info: dict):
+    if not COMMAND_CENTER_URL:
+        return
+    payload = _local_health_payload(hw_info)
+    response = _hub_request("POST", "/api/fleet/agent/register", payload=payload, timeout=10)
+    if response:
+        logger.info("Registered with command center: %s", COMMAND_CENTER_URL)
+
+
+def _report_heartbeat(hw_info: dict):
+    if not COMMAND_CENTER_URL:
+        return
+    payload = _local_health_payload(detect_hardware())
+    _hub_request("POST", "/api/fleet/agent/heartbeat", payload=payload, timeout=10)
+
+
+def _claim_job() -> dict | None:
+    if not COMMAND_CENTER_URL:
+        return None
+    response = _hub_request("GET", f"/api/fleet/agent/jobs/claim?device_id={DEVICE_ID}", timeout=10)
+    if not response or response.get("status") != "job":
+        return None
+    return response.get("job")
+
+
+def _report_job_result(job_id: str, result: dict):
+    if not COMMAND_CENTER_URL:
+        return
+    _hub_request("POST", f"/api/fleet/agent/jobs/{job_id}/result?device_id={DEVICE_ID}", payload=result, timeout=15)
+
+
+def _execute_claimed_job(job: dict) -> dict:
+    intent = job.get("intent")
+    action_params = job.get("action_params") or {}
+
+    if intent == "shell":
+        command = action_params.get("shell_command") or ""
+        try:
+            completed = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+            return {
+                "status": "success" if completed.returncode == 0 else "failed",
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "exit_code": completed.returncode,
+                "transport": "agent-poll",
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "status": "timeout",
+                "stdout": "",
+                "stderr": "Command timed out after 60 seconds",
+                "transport": "agent-poll",
+            }
+
+    if intent == "reboot":
+        threading.Thread(target=lambda: subprocess.run("sudo reboot", shell=True), daemon=True).start()
+        return {"status": "success", "stdout": "Reboot requested", "transport": "agent-poll"}
+
+    if intent == "status":
+        return {"status": "success", "transport": "agent-poll", "details": _local_health_payload(detect_hardware())}
+
+    return {"status": "failed", "stderr": f"Unsupported intent: {intent}", "transport": "agent-poll"}
+
+
+def command_center_loop(hw_info: dict):
+    if not COMMAND_CENTER_URL:
+        logger.info("Command center URL not configured; remote orchestration loop disabled")
+        return
+
+    register_with_command_center(hw_info)
+    while True:
+        try:
+            _report_heartbeat(hw_info)
+            job = _claim_job()
+            if job:
+                logger.info("Claimed job %s (%s)", job.get("job_id"), job.get("intent"))
+                result = _execute_claimed_job(job)
+                _report_job_result(job.get("job_id"), result)
+        except Exception as exc:
+            logger.warning("Command center loop error: %s", exc)
+        time.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
+
 # ── Main ─────────────────────────────────────────────────────────
 
 def main():
@@ -351,6 +500,11 @@ def main():
 
     # Start mDNS advertisement
     mdns = start_mdns_advertisement(hw)
+
+    # Start command center loop
+    if COMMAND_CENTER_URL:
+        threading.Thread(target=command_center_loop, args=(hw,), daemon=True).start()
+        logger.info(f"Command center: {COMMAND_CENTER_URL}")
 
     # Start HTTP API
     app = create_app(hw)

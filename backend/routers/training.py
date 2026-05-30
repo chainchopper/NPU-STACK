@@ -84,15 +84,17 @@ async def start_training(config: TrainingConfig, db: Session = Depends(get_db)):
         )
 
         # Register the output model if training succeeded
-        if result and result.get("onnx_path"):
+        if result and (result.get("onnx_path") or result.get("pt_path")):
             reg_db = SessionLocal()
             try:
-                onnx_path = result["onnx_path"]
+                artifact_path = result.get("onnx_path") or result.get("pt_path")
+                artifact_format = "onnx" if result.get("onnx_path") else "pt"
+                artifact_framework = "onnx" if result.get("onnx_path") else "pytorch"
                 model_record = ModelRecord(
-                    name=f"{config.name} (ONNX)",
-                    framework="onnx",
-                    format="onnx",
-                    file_path=onnx_path,
+                    name=f"{config.name} ({artifact_format.upper()})",
+                    framework=artifact_framework,
+                    format=artifact_format,
+                    file_path=artifact_path,
                     file_size=result.get("file_size", 0),
                     description=f"Auto-exported from training job {job_id}",
                 )

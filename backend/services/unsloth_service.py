@@ -27,6 +27,8 @@ def detect_unsloth() -> dict:
         "torch_version": None,
         "cuda_available": False,
         "cuda_version": None,
+        "accelerated_available": False,
+        "fallback_available": False,
         "peft_available": False,
         "transformers_available": False,
         "trl_available": False,
@@ -98,14 +100,28 @@ def detect_unsloth() -> dict:
         "unsloth/tinyllama-bnb-4bit",
     ]
 
-    info["ready"] = all([
+    info["fallback_available"] = all([
         info["unsloth_available"],
         info["torch_available"],
-        info["cuda_available"],
         info["peft_available"],
         info["transformers_available"],
         info["trl_available"],
     ])
+    info["accelerated_available"] = all([
+        info["fallback_available"],
+        info["cuda_available"],
+    ])
+    info["ready"] = info["fallback_available"]
+    if info["accelerated_available"]:
+        info["best_mode"] = "cuda-accelerated"
+        info["recommendation"] = "Full Unsloth stack ready. Training will use CUDA acceleration (2-4x faster, 70% less VRAM)."
+    elif info["fallback_available"]:
+        info["best_mode"] = "cpu-fallback"
+        info["recommendation"] = "Unsloth is available in CPU fallback mode. Training will work but will be slow. Install CUDA + bitsandbytes for acceleration."
+    else:
+        info["best_mode"] = "missing-dependencies"
+        missing_libs = [k for k in ["unsloth", "peft", "transformers", "trl"] if not info[f"{k}_available"]]
+        info["recommendation"] = f"Missing dependencies: {', '.join(missing_libs)}. Use the install command on this page."
 
     return info
 
@@ -267,8 +283,6 @@ def start_finetuning(
             "error": "Unsloth not installed. Install: pip install unsloth",
             "install": "pip install 'unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git'",
         }
-    if not env["cuda_available"]:
-        return {"success": False, "error": "CUDA GPU required for Unsloth fine-tuning"}
 
     try:
         from unsloth import FastLanguageModel
@@ -283,11 +297,15 @@ def start_finetuning(
     try:
         start_time = time.time()
 
+        # On CPU / fallback paths, keep the configuration conservative and portable.
+        if not env["cuda_available"]:
+            use_4bit = False
+
         # 1. Load model with Unsloth acceleration
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_name,
             max_seq_length=max_seq_length,
-            dtype=None,  # Auto-detect
+            dtype=None if env["cuda_available"] else None,
             load_in_4bit=use_4bit,
         )
 
@@ -336,10 +354,10 @@ def start_finetuning(
             warmup_steps=warmup_steps,
             num_train_epochs=num_epochs,
             learning_rate=learning_rate,
-            fp16=True,
+            fp16=bool(env["cuda_available"]),
             logging_steps=logging_steps,
             save_steps=save_steps,
-            optim="adamw_8bit",
+            optim="adamw_8bit" if env["cuda_available"] else "adamw_torch",
             seed=42,
             report_to="none",
         )

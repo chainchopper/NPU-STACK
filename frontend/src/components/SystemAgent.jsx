@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { MessageSquare, X, Send, User, Settings, Database, Play, Loader2 } from "lucide-react";
+import { diagnoseBackendError } from "../api/client";
 import AgentVisual from "./AgentVisual";
+import ActivityLogCard from "./ActivityLogCard";
+import OperationNotice from "./OperationNotice";
 
 export default function SystemAgent() {
     const [isOpen, setIsOpen] = useState(false);
@@ -18,8 +21,24 @@ export default function SystemAgent() {
         dataset_ready: false,
         download_in_progress: false,
     });
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
 
     const messagesEndRef = useRef(null);
+
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-39), `${timestamp} — ${line}`]);
+    };
+
+    const parseErrorMessage = async (res, fallback) => {
+        try {
+            const data = await res.json();
+            return data?.detail || data?.message || fallback;
+        } catch {
+            return fallback;
+        }
+    };
 
     useEffect(() => {
         checkAgentStatus();
@@ -39,48 +58,79 @@ export default function SystemAgent() {
     const checkAgentStatus = async () => {
         try {
             const res = await fetch("/api/agent/status");
+            if (!res.ok) {
+                throw new Error(await parseErrorMessage(res, "Failed to get agent status."));
+            }
             const data = await res.json();
             setAgentStatus(data);
         } catch (err) {
-            console.error("Failed to get agent status", err);
+            const message = diagnoseBackendError(err, "Agent status");
+            setNotice({ tone: "warning", title: "Agent status unavailable", message, details: err?.message || null });
+            addLog(`Status check failed: ${message}`);
         }
     };
 
     const initAgent = async () => {
         try {
-            await fetch("/api/agent/init", { method: "POST" });
+            const res = await fetch("/api/agent/init", { method: "POST" });
+            if (!res.ok) {
+                throw new Error(await parseErrorMessage(res, "Failed to initialize agent."));
+            }
+            setNotice({ tone: "info", title: "Agent download started", message: "Downloading Phi-3-mini GGUF in the background." });
+            addLog("Agent initialization started");
             setTimeout(checkAgentStatus, 3000);
         } catch (err) {
-            console.error(err);
+            const message = diagnoseBackendError(err, "Agent initialization");
+            setNotice({ tone: "danger", title: "Agent initialization failed", message, details: err?.message || null });
+            addLog(`Init failed: ${message}`);
         }
     };
 
     const startAgent = async () => {
         try {
-            await fetch("/api/agent/start", { method: "POST" });
+            const res = await fetch("/api/agent/start", { method: "POST" });
+            if (!res.ok) {
+                throw new Error(await parseErrorMessage(res, "Failed to start agent."));
+            }
+            setNotice({ tone: "success", title: "Agent engine started", message: "Phi-3-mini service is now coming online." });
+            addLog("Agent engine start requested");
             setTimeout(checkAgentStatus, 2000);
         } catch (err) {
-            console.error(err);
+            const message = diagnoseBackendError(err, "Agent start");
+            setNotice({ tone: "danger", title: "Agent start failed", message, details: err?.message || null });
+            addLog(`Start failed: ${message}`);
         }
     };
 
     const generateDataset = async () => {
         try {
-            await fetch("/api/agent/generate-dataset", { method: "POST" });
+            const res = await fetch("/api/agent/generate-dataset", { method: "POST" });
+            if (!res.ok) {
+                throw new Error(await parseErrorMessage(res, "Failed to generate dataset."));
+            }
+            setNotice({ tone: "success", title: "Dataset generation started", message: "Knowledge dataset generation is in progress." });
+            addLog("Knowledge dataset generation requested");
             setTimeout(checkAgentStatus, 1000);
         } catch (err) {
-            console.error(err);
+            const message = diagnoseBackendError(err, "Dataset generation");
+            setNotice({ tone: "danger", title: "Dataset generation failed", message, details: err?.message || null });
+            addLog(`Dataset generation failed: ${message}`);
         }
     };
 
     const fineTuneAgent = async () => {
         try {
             const gRes = await fetch("/api/models");
+            if (!gRes.ok) {
+                throw new Error(await parseErrorMessage(gRes, "Failed to load models for fine-tuning."));
+            }
             const gData = await gRes.json();
             const agentModel = gData.find(m => m.name === "NPU-STACK System Agent (Phi-3-mini)");
 
             if (!agentModel) {
-                alert("Agent model not found in database. Please download it first.");
+                const message = "Agent model not found in registry. Download it first.";
+                setNotice({ tone: "warning", title: "Fine-tuning unavailable", message });
+                addLog(message);
                 return;
             }
 
@@ -93,11 +143,16 @@ export default function SystemAgent() {
                 method: "POST",
                 body: formData,
             });
+            if (!fRes.ok) {
+                throw new Error(await parseErrorMessage(fRes, "Failed to start fine-tuning."));
+            }
             const fData = await fRes.json();
-            alert(`Fine-tuning started! Job ID: ${fData.job_id}`);
+            setNotice({ tone: "success", title: "Fine-tuning started", message: `Job ID: ${fData.job_id}` });
+            addLog(`Fine-tuning started (job ${fData.job_id})`);
         } catch (err) {
-            console.error(err);
-            alert("Failed to start fine-tuning.");
+            const message = diagnoseBackendError(err, "Fine-tuning");
+            setNotice({ tone: "danger", title: "Fine-tuning failed", message, details: err?.message || null });
+            addLog(`Fine-tuning failed: ${message}`);
         }
     };
 
@@ -127,11 +182,14 @@ export default function SystemAgent() {
                     ...prev,
                     { role: "assistant", content: data.choices[0].message.content },
                 ]);
+                addLog("Agent response received");
             } else {
                 throw new Error("Invalid response format");
             }
         } catch (err) {
-            console.error(err);
+            const message = diagnoseBackendError(err, "Agent chat");
+            setNotice({ tone: "warning", title: "Chat request failed", message, details: err?.message || null });
+            addLog(`Chat failed: ${message}`);
             setMessages((prev) => [
                 ...prev,
                 {
@@ -182,6 +240,16 @@ export default function SystemAgent() {
                         </div>
                     </div>
 
+                    <div className="px-4 pt-3">
+                        <OperationNotice
+                            tone={notice?.tone || "info"}
+                            title={notice?.title}
+                            message={notice?.message}
+                            details={notice?.details}
+                            style={{ marginBottom: 0 }}
+                        />
+                    </div>
+
                     {!agentStatus.is_running ? (
                         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
                             <AgentVisual size={80} status="offline" />
@@ -221,6 +289,14 @@ export default function SystemAgent() {
                                     <Settings size={16} /> Generate Knowledge Dataset
                                 </button>
                             )}
+
+                            <ActivityLogCard
+                                title="Agent Activity"
+                                lines={activityLog}
+                                emptyMessage="No agent actions recorded yet."
+                                onClear={() => setActivityLog([])}
+                                style={{ marginTop: 12, width: '100%' }}
+                            />
                         </div>
                     ) : (
                         <>
@@ -274,6 +350,13 @@ export default function SystemAgent() {
                                         <Send size={18} />
                                     </button>
                                 </div>
+                                <ActivityLogCard
+                                    title="Agent Activity"
+                                    lines={activityLog}
+                                    emptyMessage="No agent actions recorded yet."
+                                    onClear={() => setActivityLog([])}
+                                    style={{ marginTop: 12 }}
+                                />
                             </div>
                         </>
                     )}

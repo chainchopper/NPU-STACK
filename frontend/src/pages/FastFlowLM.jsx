@@ -29,8 +29,11 @@ import {
     pullFLMModel, 
     serveFLMModel, 
     stopFLMServer, 
-    chatFLM 
+    chatFLM,
+    diagnoseBackendError
 } from '../api/client';
+import ActivityLogCard from '../components/ActivityLogCard';
+import OperationNotice from '../components/OperationNotice';
 
 export default function FastFlowLM() {
     const [status, setStatus] = useState({ installed: false, version: 'N/A', npu_ready: false, server: { running: false } });
@@ -45,7 +48,14 @@ export default function FastFlowLM() {
     const [isTyping, setIsTyping] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [activeTab, setActiveTab] = useState('library'); // 'library' or 'chat'
+    const [notice, setNotice] = useState(null);
+    const [activityLog, setActivityLog] = useState([]);
     const chatEndRef = useRef(null);
+
+    const addLog = (line) => {
+        const timestamp = new Date().toLocaleTimeString();
+        setActivityLog((prev) => [...prev.slice(-59), `${timestamp} — ${line}`]);
+    };
 
     useEffect(() => {
         refreshData();
@@ -73,7 +83,9 @@ export default function FastFlowLM() {
                 setServingModel(s.server.model);
             }
         } catch (err) {
-            console.error('Failed to fetch FLM data:', err);
+            const message = diagnoseBackendError(err, 'FastFlowLM data refresh');
+            setNotice({ tone: 'warning', title: 'FastFlowLM data unavailable', message, details: err?.message || null });
+            addLog(`Initial data refresh failed: ${message}`);
         } finally {
             setLoading(false);
         }
@@ -89,7 +101,7 @@ export default function FastFlowLM() {
                 setServingModel(null);
             }
         } catch (err) {
-            console.error('Status refresh failed:', err);
+            addLog(`Status refresh skipped: ${diagnoseBackendError(err, 'FastFlowLM status')}`);
         }
     };
 
@@ -97,12 +109,16 @@ export default function FastFlowLM() {
         if (pullingModel) return;
         setPullingModel(tag);
         setPullProgress(0);
+        setNotice(null);
+        addLog(`Pull requested for ${tag}`);
         try {
             await pullFLMModel(tag, (progress) => {
                 if (progress.status === 'downloading') {
                     setPullProgress(progress.progress || 0);
                 } else if (progress.status === 'completed') {
                     setPullProgress(100);
+                    setNotice({ tone: 'success', title: 'Model pulled', message: `${tag} is now available in local library.` });
+                    addLog(`Pull complete: ${tag}`);
                     setTimeout(() => {
                         setPullingModel(null);
                         refreshData();
@@ -110,19 +126,27 @@ export default function FastFlowLM() {
                 }
             });
         } catch (err) {
-            alert(`Failed to pull model: ${err.message}`);
+            const message = diagnoseBackendError(err, 'Model pull');
+            setNotice({ tone: 'danger', title: 'Failed to pull model', message, details: err?.message || null });
+            addLog(`Pull failed for ${tag}: ${message}`);
             setPullingModel(null);
         }
     };
 
     const handleServe = async (model) => {
         setLoading(true);
+        setNotice(null);
+        addLog(`Serve requested for ${model}`);
         try {
             await serveFLMModel(model);
             await refreshStatus();
             setActiveTab('chat');
+            setNotice({ tone: 'success', title: 'Server started', message: `${model} is serving in NPU workspace.` });
+            addLog(`Serve active: ${model}`);
         } catch (err) {
-            alert(`Failed to start server: ${err.message}`);
+            const message = diagnoseBackendError(err, 'Server start');
+            setNotice({ tone: 'danger', title: 'Failed to start server', message, details: err?.message || null });
+            addLog(`Serve failed for ${model}: ${message}`);
         } finally {
             setLoading(false);
         }
@@ -130,11 +154,17 @@ export default function FastFlowLM() {
 
     const handleStop = async () => {
         setLoading(true);
+        setNotice(null);
+        addLog('Server stop requested');
         try {
             await stopFLMServer();
             await refreshStatus();
+            setNotice({ tone: 'success', title: 'Server stopped', message: 'FastFlowLM server is now idle.' });
+            addLog('Server stopped');
         } catch (err) {
-            alert(`Failed to stop server: ${err.message}`);
+            const message = diagnoseBackendError(err, 'Server stop');
+            setNotice({ tone: 'danger', title: 'Failed to stop server', message, details: err?.message || null });
+            addLog(`Stop failed: ${message}`);
         } finally {
             setLoading(false);
         }
@@ -149,6 +179,7 @@ export default function FastFlowLM() {
         setChatMessages(prev => [...prev, userMsg, assistantMsg]);
         setInputMessage('');
         setIsTyping(true);
+        addLog('Chat message sent');
 
         try {
             await chatFLM([...chatMessages, userMsg], status.server.model, 0.7, 1024, (delta) => {
@@ -159,7 +190,9 @@ export default function FastFlowLM() {
                 });
             });
         } catch (err) {
-            console.error('Chat error:', err);
+            const message = diagnoseBackendError(err, 'Chat stream');
+            setNotice({ tone: 'warning', title: 'Chat stream interrupted', message, details: err?.message || null });
+            addLog(`Chat error: ${message}`);
             setChatMessages(prev => [
                 ...prev.slice(0, -1), 
                 { role: 'assistant', content: `Error: ${err.message}` }
@@ -249,6 +282,16 @@ export default function FastFlowLM() {
                         {status.server?.running && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
                     </div>
                 </button>
+            </div>
+
+            <div style={{ padding: '12px 24px 0 24px' }}>
+                <OperationNotice
+                    tone={notice?.tone || 'info'}
+                    title={notice?.title}
+                    message={notice?.message}
+                    details={notice?.details}
+                    style={{ marginBottom: 0 }}
+                />
             </div>
 
             {/* Content Area */}
@@ -378,6 +421,13 @@ export default function FastFlowLM() {
                                 ))}
                             </div>
                         </section>
+
+                        <ActivityLogCard
+                            title="FastFlowLM Activity"
+                            lines={activityLog}
+                            emptyMessage="No FastFlowLM activity recorded yet."
+                            onClear={() => setActivityLog([])}
+                        />
                     </div>
                 ) : (
                     <div className="flex flex-col h-full bg-slate-950">
@@ -475,6 +525,13 @@ export default function FastFlowLM() {
                                 <div className="flex items-center gap-1.5"><Cpu className="w-3 h-3" /> NPU Optimized</div>
                                 <div className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> Real-time Streaming</div>
                             </div>
+                            <ActivityLogCard
+                                title="FastFlowLM Activity"
+                                lines={activityLog}
+                                emptyMessage="No FastFlowLM activity recorded yet."
+                                onClear={() => setActivityLog([])}
+                                style={{ marginTop: 12 }}
+                            />
                         </div>
                     </div>
                 )}

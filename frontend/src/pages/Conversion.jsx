@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowRightLeft, Minimize2, Zap, Loader, AlertCircle, CheckCircle, Info, FileBox } from 'lucide-react';
 import ContextWizard from '../components/ContextWizard';
-import { apiUrl } from '../api/client';
+import { apiUrl, diagnoseBackendError } from '../api/client';
 
 const CONVERSION_WIZARD_STEPS = [
     {
@@ -64,7 +64,7 @@ export default function Conversion() {
         ]).then(([modelsData, pathsData]) => {
             setModels(modelsData.models || []);
             setConversionPaths(pathsData.paths || []);
-        }).catch(e => console.error(e))
+        }).catch((e) => setError(diagnoseBackendError(e, 'Conversion setup')))
             .finally(() => setLoading(false));
     }, []);
 

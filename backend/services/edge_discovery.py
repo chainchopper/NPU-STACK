@@ -1308,8 +1308,10 @@ def _esp32_bundle_files(bundle_dir: Path, device: dict, config: dict):
         "wifi_ssid": config.get("wifi_ssid", ""),
         "wifi_password": config.get("wifi_password", ""),
         "device_name": _slugify(device_name),
+        "device_id": device.get("id"),
         "agent_port": int(config.get("agent_port") or 9200),
-        "hub_url": config.get("command_center_url", ""),
+        "hub_url": config.get("command_center_url") or os.getenv("NPU_STACK_COMMAND_CENTER_URL", ""),
+        "shared_secret": config.get("shared_secret") or os.getenv("NPU_STACK_AGENT_SHARED_SECRET", ""),
         "mqtt_broker": config.get("mqtt_broker", ""),
     }
     _write_json_file(bundle_dir / "config.json", runtime_config)
@@ -1338,10 +1340,12 @@ def _circuitpython_bundle_files(bundle_dir: Path, device: dict, config: dict):
     device_name = _device_display_name(device, config)
     settings_lines = [
         f'DEVICE_NAME="{_slugify(device_name)}"',
+        f'DEVICE_ID="{device.get("id")}"',
         f'AGENT_PORT="{int(config.get("agent_port") or 9200)}"',
         f'CIRCUITPY_WIFI_SSID="{config.get("wifi_ssid", "")}"',
         f'CIRCUITPY_WIFI_PASSWORD="{config.get("wifi_password", "")}"',
-        f'COMMAND_CENTER_URL="{config.get("command_center_url", "")}"',
+        f'COMMAND_CENTER_URL="{config.get("command_center_url") or os.getenv("NPU_STACK_COMMAND_CENTER_URL", "")}"',
+        f'NPU_AGENT_SHARED_SECRET="{config.get("shared_secret") or os.getenv("NPU_STACK_AGENT_SHARED_SECRET", "")}"',
         f'MQTT_BROKER="{config.get("mqtt_broker", "")}"',
     ]
     (bundle_dir / "settings.toml").write_text("\n".join(settings_lines) + "\n", encoding="utf-8")
@@ -1372,9 +1376,11 @@ def _linux_bundle_files(bundle_dir: Path, device: dict, config: dict):
 
     device_name = _device_display_name(device, config)
     env_lines = [
+        f'NIRVANA_DEVICE_ID="{device.get("id")}"',
         f'NIRVANA_DEVICE_NAME="{_slugify(device_name)}"',
         f'NIRVANA_AGENT_PORT="{int(config.get("agent_port") or 9200)}"',
-        f'NIRVANA_COMMAND_CENTER_URL="{config.get("command_center_url", "")}"',
+        f'NIRVANA_COMMAND_CENTER_URL="{config.get("command_center_url") or os.getenv("NPU_STACK_COMMAND_CENTER_URL", "")}"',
+        f'NIRVANA_AGENT_SHARED_SECRET="{config.get("shared_secret") or os.getenv("NPU_STACK_AGENT_SHARED_SECRET", "")}"',
         f'NIRVANA_MQTT_BROKER="{config.get("mqtt_broker", "")}"',
     ]
     (bundle_dir / "nirvana.env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
