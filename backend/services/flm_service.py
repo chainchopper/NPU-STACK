@@ -15,8 +15,10 @@ import re
 import json
 import shutil
 import asyncio
+import time
 import logging
 import subprocess
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, AsyncGenerator
 
 import httpx
@@ -34,6 +36,10 @@ FLM_API_URL = f"{FLM_BASE_URL}/v1"
 # Managed server process (singleton)
 _server_process: Optional[asyncio.subprocess.Process] = None
 _server_model: Optional[str] = None
+_latest_release_cache: Dict[str, Any] = {
+    "checked_at": 0.0,
+    "version": None,
+}
 
 
 # ────────────────────────────────────────────
@@ -48,22 +54,120 @@ def detect_flm() -> Dict[str, Any]:
 
     version = None
     try:
-        result = subprocess.run(
-            ["flm", "--version"],
-            capture_output=True, text=True, timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        output = (result.stdout + result.stderr).strip()
-        # Try to extract version like "v0.9.36" or "0.9.36"
-        match = re.search(r"v?(\d+\.\d+\.\d+)", output)
-        if match:
-            version = match.group(1)
-        elif output:
-            version = output[:60]
+        candidates = (["flm", "--version"], ["flm", "version"])
+        for cmd in candidates:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            output = (result.stdout + result.stderr).strip()
+            if not output:
+                continue
+
+            # Try to extract version like "v0.9.36" or "0.9.36"
+            match = re.search(r"v?(\d+\.\d+\.\d+)", output)
+            if match:
+                version = match.group(1)
+                break
+
+            if output:
+                version = output[:60]
+                break
     except Exception as e:
         logger.warning(f"Could not get FLM version: {e}")
 
     return {"installed": True, "path": flm_path, "version": version}
+
+
+def _parse_version_tuple(value: Optional[str]) -> tuple:
+    if not value:
+        return ()
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", value)
+    if not match:
+        return ()
+    return tuple(int(part) for part in match.groups())
+
+
+def _is_update_available(current: Optional[str], latest: Optional[str]) -> bool:
+    current_tuple = _parse_version_tuple(current)
+    latest_tuple = _parse_version_tuple(latest)
+    if not current_tuple or not latest_tuple:
+        return False
+    return latest_tuple > current_tuple
+
+
+def _parse_check_readiness(output: str) -> Dict[str, Any]:
+    """Best-effort parse of `flm check` output into structured readiness data."""
+    text = (output or "").lower()
+
+    def classify(feature: str, positive_terms: List[str], negative_terms: List[str], default: str = "unknown") -> str:
+        if feature not in text:
+            return default
+
+        for term in negative_terms:
+            if term in text:
+                return "unsupported" if feature == "tool" else "issue"
+
+        for term in positive_terms:
+            if term in text:
+                return "supported" if feature == "tool" else "ready"
+
+        return default
+
+    tool_calling = classify(
+        "tool",
+        positive_terms=["tool calling supported", "tool calling enabled", "tools supported", "tool calling ready", "tool call ok"],
+        negative_terms=["tool calling unsupported", "tool calling disabled", "tool calling not supported", "tool call error", "tool calling failed"],
+    )
+
+    template = classify(
+        "template",
+        positive_terms=["template ready", "template valid", "template ok", "template passed"],
+        negative_terms=["template missing", "template invalid", "template error", "template failed", "template not found"],
+    )
+
+    warnings = []
+    for line in (output or "").splitlines():
+        normalized = line.strip()
+        if not normalized:
+            continue
+        if any(marker in normalized.lower() for marker in ["warning", "warn", "issue", "error", "failed"]):
+            warnings.append(normalized)
+
+    return {
+        "tool_calling": tool_calling,
+        "template": template,
+        "warnings": warnings[:10],
+        "source": "backend-parsed",
+    }
+
+
+async def get_latest_flm_version(cache_ttl_seconds: int = 900) -> Optional[str]:
+    """Fetch latest FastFlowLM release version from GitHub with short-lived cache."""
+    now = time.time()
+    if (now - _latest_release_cache["checked_at"]) < cache_ttl_seconds:
+        return _latest_release_cache.get("version")
+
+    url = "https://api.github.com/repos/FastFlowLM/FastFlowLM/releases/latest"
+    version: Optional[str] = None
+    try:
+        async with httpx.AsyncClient(timeout=4) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                payload = resp.json()
+                tag = str(payload.get("tag_name") or "").strip()
+                match = re.search(r"v?(\d+\.\d+\.\d+)", tag)
+                if match:
+                    version = match.group(1)
+    except Exception as e:
+        logger.debug(f"Unable to fetch latest FLM version: {e}")
+
+    _latest_release_cache["checked_at"] = now
+    _latest_release_cache["version"] = version
+    return version
 
 
 # ────────────────────────────────────────────
@@ -116,15 +220,48 @@ async def pull_model(tag: str) -> AsyncGenerator[str, None]:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
 
+        progress_pattern = re.compile(r"(\d{1,3})\s*%")
+
         async for line in process.stdout:
             decoded = line.decode("utf-8", errors="replace").strip()
-            if decoded:
-                yield json.dumps({"status": "downloading", "message": decoded}) + "\n"
+            if not decoded:
+                continue
+
+            lower = decoded.lower()
+            progress = None
+            match = progress_pattern.search(decoded)
+            if match:
+                try:
+                    progress = max(0, min(100, int(match.group(1))))
+                except ValueError:
+                    progress = None
+
+            phase = "download"
+            if "verify" in lower or "checksum" in lower:
+                phase = "verify"
+            elif "extract" in lower or "unpack" in lower:
+                phase = "extract"
+            elif "complete" in lower or "done" in lower:
+                phase = "finalize"
+
+            status = "downloading"
+            if "error" in lower or "failed" in lower:
+                status = "error"
+
+            payload = {
+                "status": status,
+                "phase": phase,
+                "message": decoded,
+            }
+            if progress is not None:
+                payload["progress"] = progress
+
+            yield json.dumps(payload) + "\n"
 
         await process.wait()
 
         if process.returncode == 0:
-            yield json.dumps({"status": "complete", "message": f"Model {tag} pulled successfully"}) + "\n"
+            yield json.dumps({"status": "complete", "phase": "finalize", "progress": 100, "message": f"Model {tag} pulled successfully"}) + "\n"
         else:
             yield json.dumps({"status": "error", "message": f"Pull failed with exit code {process.returncode}"}) + "\n"
 
@@ -132,6 +269,80 @@ async def pull_model(tag: str) -> AsyncGenerator[str, None]:
         yield json.dumps({"status": "error", "message": "FLM binary not found on PATH"}) + "\n"
     except Exception as e:
         yield json.dumps({"status": "error", "message": str(e)}) + "\n"
+
+
+def check_model(tag: str) -> Dict[str, Any]:
+    """Run `flm check <tag>` and return compatibility diagnostics."""
+    try:
+        result = subprocess.run(
+            ["flm", "check", tag],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
+        output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+        output = output.strip()
+        ok = result.returncode == 0
+        checked_at = datetime.now(timezone.utc).isoformat()
+        readiness = _parse_check_readiness(output)
+
+        return {
+            "status": "ok" if ok else "error",
+            "tag": tag,
+            "ok": ok,
+            "return_code": result.returncode,
+            "message": "Model check passed" if ok else "Model check reported issues",
+            "output": output,
+            "checked_at": checked_at,
+            "readiness": readiness,
+        }
+    except FileNotFoundError:
+        return {
+            "status": "error",
+            "tag": tag,
+            "ok": False,
+            "message": "FLM binary not found on PATH",
+            "output": "",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "readiness": {
+                "tool_calling": "unknown",
+                "template": "unknown",
+                "warnings": [],
+                "source": "backend-parsed",
+            },
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "error",
+            "tag": tag,
+            "ok": False,
+            "message": "Model check timed out",
+            "output": "",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "readiness": {
+                "tool_calling": "unknown",
+                "template": "unknown",
+                "warnings": ["Model check timed out"],
+                "source": "backend-parsed",
+            },
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "tag": tag,
+            "ok": False,
+            "message": str(e),
+            "output": "",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "readiness": {
+                "tool_calling": "unknown",
+                "template": "unknown",
+                "warnings": [str(e)],
+                "source": "backend-parsed",
+            },
+        }
 
 
 # ────────────────────────────────────────────
@@ -237,8 +448,13 @@ async def get_server_status() -> Dict[str, Any]:
     except Exception:
         pass
 
+    latest_version = await get_latest_flm_version()
+    update_available = _is_update_available(info.get("version"), latest_version)
+
     return {
         **info,
+        "latest_version": latest_version,
+        "update_available": update_available,
         "server_running": server_alive,
         "server_managed": managed_running,
         "active_model": _server_model,

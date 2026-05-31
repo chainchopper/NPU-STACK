@@ -292,9 +292,196 @@ export default function Dashboard() {
                 </div>
             </div>
 
+            <FastFlowLMCard sysInfo={sysInfo} />
             <PipelineFlow />
             <HardwareMatrix capabilities={sysInfo?.capabilities} />
             <SystemAgent />
+        </div>
+    );
+}
+
+/* ─── FastFlowLM Card — AMD Ryzen AI NPU Integration ─────── */
+function FastFlowLMCard({ sysInfo }) {
+    // Detect Ryzen AI specifically: both NPU available AND Ryzen processor
+    const isRyzenAIDetected = (sysInfo?.amd_npu_available || (sysInfo?.npu_available && sysInfo?.processor?.toLowerCase()?.includes('ryzen'))) ?? false;
+    const hasRyzenAI = sysInfo?.processor?.toLowerCase()?.includes('ryzen') ?? false;
+
+    return (
+        <div className="card mt-6" style={{
+            border: '2px solid #667eea',
+            background: 'linear-gradient(135deg, rgba(102,126,234,0.08) 0%, rgba(102,126,234,0.04) 100%)',
+            position: 'relative',
+            overflow: 'hidden',
+        }}>
+            <div style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                width: '120px',
+                height: '120px',
+                background: 'radial-gradient(circle, rgba(102,126,234,0.1) 0%, transparent 70%)',
+                borderRadius: '0 0 0 50%',
+                pointerEvents: 'none',
+            }} />
+
+            <div className="card-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                    <div style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 10,
+                        background: '#667eea',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                    }}>
+                        <Zap size={22} />
+                    </div>
+                    <div>
+                        <h3 className="card-title">FastFlowLM — AMD Ryzen™ AI NPU Runtime</h3>
+                        <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            Optimized LLM inference on Ryzen AI NPUs
+                        </p>
+                    </div>
+                </div>
+                {isRyzenAIDetected && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: 'rgba(72, 187, 120, 0.1)', borderRadius: 6, border: '1px solid rgba(72, 187, 120, 0.3)' }}>
+                        <CheckCircle2 size={14} color="var(--accent-green)" />
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-green)' }}>NPU DETECTED</span>
+                    </div>
+                )}
+            </div>
+
+            <div style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                <div>
+                    <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Why FastFlowLM?</h4>
+                    <ul style={{
+                        margin: 0,
+                        padding: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        fontSize: 13,
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.6,
+                    }}>
+                        <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                            <span style={{ color: 'var(--accent-blue)', fontWeight: 700, minWidth: 16 }}>⚡</span>
+                            <span><strong>10x more power-efficient</strong> than GPU — runs fully on NPU</span>
+                        </li>
+                        <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                            <span style={{ color: 'var(--accent-blue)', fontWeight: 700, minWidth: 16 }}>🚀</span>
+                            <span><strong>No GPU required</strong> — ideal for thin/mobile deployments</span>
+                        </li>
+                        <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                            <span style={{ color: 'var(--accent-blue)', fontWeight: 700, minWidth: 16 }}>📦</span>
+                            <span><strong>Instant setup</strong> — lightweight runtime, 17MB installer</span>
+                        </li>
+                        <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                            <span style={{ color: 'var(--accent-blue)', fontWeight: 700, minWidth: 16 }}>🔐</span>
+                            <span><strong>Fully private</strong> — local inference, no cloud calls</span>
+                        </li>
+                        <li style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                            <span style={{ color: 'var(--accent-blue)', fontWeight: 700, minWidth: 16 }}>📖</span>
+                            <span><strong>256k context</strong> — supports long-context models</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    padding: 16,
+                    borderRadius: 12,
+                    background: 'rgba(0, 0, 0, 0.2)',
+                    border: '1px solid rgba(102, 126, 234, 0.2)',
+                }}>
+                    <div>
+                        <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Quick Start
+                        </h4>
+                        <ol style={{
+                            margin: 0,
+                            padding: '0 0 0 16px',
+                            fontSize: 12,
+                            color: 'var(--text-secondary)',
+                            lineHeight: 1.8,
+                        }}>
+                            <li><strong>Download</strong> FastFlowLM installer from GitHub</li>
+                            <li><strong>Run</strong> <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 4px', borderRadius: 3 }}>flm serve model_tag</code></li>
+                            <li><strong>Open</strong> FastFlowLM page and test with models</li>
+                            <li><strong>Integrate</strong> into your applications via OpenAI API</li>
+                        </ol>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <a
+                            href="/fastflowlm"
+                            style={{
+                                flex: 1,
+                                padding: '10px 16px',
+                                background: '#667eea',
+                                color: 'white',
+                                borderRadius: 8,
+                                textDecoration: 'none',
+                                textAlign: 'center',
+                                fontSize: 13,
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                transition: 'background 0.2s',
+                                cursor: 'pointer',
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = '#5563d1'}
+                            onMouseLeave={(e) => e.target.style.background = '#667eea'}
+                        >
+                            <Zap size={14} /> Open FastFlowLM
+                        </a>
+                        <a
+                            href="https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                                flex: 1,
+                                padding: '10px 16px',
+                                background: 'rgba(102, 126, 234, 0.15)',
+                                color: '#667eea',
+                                border: '1px solid #667eea',
+                                borderRadius: 8,
+                                textDecoration: 'none',
+                                textAlign: 'center',
+                                fontSize: 13,
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                transition: 'all 0.2s',
+                                cursor: 'pointer',
+                            }}
+                            onMouseEnter={(e) => { e.target.style.background = '#667eea'; e.target.style.color = 'white'; }}
+                            onMouseLeave={(e) => { e.target.style.background = 'rgba(102, 126, 234, 0.15)'; e.target.style.color = '#667eea'; }}
+                        >
+                            Download
+                        </a>
+                    </div>
+
+                    {!isRyzenAIDetected && hasRyzenAI && (
+                        <div style={{ padding: 8, background: 'rgba(255, 184, 77, 0.15)', borderRadius: 6, border: '1px solid rgba(255, 184, 77, 0.3)', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            💡 <strong>Ryzen CPU detected</strong> but NPU driver may not be installed. Install NPU drivers from AMD for full acceleration.
+                        </div>
+                    )}
+                    {isRyzenAIDetected && (
+                        <div style={{ padding: 8, background: 'rgba(72, 187, 120, 0.15)', borderRadius: 6, border: '1px solid rgba(72, 187, 120, 0.3)', fontSize: 12, color: 'var(--accent-green)' }}>
+                            ✅ <strong>Ryzen AI NPU is ready!</strong> You can start using FastFlowLM immediately.
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

@@ -63,6 +63,9 @@ from routers.flm import router as flm_router
 from routers.devices import router as devices_router
 from routers.fleet_command import router as fleet_command_router
 from routers.fleet_agent import router as fleet_agent_router
+from routers.orchestration import router as orchestration_router
+from routers.orchestration import initialize_nirvana_runtime_on_startup
+from routers.orchestration import start_nirvana_runtime_warmup_retry
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -77,11 +80,40 @@ DEFAULT_BACKEND_PORT = int(os.getenv("NPU_STACK_BACKEND_PORT", "8010"))
 async def lifespan(app: FastAPI):
     """Modern lifespan handler — replaces deprecated on_event('startup')."""
     init_db()
+    try:
+        startup_runtime = initialize_nirvana_runtime_on_startup()
+        warmup = start_nirvana_runtime_warmup_retry(startup_runtime)
+    except Exception as exc:
+        startup_runtime = {
+            "enabled": False,
+            "api_base": None,
+            "probe": {"ready": False, "detail": f"startup init failed: {exc}"},
+        }
+        warmup = {
+            "active": False,
+            "ready": False,
+            "detail": f"warmup unavailable: {exc}",
+        }
     backend_port = int(os.getenv("NPU_STACK_BACKEND_PORT", str(DEFAULT_BACKEND_PORT)))
     print("=" * 60)
     print("  NPU-STACK Backend Server")
     print(f"  API Docs:    http://localhost:{backend_port}/api/docs")
     print(f"  OpenAI API:  http://localhost:{backend_port}/v1")
+    if startup_runtime.get("enabled"):
+        probe = startup_runtime.get("probe", {})
+        if probe.get("ready"):
+            print(f"  Nirvana:     active @ {startup_runtime.get('api_base')}")
+        else:
+            print(f"  Nirvana:     configured but runtime unreachable ({probe.get('detail', 'unknown')})")
+            if warmup.get("active"):
+                print(
+                    "  Warmup:      retrying runtime probe "
+                    f"(every {warmup.get('interval_seconds', '?')}s, up to {warmup.get('max_attempts', '?')} attempts)"
+                )
+            else:
+                print(f"  Warmup:      {warmup.get('detail', 'not running')}")
+    else:
+        print("  Nirvana:     disabled")
     print("=" * 60)
     yield  # App runs here
     print("NPU-STACK Backend shutting down...")
@@ -150,6 +182,7 @@ app.include_router(civitai_router)
 app.include_router(flm_router)
 app.include_router(fleet_command_router)
 app.include_router(fleet_agent_router)
+app.include_router(orchestration_router)
 
 
 @app.get("/api/health")

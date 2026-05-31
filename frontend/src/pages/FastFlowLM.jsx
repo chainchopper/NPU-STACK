@@ -18,7 +18,6 @@ import {
     CheckCircle2,
     XCircle,
     Activity,
-    Trash2,
     Clock,
     BarChart3,
     Cloud
@@ -27,6 +26,7 @@ import {
     getFLMStatus, 
     listFLMModels, 
     pullFLMModel, 
+    checkFLMModel,
     serveFLMModel, 
     stopFLMServer, 
     chatFLM,
@@ -42,7 +42,13 @@ export default function FastFlowLM() {
     const [loading, setLoading] = useState(true);
     const [pullingModel, setPullingModel] = useState(null);
     const [pullProgress, setPullProgress] = useState(0);
+    const [pullPhase, setPullPhase] = useState('idle');
+    const [pullMessage, setPullMessage] = useState('');
+    const [pullIndeterminate, setPullIndeterminate] = useState(false);
     const [servingModel, setServingModel] = useState(null);
+    const [checkingModel, setCheckingModel] = useState(null);
+    const [batchChecking, setBatchChecking] = useState(false);
+    const [readinessByModel, setReadinessByModel] = useState({});
     const [chatMessages, setChatMessages] = useState([]);
     const [inputMessage, setInputMessage] = useState('');
     const [isTyping, setIsTyping] = useState(false);
@@ -109,20 +115,43 @@ export default function FastFlowLM() {
         if (pullingModel) return;
         setPullingModel(tag);
         setPullProgress(0);
+        setPullPhase('download');
+        setPullMessage('Preparing pull...');
+        setPullIndeterminate(true);
         setNotice(null);
         addLog(`Pull requested for ${tag}`);
         try {
             await pullFLMModel(tag, (progress) => {
                 if (progress.status === 'downloading') {
-                    setPullProgress(progress.progress || 0);
+                    const hasNumericProgress = Number.isFinite(progress.progress);
+                    if (hasNumericProgress) {
+                        setPullProgress(progress.progress);
+                    }
+                    setPullIndeterminate(!hasNumericProgress);
+                    setPullPhase(progress.phase || 'download');
+                    setPullMessage(progress.message || 'Downloading model...');
                 } else if (progress.status === 'completed') {
                     setPullProgress(100);
+                    setPullPhase('finalize');
+                    setPullMessage(progress.message || 'Download complete');
+                    setPullIndeterminate(false);
                     setNotice({ tone: 'success', title: 'Model pulled', message: `${tag} is now available in local library.` });
                     addLog(`Pull complete: ${tag}`);
                     setTimeout(() => {
                         setPullingModel(null);
+                        setPullPhase('idle');
+                        setPullMessage('');
+                        setPullIndeterminate(false);
                         refreshData();
                     }, 1000);
+                } else if (progress.status === 'error') {
+                    setPullIndeterminate(false);
+                    setPullPhase('error');
+                    setPullMessage(progress.message || 'Pull failed');
+                    const message = progress.message || 'Unable to pull model';
+                    setNotice({ tone: 'danger', title: 'Failed to pull model', message });
+                    addLog(`Pull failed for ${tag}: ${message}`);
+                    setPullingModel(null);
                 }
             });
         } catch (err) {
@@ -130,6 +159,152 @@ export default function FastFlowLM() {
             setNotice({ tone: 'danger', title: 'Failed to pull model', message, details: err?.message || null });
             addLog(`Pull failed for ${tag}: ${message}`);
             setPullingModel(null);
+            setPullPhase('error');
+            setPullMessage(message);
+            setPullIndeterminate(false);
+        }
+    };
+
+    const parseReadiness = (result) => {
+        if (result?.readiness) {
+            return {
+                toolCalling: result.readiness.tool_calling || 'unknown',
+                template: result.readiness.template || 'unknown',
+                checkedAt: result.checked_at || new Date().toISOString(),
+                warnings: Array.isArray(result.readiness.warnings) ? result.readiness.warnings : [],
+                source: result.readiness.source || 'backend-parsed',
+            };
+        }
+
+        const output = `${result?.message || ''}\n${result?.output || ''}`.toLowerCase();
+
+        const toolCalling =
+            (output.includes('tool') && output.includes('calling') && /(support|enabled|ready|pass|ok)/.test(output))
+                ? 'supported'
+                : (output.includes('tool') && output.includes('calling') && /(not support|unsupported|disabled|fail|error)/.test(output))
+                    ? 'unsupported'
+                    : 'unknown';
+
+        const template =
+            (output.includes('template') && /(ready|valid|ok|pass)/.test(output))
+                ? 'ready'
+                : (output.includes('template') && /(missing|invalid|error|fail|not found)/.test(output))
+                    ? 'issue'
+                    : 'unknown';
+
+        return {
+            toolCalling,
+            template,
+            checkedAt: new Date().toISOString(),
+            warnings: [],
+            source: 'frontend-fallback',
+        };
+    };
+
+    const formatCheckedAt = (value) => {
+        if (!value) return 'Not checked yet';
+        const timestamp = new Date(value);
+        if (Number.isNaN(timestamp.getTime())) return 'Check time unavailable';
+
+        const deltaMs = Date.now() - timestamp.getTime();
+        const deltaMinutes = Math.max(0, Math.floor(deltaMs / 60000));
+
+        if (deltaMinutes < 1) return 'Checked just now';
+        if (deltaMinutes < 60) return `Checked ${deltaMinutes}m ago`;
+
+        const deltaHours = Math.floor(deltaMinutes / 60);
+        if (deltaHours < 24) return `Checked ${deltaHours}h ago`;
+
+        const deltaDays = Math.floor(deltaHours / 24);
+        return `Checked ${deltaDays}d ago`;
+    };
+
+    const handleCheckModel = async (tag, options = {}) => {
+        if (checkingModel) return;
+        const { silentSuccess = false, keepNotice = false } = options;
+        setCheckingModel(tag);
+        if (!keepNotice) {
+            setNotice(null);
+        }
+        addLog(`Model check requested for ${tag}`);
+        try {
+            const result = await checkFLMModel(tag);
+            setReadinessByModel((prev) => ({ ...prev, [tag]: parseReadiness(result) }));
+            if (result.ok) {
+                if (!silentSuccess) {
+                    setNotice({ tone: 'success', title: 'Model check passed', message: `${tag} is ready for deployment.` });
+                }
+                addLog(`Model check passed: ${tag}`);
+            } else {
+                setNotice({
+                    tone: 'warning',
+                    title: 'Model check reported issues',
+                    message: result.message || `Check reported issues for ${tag}.`,
+                    details: result.output || null,
+                });
+                addLog(`Model check reported issues: ${tag}`);
+            }
+        } catch (err) {
+            const message = diagnoseBackendError(err, 'Model check');
+            setNotice({ tone: 'danger', title: 'Model check failed', message, details: err?.message || null });
+            addLog(`Model check failed for ${tag}: ${message}`);
+            setReadinessByModel((prev) => ({
+                ...prev,
+                [tag]: {
+                    toolCalling: 'unknown',
+                    template: 'unknown',
+                    checkedAt: new Date().toISOString(),
+                },
+            }));
+        } finally {
+            setCheckingModel(null);
+        }
+    };
+
+    const handleCheckAllInstalled = async () => {
+        if (batchChecking || !models.length) return;
+
+        setBatchChecking(true);
+        setNotice(null);
+        addLog(`Batch check requested for ${models.length} installed model${models.length === 1 ? '' : 's'}`);
+
+        let passed = 0;
+        let issues = 0;
+
+        try {
+            for (const model of models) {
+                try {
+                    const result = await checkFLMModel(model.tag);
+                    setReadinessByModel((prev) => ({ ...prev, [model.tag]: parseReadiness(result) }));
+                    if (result.ok) {
+                        passed += 1;
+                        addLog(`Batch check passed: ${model.tag}`);
+                    } else {
+                        issues += 1;
+                        addLog(`Batch check reported issues: ${model.tag}`);
+                    }
+                } catch (err) {
+                    issues += 1;
+                    setReadinessByModel((prev) => ({
+                        ...prev,
+                        [model.tag]: {
+                            toolCalling: 'unknown',
+                            template: 'unknown',
+                            checkedAt: new Date().toISOString(),
+                        },
+                    }));
+                    addLog(`Batch check failed for ${model.tag}: ${diagnoseBackendError(err, 'Model check')}`);
+                }
+            }
+
+            setNotice({
+                tone: issues ? 'warning' : 'success',
+                title: issues ? 'Batch check completed with issues' : 'Batch check completed',
+                message: `${passed} passed, ${issues} issue${issues === 1 ? '' : 's'} detected across installed models.`,
+            });
+        } finally {
+            setBatchChecking(false);
+            setCheckingModel(null);
         }
     };
 
@@ -143,6 +318,9 @@ export default function FastFlowLM() {
             setActiveTab('chat');
             setNotice({ tone: 'success', title: 'Server started', message: `${model} is serving in NPU workspace.` });
             addLog(`Serve active: ${model}`);
+            if (!readinessByModel[model]) {
+                void handleCheckModel(model, { silentSuccess: true, keepNotice: true });
+            }
         } catch (err) {
             const message = diagnoseBackendError(err, 'Server start');
             setNotice({ tone: 'danger', title: 'Failed to start server', message, details: err?.message || null });
@@ -208,6 +386,7 @@ export default function FastFlowLM() {
     );
 
     const isInstalled = (tag) => models.some(m => m.tag === tag);
+    const servedReadiness = servingModel ? readinessByModel[servingModel] : null;
 
     if (loading && !models.length) {
         return (
@@ -232,6 +411,11 @@ export default function FastFlowLM() {
                         </h1>
                         <div className="flex items-center gap-2 text-xs text-slate-400">
                             <span>v{status.version}</span>
+                            {status.update_available && status.latest_version && (
+                                <span className="px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300 text-[10px] font-bold uppercase tracking-wide">
+                                    Update available: v{status.latest_version}
+                                </span>
+                            )}
                             <span className="w-1 h-1 bg-slate-700 rounded-full" />
                             <span className={status.installed ? 'text-emerald-400' : 'text-rose-400'}>
                                 {status.installed ? 'Runtime Detected' : 'Runtime Missing'}
@@ -328,6 +512,15 @@ export default function FastFlowLM() {
                                 <div className="flex items-center gap-2 mb-4">
                                     <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                                     <h2 className="text-lg font-semibold">Installed Models</h2>
+                                    <button
+                                        onClick={handleCheckAllInstalled}
+                                        disabled={batchChecking || !models.length}
+                                        className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-200 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                        title="Run flm check for every installed model"
+                                    >
+                                        <ShieldCheck className={`w-4 h-4 ${batchChecking ? 'animate-pulse' : ''}`} />
+                                        {batchChecking ? 'Checking all…' : 'Re-check all'}
+                                    </button>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     {models.map(model => (
@@ -343,6 +536,22 @@ export default function FastFlowLM() {
                                             </div>
                                             <h3 className="text-lg font-bold mb-1 truncate">{model.name}</h3>
                                             <p className="text-xs text-slate-500 mb-4 font-mono">{model.tag}</p>
+                                            {readinessByModel[model.tag] && (
+                                                <div className="flex flex-wrap gap-2 mb-3">
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${readinessByModel[model.tag].toolCalling === 'supported' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : readinessByModel[model.tag].toolCalling === 'unsupported' ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-slate-700 bg-slate-800/60 text-slate-300'}`} title={`Tool-calling status for ${model.tag}`}>
+                                                        Tool-calling: {readinessByModel[model.tag].toolCalling}
+                                                    </span>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${readinessByModel[model.tag].template === 'ready' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : readinessByModel[model.tag].template === 'issue' ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-slate-700 bg-slate-800/60 text-slate-300'}`} title={`Template status for ${model.tag}`}>
+                                                        Template: {readinessByModel[model.tag].template}
+                                                    </span>
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full border border-slate-700 bg-slate-800/60 text-slate-300" title={new Date(readinessByModel[model.tag].checkedAt).toLocaleString()}>
+                                                        {formatCheckedAt(readinessByModel[model.tag].checkedAt)}
+                                                    </span>
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full border border-slate-700 bg-slate-800/60 text-slate-300" title={(readinessByModel[model.tag].warnings || []).join('\n') || 'No warnings reported'}>
+                                                        {readinessByModel[model.tag].source === 'backend-parsed' ? 'Verified' : 'Fallback'}
+                                                    </span>
+                                                </div>
+                                            )}
                                             
                                             <div className="flex items-center gap-2 mt-4">
                                                 {servingModel === model.tag ? (
@@ -362,8 +571,13 @@ export default function FastFlowLM() {
                                                         Deploy to NPU
                                                     </button>
                                                 )}
-                                                <button className="p-2 bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 text-slate-500 rounded-lg border border-transparent hover:border-rose-500/30 transition-all">
-                                                    <Trash2 className="w-5 h-5" />
+                                                <button
+                                                    onClick={() => handleCheckModel(model.tag)}
+                                                    disabled={checkingModel === model.tag}
+                                                    className="p-2 bg-slate-800 hover:bg-emerald-500/20 hover:text-emerald-400 text-slate-500 rounded-lg border border-transparent hover:border-emerald-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    title="Run flm check"
+                                                >
+                                                    <ShieldCheck className={`w-5 h-5 ${checkingModel === model.tag ? 'animate-pulse' : ''}`} />
                                                 </button>
                                             </div>
                                         </div>
@@ -401,11 +615,17 @@ export default function FastFlowLM() {
                                         {pullingModel === model.tag ? (
                                             <div className="space-y-2">
                                                 <div className="flex justify-between text-[10px] font-bold text-blue-400">
-                                                    <span>DOWNLOADING...</span>
-                                                    <span>{pullProgress}%</span>
+                                                    <span>{(pullPhase || 'download').toUpperCase()}...</span>
+                                                    <span>{pullIndeterminate ? '—' : `${pullProgress}%`}</span>
                                                 </div>
                                                 <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${pullProgress}%` }} />
+                                                    <div
+                                                        className={`h-full bg-blue-500 transition-all duration-300 ${pullIndeterminate ? 'animate-pulse' : ''}`}
+                                                        style={{ width: `${pullIndeterminate ? 100 : pullProgress}%` }}
+                                                    />
+                                                </div>
+                                                <div className="text-[10px] text-slate-400 truncate" title={pullMessage || 'Waiting for pull logs...'}>
+                                                    {pullMessage || 'Waiting for pull logs...'}
                                                 </div>
                                             </div>
                                         ) : (
@@ -457,6 +677,22 @@ export default function FastFlowLM() {
                                             Connection Established • {status.server.model}
                                         </div>
                                     </div>
+                                    {servedReadiness && (
+                                        <div className="flex items-center justify-center gap-2">
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full border ${servedReadiness.toolCalling === 'supported' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : servedReadiness.toolCalling === 'unsupported' ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-slate-700 bg-slate-800/60 text-slate-300'}`} title={`Tool-calling status for ${servingModel}`}>
+                                                Tool-calling: {servedReadiness.toolCalling}
+                                            </span>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full border ${servedReadiness.template === 'ready' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : servedReadiness.template === 'issue' ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-slate-700 bg-slate-800/60 text-slate-300'}`} title={`Template status for ${servingModel}`}>
+                                                Template: {servedReadiness.template}
+                                            </span>
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full border border-slate-700 bg-slate-800/60 text-slate-300" title={new Date(servedReadiness.checkedAt).toLocaleString()}>
+                                                {formatCheckedAt(servedReadiness.checkedAt)}
+                                            </span>
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full border border-slate-700 bg-slate-800/60 text-slate-300" title={(servedReadiness.warnings || []).join('\n') || 'No warnings reported'}>
+                                                {servedReadiness.source === 'backend-parsed' ? 'Verified' : 'Fallback'}
+                                            </span>
+                                        </div>
+                                    )}
                                     
                                     {chatMessages.length === 0 && (
                                         <div className="flex flex-col items-center text-center py-20">

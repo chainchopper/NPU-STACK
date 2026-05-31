@@ -22,6 +22,7 @@ from services.flm_service import (
     detect_flm,
     list_models,
     pull_model,
+    check_model,
     start_server,
     stop_server,
     get_server_status,
@@ -46,6 +47,10 @@ class PullRequest(BaseModel):
 class ServeRequest(BaseModel):
     model: str = Field(..., description="Model tag to serve, e.g. 'llama3.2:1b'")
     port: int = Field(52625, description="Port for the FLM server")
+
+
+class CheckRequest(BaseModel):
+    tag: str = Field(..., description="Model tag to check, e.g. 'qwen3:4b'")
 
 
 class ChatMessage(BaseModel):
@@ -123,6 +128,23 @@ async def flm_pull(body: PullRequest):
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.post("/check")
+async def flm_check(body: CheckRequest):
+    """Run `flm check` diagnostics for a local model tag."""
+    info = detect_flm()
+    if not info["installed"]:
+        raise HTTPException(
+            503,
+            "FastFlowLM is not installed. Download from: "
+            "https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe"
+        )
+
+    result = check_model(body.tag)
+    if result.get("status") == "error" and result.get("message") == "FLM binary not found on PATH":
+        raise HTTPException(503, result["message"])
+    return result
 
 
 @router.post("/serve")

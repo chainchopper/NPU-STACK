@@ -54,6 +54,28 @@ class AgentState(BaseModel):
     download_in_progress: bool = False
 
 
+@router.get("/runtime")
+def get_agent_runtime_details():
+    """Return explicit runtime/provenance data for the built-in Nirvana agent."""
+    from services import gguf_service
+
+    model_path = _model_path()
+    loaded = gguf_service.get_loaded_models()
+    is_loaded = any(m.get("filename") == AGENT_MODEL_FILENAME for m in loaded)
+
+    return {
+        "agent_name": "Nirvana",
+        "engine": "llama-cpp-python",
+        "gguf_service_available": gguf_service.is_available(),
+        "model_file": AGENT_MODEL_FILENAME,
+        "model_path": model_path,
+        "model_exists": os.path.exists(model_path),
+        "model_loaded": is_loaded,
+        "loaded_models": loaded,
+        "uses_mock_responses": False,
+    }
+
+
 @router.get("/status", response_model=AgentState)
 def get_agent_status():
     """Check if the system agent model is downloaded, loaded, and if the dataset exists."""
@@ -195,7 +217,8 @@ def start_agent(background_tasks: BackgroundTasks):
 # ── Chat ────────────────────────────────────────────────
 
 SYSTEM_PROMPT = (
-    "You are the NPU-STACK System Assistant. You help users navigate the NPU-STACK AI Factory, "
+    "You are Nirvana, the built-in system orchestration assistant for NPU-STACK. "
+    "Your name is always Nirvana. You help users navigate the NPU-STACK AI Factory, "
     "explaining how to convert models to GGUF, RKNN, or ONNX, how to fine-tune using Unsloth, "
     "and how to deploy to edge hardware like Vitis DPU and NVIDIA NIM. Be concise, technical, and helpful."
 )
@@ -206,11 +229,26 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 512
     use_fleet_tools: bool = False
+    use_orchestration_context: bool = True
 
 
 @router.post("/chat")
 def agent_chat(req: ChatRequest):
-    """Chat with the system agent using the loaded GGUF model."""
+    """Chat with the system agent.
+
+    Routes to the external Nirvana runtime API when ``hermes.enabled`` is set in the
+    orchestration state, otherwise falls back to the local GGUF engine.
+    """
+    # ── External runtime API routing ──────────────────────────────────
+    try:
+        from routers.orchestration import _load_state as _orch_state
+        orch = _orch_state()
+        hermes_cfg = orch.get("hermes", {})
+        if hermes_cfg.get("enabled") and hermes_cfg.get("api_base"):
+            return _hermes_api_chat(hermes_cfg, req)
+    except Exception:
+        pass  # fall through to built-in engine
+
     model_path = _model_path()
 
     from services.gguf_service import chat_completion, get_loaded_models
@@ -219,8 +257,40 @@ def agent_chat(req: ChatRequest):
     if not any(m.get("filename") == AGENT_MODEL_FILENAME for m in loaded):
         raise HTTPException(400, "Agent model is not loaded. Call /start first.")
 
-    # Prepend system prompt and optional fleet tool context
+    # Prepend system prompt and optional orchestration context
     full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    if req.use_orchestration_context:
+        try:
+            from routers.orchestration import _load_state, _capabilities_catalog
+
+            state = _load_state()
+            nirvana = state.get("nirvana", {})
+            capabilities = _capabilities_catalog(state)
+
+            full_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Nirvana identity and orchestration context (always authoritative):\n"
+                        + json.dumps(
+                            {
+                                "identity": nirvana,
+                                "capabilities": capabilities,
+                            },
+                            indent=2,
+                        )
+                    ),
+                }
+            )
+        except Exception as exc:
+            full_messages.append(
+                {
+                    "role": "system",
+                    "content": f"Orchestration context unavailable: {exc}",
+                }
+            )
+
     if req.use_fleet_tools:
         try:
             from services.fleet_orchestrator import build_tool_context
@@ -251,7 +321,77 @@ def agent_chat(req: ChatRequest):
         temperature=req.temperature,
         max_tokens=req.max_tokens,
     )
+
+    # Add explicit provenance metadata to remove ambiguity in UI/client logs.
+    if isinstance(result, dict):
+        result["nirvana_runtime"] = {
+            "agent_name": "Nirvana",
+            "engine": "llama-cpp-python",
+            "model_file": AGENT_MODEL_FILENAME,
+            "model_loaded": True,
+            "uses_mock_responses": False,
+        }
+
     return result
+
+
+# ── External runtime API proxy ───────────────────────
+
+
+def _hermes_api_chat(hermes_cfg: dict, req: "ChatRequest") -> dict:
+    """Proxy a chat request to the external Nirvana OpenAI-compatible runtime API."""
+    import requests as _req_lib  # local import to avoid polluting module scope
+
+    api_base = (hermes_cfg.get("api_base") or "http://localhost:11437/v1").rstrip("/")
+    model = hermes_cfg.get("default_model") or "default"
+
+    payload = {
+        "model": model,
+        "messages": req.messages,
+        "temperature": req.temperature,
+        "max_tokens": req.max_tokens,
+    }
+
+    try:
+        r = _req_lib.post(
+            f"{api_base}/chat/completions",
+            json=payload,
+            timeout=120,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except _req_lib.exceptions.ConnectionError:
+        raise HTTPException(502, f"Cannot connect to Nirvana runtime API at {api_base}. Ensure the runtime is running.")
+    except _req_lib.exceptions.Timeout:
+        raise HTTPException(504, "Nirvana runtime API request timed out after 120 s.")
+    except Exception as exc:
+        raise HTTPException(502, f"Nirvana runtime API error: {exc}")
+
+    choice = data["choices"][0]["message"]
+    raw_tool_calls = choice.get("tool_calls") or []
+
+    return {
+        "response": choice.get("content") or "",
+        "tool_calls": [
+            {
+                "name": tc["function"]["name"],
+                "args": tc["function"].get("arguments", ""),
+                "result": None,
+            }
+            for tc in raw_tool_calls
+        ],
+        "reasoning": None,
+        "nirvana_runtime": {
+            "agent_name": "Nirvana",
+            "engine": "nirvana-runtime-proxy",
+            "model_file": model,
+            "model_loaded": True,
+            "uses_mock_responses": False,
+            "api_base": api_base,
+            "via": "nirvana-proxy",
+        },
+        "usage": data.get("usage", {}),
+    }
 
 
 # ── Generate Dataset ────────────────────────────────────

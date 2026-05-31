@@ -358,6 +358,9 @@ export async function getFLMStatus() {
     const status = await request('/flm/status');
     return {
         ...status,
+        version: status.version || 'N/A',
+        latest_version: status.latest_version || null,
+        update_available: Boolean(status.update_available),
         npu_ready: Boolean(status.server_running || status.installed),
         server: {
             running: Boolean(status.server_running),
@@ -426,6 +429,13 @@ export async function pullFLMModel(tag, onProgress) {
             }
         }
     }
+}
+
+export async function checkFLMModel(tag) {
+    return request('/flm/check', {
+        method: 'POST',
+        body: JSON.stringify({ tag }),
+    });
 }
 
 export async function serveFLMModel(model, port = 52625) {
@@ -576,4 +586,91 @@ export async function rp2040Detect() {
 
 export async function listBackups() {
     return request('/devices/backups');
+}
+
+// ─── Orchestration (Nirvana + AutoResearch) ───────────
+export async function getOrchestrationState() {
+    return request('/orchestration/state');
+}
+
+export async function getNirvanaRuntimeConfig() {
+    return request('/orchestration/nirvana-config');
+}
+
+export async function getHermesConfig() {
+    // Backward-compatible alias
+    return getNirvanaRuntimeConfig();
+}
+
+export async function getNirvanaIdentity() {
+    return request('/orchestration/nirvana');
+}
+
+export async function updateNirvanaIdentity(payload) {
+    return request('/orchestration/nirvana', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function getOrchestrationCapabilities() {
+    return request('/orchestration/capabilities');
+}
+
+export async function updateNirvanaRuntimeConfig(payload) {
+    return request('/orchestration/nirvana-config', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateHermesConfig(payload) {
+    // Backward-compatible alias
+    return updateNirvanaRuntimeConfig(payload);
+}
+
+export async function listAutoResearchProfiles() {
+    return request('/orchestration/autoresearch/profiles');
+}
+
+export async function createAutoResearchProfile(payload) {
+    return request('/orchestration/autoresearch/profiles', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteAutoResearchProfile(profileId) {
+    return request(`/orchestration/autoresearch/profiles/${encodeURIComponent(profileId)}`, {
+        method: 'DELETE',
+    });
+}
+
+export async function listAutoResearchRuns(limit = 25) {
+    return request(`/orchestration/autoresearch/runs?limit=${limit}`);
+}
+
+export async function createAutoResearchRun(payload) {
+    return request('/orchestration/autoresearch/runs', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateAutoResearchRun(runId, payload) {
+    return request(`/orchestration/autoresearch/runs/${encodeURIComponent(runId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function discoverMcpAssets() {
+    return request('/orchestration/mcp/discover');
+}
+
+export async function autoAddMcpServers(payload = {}) {
+    return request('/orchestration/mcp/auto-add', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
 }
