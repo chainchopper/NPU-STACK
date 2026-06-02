@@ -13,12 +13,14 @@ import os
 import json
 import shutil
 import threading
+import re
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
 from typing import Any, List, Dict, Optional
 from sqlalchemy.orm import Session
 from database import SessionLocal, ModelRecord, get_db
+from services.fleet_orchestrator import build_tool_context as build_fleet_tool_context, create_command_job, execute_command_job, get_command_job, parse_command
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -405,6 +407,7 @@ def _compose_nirvana_bridge_message(
     use_fleet_tools: bool,
     use_orchestration_context: bool,
     preferred_model: str,
+    fleet_action: Optional[Dict[str, Any]] = None,
 ) -> str:
     sections: List[str] = []
     profile_name = str(profile.get("name") or "Nirvana Profile").strip()
@@ -443,6 +446,19 @@ def _compose_nirvana_bridge_message(
         sections.append(
             "Fleet-aware mode is enabled for this turn. Prioritize OTA, discovery, registry, deployment, and remote execution workflows when relevant."
         )
+        try:
+            sections.append(
+                "Fleet tool context:\n"
+                + json.dumps(build_fleet_tool_context(include_jobs=True), indent=2)
+            )
+        except Exception as exc:
+            sections.append(f"Fleet tool context unavailable: {exc}")
+
+    if fleet_action:
+        sections.append(
+            "Fleet action already executed by NPU-STACK for this turn:\n"
+            + json.dumps(fleet_action, indent=2)
+        )
 
     if preferred_model:
         sections.append(f"Preferred model hint from NPU-STACK UI: {preferred_model}")
@@ -461,11 +477,141 @@ def _compose_nirvana_bridge_message(
     )
 
 
+FLEET_ACTION_KEYWORDS = [
+    "telemetry",
+    "metrics",
+    "sensor",
+    "monitor",
+    "status",
+    "health",
+    "audit",
+    "run ",
+    "execute ",
+    "shell",
+    "reboot",
+    "restart",
+    "reset",
+    "prepare",
+    "provision",
+    "install",
+    "deploy",
+    "flash",
+    "firmware",
+    "backup",
+    "pair",
+    "unpair",
+]
+
+FLEET_EXECUTION_INTENTS = {"status", "telemetry", "shell", "reboot", "provision", "firmware"}
+
+
+def _looks_like_fleet_instruction(user_text: str) -> bool:
+    lowered = str(user_text or "").strip().lower()
+    if not lowered:
+        return False
+    if any(keyword in lowered for keyword in FLEET_ACTION_KEYWORDS):
+        return True
+    return bool(re.search(r"\b(device|fleet|board|esp32|rp2040|linux-edge|edge node|usb|serial)\b", lowered))
+
+
+def _compact_result_payload(result: Any) -> Any:
+    if isinstance(result, dict):
+        compact: Dict[str, Any] = {}
+        preferred_keys = [
+            "status",
+            "transport",
+            "source",
+            "message",
+            "note",
+            "error",
+            "queued_at",
+            "history_count",
+            "recorded_at",
+            "latest",
+            "stdout",
+            "stderr",
+        ]
+        for key in preferred_keys:
+            if key in result and result.get(key) not in (None, "", [], {}):
+                compact[key] = result.get(key)
+        if "latest" in compact and isinstance(compact["latest"], dict):
+            latest = compact["latest"]
+            compact["latest"] = {
+                "source": latest.get("source"),
+                "recorded_at": latest.get("recorded_at"),
+                "telemetry": latest.get("telemetry"),
+            }
+        return compact or {k: v for k, v in result.items() if k in {"status", "error"}}
+    return result
+
+
+def _summarize_fleet_action(job: Dict[str, Any], parsed_command: Dict[str, Any]) -> Dict[str, Any]:
+    results = job.get("results_by_device") or {}
+    devices = []
+    for device_id, result in results.items():
+        devices.append(
+            {
+                "device_id": device_id,
+                "summary": _compact_result_payload(result),
+            }
+        )
+
+    return {
+        "job_id": job.get("job_id"),
+        "intent": job.get("intent") or parsed_command.get("intent"),
+        "status": job.get("status"),
+        "target_count": job.get("target_count") or len(parsed_command.get("target_devices") or []),
+        "targets": [target for target in (parsed_command.get("target_devices") or []) if target != "_no_match"],
+        "reasoning_summary": parsed_command.get("reasoning_summary"),
+        "results": devices,
+    }
+
+
+def _format_fleet_action_text(fleet_action: Dict[str, Any]) -> str:
+    header = (
+        f"Fleet action executed: {str(fleet_action.get('intent') or 'unknown').upper()} "
+        f"on {fleet_action.get('target_count') or 0} device(s) · status {fleet_action.get('status') or 'unknown'}"
+    )
+    device_lines = []
+    for item in fleet_action.get("results") or []:
+        summary = item.get("summary") or {}
+        summary_bits = []
+        for key in ("status", "transport", "message", "note", "error", "history_count"):
+            if summary.get(key) not in (None, "", [], {}):
+                summary_bits.append(f"{key}={summary.get(key)}")
+        if isinstance(summary.get("latest"), dict) and summary["latest"].get("telemetry"):
+            telemetry_keys = sorted(list((summary["latest"].get("telemetry") or {}).keys()))[:6]
+            if telemetry_keys:
+                summary_bits.append(f"telemetry_keys={','.join(telemetry_keys)}")
+        device_lines.append(f"- {item.get('device_id')}: {'; '.join(summary_bits) or 'result captured'}")
+    return "\n".join([header, *device_lines])
+
+
+def _maybe_execute_fleet_action(user_text: str, *, enabled: bool) -> Optional[Dict[str, Any]]:
+    if not enabled or not _looks_like_fleet_instruction(user_text):
+        return None
+
+    parsed_command = parse_command(user_text, use_agent=False)
+    targets = [target for target in (parsed_command.get("target_devices") or []) if target != "_no_match"]
+    if parsed_command.get("intent") not in FLEET_EXECUTION_INTENTS:
+        return None
+    if not targets:
+        return None
+    if float(parsed_command.get("confidence") or 0.0) < 0.45:
+        return None
+
+    job = create_command_job(parsed_command, dry_run=False)
+    execute_command_job(job["job_id"], parsed_command, dry_run=False)
+    final_job = get_command_job(job["job_id"]) or job
+    return _summarize_fleet_action(final_job, parsed_command)
+
+
 def _persist_session_turn(
     req: ChatRequest,
     profile: Dict[str, Any],
     response_text: str,
     runtime_meta: Optional[Dict[str, Any]] = None,
+    fleet_action: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     if not req.session_id or not req.profile_id:
         return None
@@ -479,6 +625,7 @@ def _persist_session_turn(
             assistant_message={
                 "role": "assistant",
                 "content": response_text or "",
+                "fleet_action": fleet_action,
             },
             runtime_meta=runtime_meta,
         )
@@ -507,6 +654,10 @@ def agent_chat(req: ChatRequest):
     )
 
     user_message = _latest_user_message(req.messages)
+    fleet_action = _maybe_execute_fleet_action(
+        str(user_message.get("content") or ""),
+        enabled=bool(use_fleet_tools),
+    )
     bridged_prompt = _compose_nirvana_bridge_message(
         str(user_message.get("content") or ""),
         profile,
@@ -514,6 +665,7 @@ def agent_chat(req: ChatRequest):
         use_fleet_tools=use_fleet_tools,
         use_orchestration_context=use_orchestration_context,
         preferred_model=preferred_model,
+        fleet_action=fleet_action,
     )
 
     try:
@@ -533,6 +685,9 @@ def agent_chat(req: ChatRequest):
         str(chat_result.get("answer") or "")
         or str((chat_result.get("result") or {}).get("final_response") or "")
     )
+    if fleet_action:
+        fleet_prefix = _format_fleet_action_text(fleet_action)
+        response_text = f"{fleet_prefix}\n\n{response_text}" if response_text else fleet_prefix
     runtime_meta = {
         "agent_name": "Nirvana",
         "engine": "nirvana-webui",
@@ -549,6 +704,8 @@ def agent_chat(req: ChatRequest):
         "provider": (status.get("summary") or {}).get("current_provider"),
         "chat_ready": bool((status.get("summary") or {}).get("chat_ready")),
         "onboarding_completed": bool((status.get("summary") or {}).get("completed")),
+        "fleet_action_job_id": fleet_action.get("job_id") if fleet_action else None,
+        "fleet_action_intent": fleet_action.get("intent") if fleet_action else None,
     }
 
     persisted_session = _persist_session_turn(
@@ -556,6 +713,7 @@ def agent_chat(req: ChatRequest):
         profile,
         response_text,
         runtime_meta=runtime_meta,
+        fleet_action=fleet_action,
     )
 
     result = {
@@ -563,6 +721,7 @@ def agent_chat(req: ChatRequest):
         "tool_calls": [],
         "reasoning": None,
         "nirvana_runtime": runtime_meta,
+        "fleet_action": fleet_action,
         "upstream": {
             "session_id": upstream_session_id,
             "status": chat_result.get("status"),

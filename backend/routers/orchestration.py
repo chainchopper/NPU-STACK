@@ -883,12 +883,22 @@ def record_agent_session_turn(
             "content": str(user_message.get("content") or ""),
             "created_at": now,
         }
+        for key, value in user_message.items():
+            if key in {"id", "role", "content", "created_at"}:
+                continue
+            if value is not None:
+                user_entry[key] = value
         assistant_entry = {
             "id": f"msg-{uuid.uuid4().hex[:10]}",
             "role": "assistant",
             "content": str(assistant_message.get("content") or ""),
             "created_at": now,
         }
+        for key, value in assistant_message.items():
+            if key in {"id", "role", "content", "created_at", "runtime"}:
+                continue
+            if value is not None:
+                assistant_entry[key] = value
         if runtime_meta:
             assistant_entry["runtime"] = runtime_meta
             linked_session_id = str(runtime_meta.get("nirvana_session_id") or "").strip()

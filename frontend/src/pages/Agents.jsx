@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  listDevices,
+  getDeviceTelemetry,
+  executeDeviceCommand,
+  rebootDevice,
   listAgentProfiles,
   createAgentProfile,
   updateAgentProfile,
@@ -121,6 +125,36 @@ function buildSessionMarkdown(profile, session) {
   return [...header, ...body].join('\n');
 }
 
+function flattenTelemetryEntries(value, prefix = '', acc = []) {
+  if (value == null) return acc;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => flattenTelemetryEntries(entry, `${prefix}[${index}]`, acc));
+    return acc;
+  }
+  if (typeof value === 'object') {
+    Object.entries(value).forEach(([key, entry]) => {
+      flattenTelemetryEntries(entry, prefix ? `${prefix}.${key}` : key, acc);
+    });
+    return acc;
+  }
+  acc.push([prefix || 'value', value]);
+  return acc;
+}
+
+function formatFleetValue(value) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (value == null || value === '') return '—';
+  return String(value);
+}
+
+function summarizeFleetAction(action) {
+  if (!action) return '';
+  return action.summary || `${action.intent || 'fleet'} · ${action.status || 'captured'}`;
+}
+
 export default function Agents() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -138,6 +172,14 @@ export default function Agents() {
 
   const [agentStatus, setAgentStatus] = useState(null);
   const [runtime, setRuntime] = useState(null);
+  const [fleetDevices, setFleetDevices] = useState([]);
+  const [fleetLoading, setFleetLoading] = useState(false);
+  const [selectedFleetDeviceId, setSelectedFleetDeviceId] = useState('');
+  const [fleetTelemetry, setFleetTelemetry] = useState(null);
+  const [fleetTelemetryLoading, setFleetTelemetryLoading] = useState(false);
+  const [fleetCommandInput, setFleetCommandInput] = useState('');
+  const [fleetActionRunning, setFleetActionRunning] = useState(false);
+  const [fleetActionResult, setFleetActionResult] = useState(null);
 
   const [input, setInput] = useState('');
   const transcriptRef = useRef(null);
@@ -152,6 +194,18 @@ export default function Agents() {
     () => sessions.find((session) => session.id === activeSessionId) || null,
     [sessions, activeSessionId],
   );
+
+  const selectedFleetDevice = useMemo(
+    () => fleetDevices.find((device) => device.id === selectedFleetDeviceId) || null,
+    [fleetDevices, selectedFleetDeviceId],
+  );
+
+  const fleetCounts = useMemo(() => ({
+    total: fleetDevices.length,
+    paired: fleetDevices.filter((device) => device.paired).length,
+    online: fleetDevices.filter((device) => ['online', 'reachable'].includes(device.status)).length,
+    telemetryReady: fleetDevices.filter((device) => device.capabilities?.telemetry || device.capabilities?.sensor_poll || device.telemetry).length,
+  }), [fleetDevices]);
 
   const hasDraftChanges = useMemo(() => {
     if (!activeProfile) return false;
@@ -176,14 +230,52 @@ export default function Agents() {
 
   const messages = activeSession?.messages || [];
 
+  const refreshFleetDevices = async ({ quiet = false } = {}) => {
+    setFleetLoading(true);
+    try {
+      const data = await listDevices(true);
+      const nextDevices = data?.devices || [];
+      setFleetDevices(nextDevices);
+      setSelectedFleetDeviceId((prev) => {
+        if (prev && nextDevices.some((device) => device.id === prev)) return prev;
+        return nextDevices.find((device) => device.paired)?.id || nextDevices[0]?.id || '';
+      });
+      if (!quiet) {
+        setNotice(`Fleet sidecar refreshed (${nextDevices.length} devices).`);
+      }
+    } catch (e) {
+      if (!quiet) setError(e.message || 'Failed to refresh fleet devices');
+    } finally {
+      setFleetLoading(false);
+    }
+  };
+
+  const loadFleetTelemetry = async (deviceId, { refresh = false, quiet = true } = {}) => {
+    if (!deviceId) {
+      setFleetTelemetry(null);
+      return;
+    }
+    setFleetTelemetryLoading(true);
+    try {
+      const snapshot = await getDeviceTelemetry(deviceId, { limit: 12, refresh });
+      setFleetTelemetry(snapshot);
+      if (!quiet) setNotice(`Telemetry ${refresh ? 'refreshed' : 'loaded'} for ${deviceId}.`);
+    } catch (e) {
+      if (!quiet) setError(e.message || 'Failed to load fleet telemetry');
+    } finally {
+      setFleetTelemetryLoading(false);
+    }
+  };
+
   const hydrate = async () => {
     setLoading(true);
     setError('');
     try {
-      const [profilesResp, statusResp, runtimeResp] = await Promise.all([
+      const [profilesResp, statusResp, runtimeResp, fleetResp] = await Promise.all([
         listAgentProfiles(),
         getNirvanaStatus(),
         getNirvanaRuntimeDetails(),
+        listDevices(true),
       ]);
 
       const nextProfiles = profilesResp?.profiles || [];
@@ -198,6 +290,12 @@ export default function Agents() {
 
       setAgentStatus(statusResp || null);
       setRuntime(runtimeResp || null);
+      const nextFleetDevices = fleetResp?.devices || [];
+      setFleetDevices(nextFleetDevices);
+      setSelectedFleetDeviceId((prev) => {
+        if (prev && nextFleetDevices.some((device) => device.id === prev)) return prev;
+        return nextFleetDevices.find((device) => device.paired)?.id || nextFleetDevices[0]?.id || '';
+      });
     } catch (e) {
       setError(e.message || 'Failed to load agents state');
     } finally {
@@ -274,6 +372,56 @@ export default function Agents() {
     if (!composerRef.current || !activeProfileId) return;
     composerRef.current.focus();
   }, [activeProfileId, activeSessionId]);
+
+  useEffect(() => {
+    if (!selectedFleetDeviceId) {
+      setFleetTelemetry(null);
+      return;
+    }
+    loadFleetTelemetry(selectedFleetDeviceId, { refresh: false, quiet: true });
+  }, [selectedFleetDeviceId]);
+
+  const injectPrompt = (prompt) => {
+    setInput(prompt);
+    setNotice('Prompt injected into the Nirvana console. Press Send to execute through agent chat.');
+    setError('');
+    requestAnimationFrame(() => {
+      composerRef.current?.focus();
+    });
+  };
+
+  const runDirectFleetExec = async () => {
+    if (!selectedFleetDevice || !fleetCommandInput.trim()) return;
+    setFleetActionRunning(true);
+    setError('');
+    try {
+      const result = await executeDeviceCommand(selectedFleetDevice.id, fleetCommandInput.trim());
+      const payload = result?.results_by_device?.[selectedFleetDevice.id] || result;
+      setFleetActionResult({ kind: 'exec', payload });
+      setNotice(`Direct exec dispatched to ${selectedFleetDevice.id}.`);
+      await loadFleetTelemetry(selectedFleetDevice.id, { refresh: true, quiet: true });
+    } catch (e) {
+      setError(e.message || 'Direct fleet exec failed');
+    } finally {
+      setFleetActionRunning(false);
+    }
+  };
+
+  const runDirectFleetReboot = async () => {
+    if (!selectedFleetDevice) return;
+    setFleetActionRunning(true);
+    setError('');
+    try {
+      const result = await rebootDevice(selectedFleetDevice.id);
+      const payload = result?.results_by_device?.[selectedFleetDevice.id] || result;
+      setFleetActionResult({ kind: 'reboot', payload });
+      setNotice(`Reboot requested for ${selectedFleetDevice.id}.`);
+    } catch (e) {
+      setError(e.message || 'Direct fleet reboot failed');
+    } finally {
+      setFleetActionRunning(false);
+    }
+  };
 
   const resetProfileDraft = () => {
     if (!activeProfile) return;
@@ -535,6 +683,7 @@ export default function Agents() {
         role: 'assistant',
         content: reply,
         runtime: runtimeMeta,
+        fleet_action: res?.fleet_action || null,
         created_at: assistantTimestamp,
       };
       const persistedSession = res?.agent_session || null;
@@ -877,6 +1026,97 @@ export default function Agents() {
 
           <div>
             <div className="form-group" style={{ marginBottom: 10 }}>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>Fleet Copilot Sidecar</div>
+                    <div className="text-muted" style={{ fontSize: 11 }}>
+                      Same fleet control surface, embedded directly inside the Nirvana chat console.
+                    </div>
+                  </div>
+                  <button className="btn btn-secondary" type="button" onClick={() => refreshFleetDevices()} disabled={fleetLoading || loading}>
+                    {fleetLoading ? 'Refreshing…' : 'Refresh Fleet'}
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 10 }}>
+                  <div className="card" style={{ margin: 0, padding: 10, minHeight: 0 }}><strong>{fleetCounts.total}</strong><div className="text-muted" style={{ fontSize: 11 }}>Devices</div></div>
+                  <div className="card" style={{ margin: 0, padding: 10, minHeight: 0 }}><strong>{fleetCounts.paired}</strong><div className="text-muted" style={{ fontSize: 11 }}>Paired</div></div>
+                  <div className="card" style={{ margin: 0, padding: 10, minHeight: 0 }}><strong>{fleetCounts.online}</strong><div className="text-muted" style={{ fontSize: 11 }}>Online</div></div>
+                  <div className="card" style={{ margin: 0, padding: 10, minHeight: 0 }}><strong>{fleetCounts.telemetryReady}</strong><div className="text-muted" style={{ fontSize: 11 }}>Telemetry Ready</div></div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 10 }}>
+                  <label className="form-label">Active Fleet Device</label>
+                  <select
+                    className="form-select"
+                    value={selectedFleetDeviceId}
+                    onChange={(e) => setSelectedFleetDeviceId(e.target.value)}
+                  >
+                    {fleetDevices.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {(device.nickname || device.chip || device.id)} · {device.connection} · {device.status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => injectPrompt('refresh telemetry for all paired devices')}>
+                    Ask: paired telemetry
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={() => injectPrompt('show fleet health for all devices')}>
+                    Ask: fleet health
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={() => selectedFleetDevice && injectPrompt(`run "uptime" on ${selectedFleetDevice.id}`)} disabled={!selectedFleetDevice}>
+                    Ask: uptime on device
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={() => selectedFleetDevice && injectPrompt(`reboot ${selectedFleetDevice.id}`)} disabled={!selectedFleetDevice}>
+                    Ask: reboot device
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <input
+                    className="form-input"
+                    value={fleetCommandInput}
+                    onChange={(e) => setFleetCommandInput(e.target.value)}
+                    placeholder="Direct fleet exec, e.g. uptime && uname -a"
+                  />
+                  <button type="button" className="btn btn-secondary" onClick={runDirectFleetExec} disabled={!selectedFleetDevice || !fleetCommandInput.trim() || fleetActionRunning}>
+                    {fleetActionRunning ? 'Running…' : 'Direct Exec'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={runDirectFleetReboot} disabled={!selectedFleetDevice || fleetActionRunning}>
+                    Reboot
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>Selected device telemetry</div>
+                  <button type="button" className="btn btn-secondary" onClick={() => loadFleetTelemetry(selectedFleetDeviceId, { refresh: true, quiet: false })} disabled={!selectedFleetDeviceId || fleetTelemetryLoading}>
+                    {fleetTelemetryLoading ? 'Refreshing…' : 'Refresh Telemetry'}
+                  </button>
+                </div>
+
+                {fleetTelemetry && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 10 }}>
+                    {flattenTelemetryEntries(fleetTelemetry?.latest?.telemetry || fleetTelemetry?.registry_telemetry || {}).slice(0, 8).map(([key, value]) => (
+                      <div key={key} className="card" style={{ margin: 0, padding: 10, minHeight: 0 }}>
+                        <div className="text-muted" style={{ fontSize: 10, marginBottom: 4, fontFamily: 'var(--font-mono)' }}>{key}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{formatFleetValue(value)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {fleetActionResult?.payload && (
+                  <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10, fontSize: 12, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Last direct action ({fleetActionResult.kind})</div>
+                    {fleetActionResult.payload.stdout || fleetActionResult.payload.note || fleetActionResult.payload.message || fleetActionResult.payload.error || JSON.stringify(fleetActionResult.payload, null, 2)}
+                  </div>
+                )}
+              </div>
+
               <label className="form-label">Session Title</label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <input
@@ -906,6 +1146,19 @@ export default function Agents() {
                   <div key={`${m.role}-${idx}-${m.created_at || 'now'}`} style={{ marginBottom: 8 }}>
                     <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2 }}>{m.role === 'user' ? 'You' : 'Nirvana'}</div>
                     <div style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{m.content}</div>
+                    {m.fleet_action && (
+                      <div style={{ marginTop: 6, border: '1px solid var(--border-color)', borderRadius: 8, padding: 8, background: 'rgba(88, 166, 255, 0.08)' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
+                          Fleet action · {String(m.fleet_action.intent || 'unknown').toUpperCase()} · {m.fleet_action.status || 'captured'}
+                        </div>
+                        <div style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{summarizeFleetAction(m.fleet_action)}</div>
+                        {!!m.fleet_action.results?.length && (
+                          <div className="text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+                            {m.fleet_action.results.slice(0, 4).map((item) => `${item.device_id}: ${item.summary?.status || item.summary?.message || item.summary?.note || 'captured'}`).join(' · ')}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {m.runtime && (
                       <div className="text-muted" style={{ fontSize: 11, marginTop: 3 }}>
                         engine: {m.runtime.engine} · model: {m.runtime.model_file} · mode: {m.runtime.runtime_mode || 'auto'} · mock: {String(m.runtime.uses_mock_responses)}
