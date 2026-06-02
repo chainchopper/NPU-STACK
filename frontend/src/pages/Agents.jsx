@@ -150,6 +150,13 @@ function formatFleetValue(value) {
   return String(value);
 }
 
+function formatRecordedAt(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
 function summarizeFleetAction(action) {
   if (!action) return '';
   return action.summary || `${action.intent || 'fleet'} · ${action.status || 'captured'}`;
@@ -206,6 +213,15 @@ export default function Agents() {
     online: fleetDevices.filter((device) => ['online', 'reachable'].includes(device.status)).length,
     telemetryReady: fleetDevices.filter((device) => device.capabilities?.telemetry || device.capabilities?.sensor_poll || device.telemetry).length,
   }), [fleetDevices]);
+
+  const fleetTelemetryLatest = fleetTelemetry?.latest || null;
+  const fleetTelemetryEntries = useMemo(
+    () => flattenTelemetryEntries(fleetTelemetryLatest?.telemetry || fleetTelemetry?.registry_telemetry || {}).slice(0, 12),
+    [fleetTelemetryLatest, fleetTelemetry],
+  );
+  const fleetTelemetryHistory = fleetTelemetry?.history || [];
+  const fleetProtocols = selectedFleetDevice?.capabilities?.protocols || [];
+  const fleetTransportModes = selectedFleetDevice?.capabilities?.transport_modes || [];
 
   const hasDraftChanges = useMemo(() => {
     if (!activeProfile) return false;
@@ -397,7 +413,7 @@ export default function Agents() {
     try {
       const result = await executeDeviceCommand(selectedFleetDevice.id, fleetCommandInput.trim());
       const payload = result?.results_by_device?.[selectedFleetDevice.id] || result;
-      setFleetActionResult({ kind: 'exec', payload });
+      setFleetActionResult({ kind: 'exec', deviceId: selectedFleetDevice.id, payload });
       setNotice(`Direct exec dispatched to ${selectedFleetDevice.id}.`);
       await loadFleetTelemetry(selectedFleetDevice.id, { refresh: true, quiet: true });
     } catch (e) {
@@ -414,7 +430,7 @@ export default function Agents() {
     try {
       const result = await rebootDevice(selectedFleetDevice.id);
       const payload = result?.results_by_device?.[selectedFleetDevice.id] || result;
-      setFleetActionResult({ kind: 'reboot', payload });
+      setFleetActionResult({ kind: 'reboot', deviceId: selectedFleetDevice.id, payload });
       setNotice(`Reboot requested for ${selectedFleetDevice.id}.`);
     } catch (e) {
       setError(e.message || 'Direct fleet reboot failed');
@@ -1061,6 +1077,54 @@ export default function Agents() {
                   </select>
                 </div>
 
+                {selectedFleetDevice && (
+                  <div style={{ marginBottom: 12, padding: 12, borderRadius: 8, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700 }}>{selectedFleetDevice.nickname || selectedFleetDevice.chip || selectedFleetDevice.id}</div>
+                        <div className="text-muted" style={{ fontSize: 11 }}>
+                          {selectedFleetDevice.family || 'unknown'} · {selectedFleetDevice.connection || 'unknown transport'} · {selectedFleetDevice.status || 'unknown status'}
+                        </div>
+                      </div>
+                      {selectedFleetDevice.paired && (
+                        <div style={{ fontSize: 11, fontWeight: 700, padding: '4px 8px', borderRadius: 999, background: 'rgba(168, 85, 247, 0.18)', color: 'var(--accent-purple)' }}>
+                          PAIRED
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: (fleetProtocols.length || fleetTransportModes.length) ? 10 : 0 }}>
+                      <div><span className="text-muted" style={{ fontSize: 11 }}>Device ID</span><div style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{selectedFleetDevice.id}</div></div>
+                      <div><span className="text-muted" style={{ fontSize: 11 }}>Endpoint</span><div style={{ fontSize: 12 }}>{selectedFleetDevice.port || selectedFleetDevice.drive || selectedFleetDevice.ip || selectedFleetDevice.address || selectedFleetDevice.host || '—'}</div></div>
+                      <div><span className="text-muted" style={{ fontSize: 11 }}>Last Seen</span><div style={{ fontSize: 12 }}>{formatRecordedAt(selectedFleetDevice.last_agent_seen_at || selectedFleetDevice.last_seen)}</div></div>
+                      <div><span className="text-muted" style={{ fontSize: 11 }}>Chip / Model</span><div style={{ fontSize: 12 }}>{selectedFleetDevice.chip || selectedFleetDevice.description || '—'}</div></div>
+                    </div>
+
+                    {(fleetProtocols.length > 0 || fleetTransportModes.length > 0) && (
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        {!!fleetProtocols.length && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {fleetProtocols.map((protocol) => (
+                              <span key={`protocol-${protocol}`} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 999, background: 'rgba(59,130,246,0.16)', color: 'var(--accent-blue)' }}>
+                                {protocol}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {!!fleetTransportModes.length && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {fleetTransportModes.map((mode) => (
+                              <span key={`transport-${mode}`} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 999, background: 'rgba(168, 85, 247, 0.16)', color: 'var(--accent-purple)' }}>
+                                {mode}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                   <button type="button" className="btn btn-secondary" onClick={() => injectPrompt('refresh telemetry for all paired devices')}>
                     Ask: paired telemetry
@@ -1098,9 +1162,15 @@ export default function Agents() {
                   </button>
                 </div>
 
-                {fleetTelemetry && (
+                {fleetTelemetryLatest && (
+                  <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-muted)' }}>
+                    Latest snapshot from <strong>{fleetTelemetryLatest.source || 'registry'}</strong> at {formatRecordedAt(fleetTelemetryLatest.recorded_at)} · history: {fleetTelemetry?.history_count || 0}
+                  </div>
+                )}
+
+                {fleetTelemetry && fleetTelemetryEntries.length > 0 && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 10 }}>
-                    {flattenTelemetryEntries(fleetTelemetry?.latest?.telemetry || fleetTelemetry?.registry_telemetry || {}).slice(0, 8).map(([key, value]) => (
+                    {fleetTelemetryEntries.map(([key, value]) => (
                       <div key={key} className="card" style={{ margin: 0, padding: 10, minHeight: 0 }}>
                         <div className="text-muted" style={{ fontSize: 10, marginBottom: 4, fontFamily: 'var(--font-mono)' }}>{key}</div>
                         <div style={{ fontSize: 13, fontWeight: 700 }}>{formatFleetValue(value)}</div>
@@ -1109,9 +1179,41 @@ export default function Agents() {
                   </div>
                 )}
 
+                {fleetTelemetry && !fleetTelemetryEntries.length && (
+                  <div className="text-muted" style={{ fontSize: 12, marginBottom: 10 }}>
+                    Telemetry is connected, but no metric values were returned yet.
+                  </div>
+                )}
+
+                {!!fleetTelemetryHistory.length && (
+                  <div style={{ marginBottom: 10, border: '1px solid var(--border-color)', borderRadius: 8, padding: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Recent telemetry history</div>
+                    <div style={{ display: 'grid', gap: 8, maxHeight: 180, overflowY: 'auto' }}>
+                      {fleetTelemetryHistory.slice().reverse().slice(0, 6).map((entry, index) => {
+                        const sample = flattenTelemetryEntries(entry?.telemetry || {}).slice(0, 3);
+                        return (
+                          <div key={`${entry?.recorded_at || 'entry'}-${index}`} style={{ paddingBottom: 8, borderBottom: index === Math.min(fleetTelemetryHistory.length, 6) - 1 ? 'none' : '1px solid var(--border-color)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                              <div style={{ fontSize: 12, fontWeight: 600 }}>{entry?.source || 'telemetry'}</div>
+                              <div className="text-muted" style={{ fontSize: 11 }}>{formatRecordedAt(entry?.recorded_at)}</div>
+                            </div>
+                            <div className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                              {sample.length
+                                ? sample.map(([key, value]) => `${key}=${formatFleetValue(value)}`).join(' · ')
+                                : 'No flattened metrics in this snapshot.'}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {fleetActionResult?.payload && (
                   <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 10, fontSize: 12, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)' }}>
-                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Last direct action ({fleetActionResult.kind})</div>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                      Last direct action ({fleetActionResult.kind}){fleetActionResult.deviceId ? ` · ${fleetActionResult.deviceId}` : ''}
+                    </div>
                     {fleetActionResult.payload.stdout || fleetActionResult.payload.note || fleetActionResult.payload.message || fleetActionResult.payload.error || JSON.stringify(fleetActionResult.payload, null, 2)}
                   </div>
                 )}
