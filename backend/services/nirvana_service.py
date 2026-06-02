@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -11,12 +12,18 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - fallback path below handles missing PyYAML
+    yaml = None
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HERMES_AGENT_DIR = REPO_ROOT / "hermes-agent"
 HERMES_WEBUI_DIR = REPO_ROOT / "hermes-webui"
 NIRVANA_DATA_DIR = REPO_ROOT / "backend" / "data" / "nirvana-runtime"
 HERMES_HOME = NIRVANA_DATA_DIR / ".hermes"
 WEBUI_STATE_DIR = NIRVANA_DATA_DIR / "webui"
+RUNTIME_PYTHON_DIR = NIRVANA_DATA_DIR / "python"
 CONFIG_PATH = HERMES_HOME / "config.yaml"
 ENV_PATH = HERMES_HOME / ".env"
 LOG_PATH = WEBUI_STATE_DIR / "nirvana-webui.log"
@@ -24,8 +31,11 @@ START_SCRIPT = HERMES_WEBUI_DIR / "start.ps1"
 WEBUI_HOST = os.getenv("NIRVANA_WEBUI_HOST", os.getenv("HERMES_WEBUI_HOST", "127.0.0.1"))
 WEBUI_PORT = int(os.getenv("NIRVANA_WEBUI_PORT", os.getenv("HERMES_WEBUI_PORT", "8789")))
 WEBUI_URL = f"http://{WEBUI_HOST}:{WEBUI_PORT}"
+NIRVANA_MODEL_BASE_URL = os.getenv("NIRVANA_MODEL_BASE_URL", "http://127.0.0.1:8010/v1")
+NIRVANA_DEFAULT_MODEL = os.getenv("NIRVANA_DEFAULT_MODEL", "Phi-3-mini-4k-instruct-q4")
 
 _PROCESS_LOCK = threading.Lock()
+_RUNTIME_LOCK = threading.Lock()
 _WEBUI_PROCESS: Optional[subprocess.Popen] = None
 _WEBUI_LOG_HANDLE = None
 
@@ -39,20 +49,185 @@ def _yaml_quote(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _preferred_model_config() -> Dict[str, str]:
+    return {
+        "default": NIRVANA_DEFAULT_MODEL,
+        "provider": "custom",
+        "base_url": NIRVANA_MODEL_BASE_URL,
+    }
+
+
 
 def _ensure_runtime_dirs() -> None:
     HERMES_HOME.mkdir(parents=True, exist_ok=True)
     WEBUI_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    RUNTIME_PYTHON_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _runtime_python_path() -> Path:
+    if os.name == "nt":
+        return RUNTIME_PYTHON_DIR / "Scripts" / "python.exe"
+    return RUNTIME_PYTHON_DIR / "bin" / "python"
+
+
+def _python_version(python_exe: Path | str) -> Optional[tuple[int, int]]:
+    try:
+        probe = subprocess.run(
+            [str(python_exe), "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        return None
+    if probe.returncode != 0:
+        return None
+    raw = (probe.stdout or "").strip()
+    try:
+        major, minor = raw.split(".", 1)
+        return int(major), int(minor)
+    except Exception:
+        return None
+
+
+def _py_launcher_path(version: str) -> Optional[str]:
+    launcher = shutil.which("py") or shutil.which("py.exe")
+    if not launcher:
+        return None
+    probe = subprocess.run(
+        [launcher, f"-{version}", "-c", "import sys; print(sys.executable)"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if probe.returncode != 0:
+        return None
+    path = (probe.stdout or "").strip()
+    return path or None
+
+
+def _preferred_runtime_base_python() -> str:
+    if os.name == "nt":
+        for version in ("3.13", "3.12", "3.11"):
+            candidate = _py_launcher_path(version)
+            if candidate:
+                return candidate
+        current_version = _python_version(sys.executable)
+        if current_version and current_version <= (3, 13):
+            return sys.executable
+        raise NirvanaServiceError(
+            "Nirvana runtime requires Python 3.13, 3.12, or 3.11 on Windows because pywinpty does not currently build on Python 3.14"
+        )
+    return sys.executable
+
+
+def _uv_executable() -> Optional[str]:
+    return shutil.which("uv") or shutil.which("uv.exe")
+
+
+def _runtime_probe_env() -> Dict[str, str]:
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        str(HERMES_AGENT_DIR)
+        if not existing_pythonpath
+        else f"{HERMES_AGENT_DIR}{os.pathsep}{existing_pythonpath}"
+    )
+    return env
+
+
+def _python_runtime_ready(python_exe: Path) -> tuple[bool, str]:
+    if not python_exe.exists():
+        return False, f"python executable missing at {python_exe}"
+
+    probe = subprocess.run(
+        [
+            str(python_exe),
+            "-c",
+            "import yaml, openai; from run_agent import AIAgent; print('ok')",
+        ],
+        cwd=str(HERMES_WEBUI_DIR),
+        env=_runtime_probe_env(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if probe.returncode == 0:
+        return True, "ok"
+    detail = (probe.stderr or probe.stdout or "unknown import failure").strip()
+    return False, detail
+
+
+def _run_runtime_install(command: list[str], *, cwd: Path) -> None:
+    completed = subprocess.run(
+        command,
+        cwd=str(cwd),
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "runtime install failed").strip()
+        raise NirvanaServiceError(detail)
+
+
+def ensure_runtime_python() -> Path:
+    _ensure_runtime_dirs()
+    python_path = _runtime_python_path()
+    ready, _ = _python_runtime_ready(python_path)
+    if ready:
+        return python_path
+
+    uv_exe = _uv_executable()
+    if not uv_exe:
+        raise NirvanaServiceError("uv is required to provision the isolated Nirvana runtime Python")
+
+    with _RUNTIME_LOCK:
+        ready, detail = _python_runtime_ready(python_path)
+        if ready:
+            return python_path
+
+        runtime_version = _python_version(python_path) if python_path.exists() else None
+        if runtime_version and runtime_version >= (3, 14):
+            shutil.rmtree(RUNTIME_PYTHON_DIR, ignore_errors=True)
+            _ensure_runtime_dirs()
+            python_path = _runtime_python_path()
+
+        if not python_path.exists():
+            _run_runtime_install([uv_exe, "venv", str(RUNTIME_PYTHON_DIR), "--python", _preferred_runtime_base_python()], cwd=REPO_ROOT)
+
+        _run_runtime_install(
+            [uv_exe, "pip", "install", "--python", str(python_path), "-r", str(HERMES_WEBUI_DIR / "requirements.txt")],
+            cwd=HERMES_WEBUI_DIR,
+        )
+        _run_runtime_install(
+            [uv_exe, "pip", "install", "--python", str(python_path), "-e", str(HERMES_AGENT_DIR)],
+            cwd=HERMES_AGENT_DIR,
+        )
+
+        ready, detail = _python_runtime_ready(python_path)
+        if not ready:
+            raise NirvanaServiceError(f"Nirvana runtime Python is still not ready: {detail}")
+
+    return python_path
 
 
 
 def _default_config_text() -> str:
+    model_config = _preferred_model_config()
     return "\n".join(
         [
             "# Isolated Nirvana runtime config for NPU-STACK",
             "# This keeps the embedded agent/web UI detached from any real user runtime home.",
             "model:",
-            "  provider: auto",
+            f"  default: {_yaml_quote(model_config['default'])}",
+            f"  provider: {model_config['provider']}",
+            f"  base_url: {_yaml_quote(model_config['base_url'])}",
             "terminal:",
             '  backend: "local"',
             f"  cwd: {_yaml_quote(str(REPO_ROOT))}",
@@ -70,17 +245,96 @@ def _default_config_text() -> str:
     )
 
 
+def _fallback_prewire_config_text(raw_text: str) -> tuple[str, bool]:
+    model_block = "\n".join(
+        [
+            "model:",
+            f"  default: {_yaml_quote(NIRVANA_DEFAULT_MODEL)}",
+            "  provider: custom",
+            f"  base_url: {_yaml_quote(NIRVANA_MODEL_BASE_URL)}",
+        ]
+    )
+    if "model:\n  provider: auto" in raw_text:
+        return raw_text.replace("model:\n  provider: auto", model_block, 1), True
+    if raw_text.startswith("# Isolated Nirvana runtime config for NPU-STACK\nmodel:\n") and "base_url:" not in raw_text:
+        parts = raw_text.split("terminal:\n", 1)
+        if len(parts) == 2:
+            return f"# Isolated Nirvana runtime config for NPU-STACK\n# This keeps the embedded agent/web UI detached from any real user runtime home.\n{model_block}\nterminal:\n{parts[1]}", True
+    return raw_text, False
+
+
+def _prewire_runtime_config() -> bool:
+    if not CONFIG_PATH.exists():
+        return False
+
+    raw_text = CONFIG_PATH.read_text(encoding="utf-8", errors="replace")
+    if yaml is None:
+        updated_text, updated = _fallback_prewire_config_text(raw_text)
+        if updated:
+            CONFIG_PATH.write_text(updated_text, encoding="utf-8")
+        return updated
+
+    try:
+        config = yaml.safe_load(raw_text) or {}
+    except Exception:
+        updated_text, updated = _fallback_prewire_config_text(raw_text)
+        if updated:
+            CONFIG_PATH.write_text(updated_text, encoding="utf-8")
+        return updated
+
+    if not isinstance(config, dict):
+        config = {}
+
+    model_config = config.get("model")
+    if isinstance(model_config, str):
+        model_config = {"default": model_config}
+    elif not isinstance(model_config, dict):
+        model_config = {}
+
+    updated = False
+    preferred = _preferred_model_config()
+
+    current_default = str(model_config.get("default", "")).strip()
+    if not current_default:
+        model_config["default"] = preferred["default"]
+        updated = True
+
+    current_base_url = str(model_config.get("base_url", "")).strip()
+    if not current_base_url:
+        model_config["base_url"] = preferred["base_url"]
+        updated = True
+
+    current_provider = str(model_config.get("provider", "")).strip()
+    if not current_provider or current_provider == "auto":
+        model_config["provider"] = preferred["provider"]
+        updated = True
+
+    if not updated:
+        return False
+
+    config["model"] = model_config
+    CONFIG_PATH.write_text(
+        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return True
+
+
 
 def prepare_runtime() -> Dict[str, Any]:
     _ensure_runtime_dirs()
     created_config = False
+    updated_config = False
     if not CONFIG_PATH.exists():
         CONFIG_PATH.write_text(_default_config_text(), encoding="utf-8")
         created_config = True
+    else:
+        updated_config = _prewire_runtime_config()
 
     return {
         "prepared": True,
         "created_config": created_config,
+        "updated_config": updated_config,
         "paths": _paths_payload(),
         "recommended_commands": recommended_commands(),
     }
@@ -92,6 +346,8 @@ def _paths_payload() -> Dict[str, str]:
         "repo_root": str(REPO_ROOT),
         "agent_dir": str(HERMES_AGENT_DIR),
         "webui_dir": str(HERMES_WEBUI_DIR),
+        "runtime_python_dir": str(RUNTIME_PYTHON_DIR),
+        "runtime_python": str(_runtime_python_path()),
         "hermes_home": str(HERMES_HOME),
         "webui_state_dir": str(WEBUI_STATE_DIR),
         "config_path": str(CONFIG_PATH),
@@ -136,6 +392,7 @@ def recommended_commands() -> list[dict[str, str]]:
 def _webui_env() -> Dict[str, str]:
     env = os.environ.copy()
     env["HERMES_WEBUI_AGENT_DIR"] = str(HERMES_AGENT_DIR)
+    env["HERMES_WEBUI_PYTHON"] = str(ensure_runtime_python())
     env["HERMES_HOME"] = str(HERMES_HOME)
     env["HERMES_WEBUI_STATE_DIR"] = str(WEBUI_STATE_DIR)
     env["HERMES_WEBUI_HOST"] = WEBUI_HOST
@@ -280,6 +537,7 @@ def _wait_for_webui(timeout_seconds: float = 35.0, interval_seconds: float = 1.0
 
 def start_webui(timeout_seconds: float = 35.0) -> Dict[str, Any]:
     prepare_runtime()
+    ensure_runtime_python()
 
     if get_webui_health().get("ok"):
         status = get_bridge_status()
