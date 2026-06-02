@@ -1,13 +1,17 @@
+import asyncio
 import unittest
 from unittest.mock import patch
 
 from backend.services.edge_discovery import (
+    _build_capabilities,
     _classify_network_endpoint,
     _identify_by_heuristics,
     _parse_known_host_tokens,
     _parse_probe_target,
     _parse_http_probe,
     merge_into_registry,
+    scan_network_neighbors,
+    scan_windows_usb_pnp_devices,
 )
 
 
@@ -107,6 +111,92 @@ class EdgeDiscoveryTests(unittest.TestCase):
         self.assertEqual(device['family'], 'esp32-c3')
         self.assertEqual(device['chip'], 'ESP32-C3 SuperMini')
         self.assertEqual(device['flash_mb'], 4)
+
+    def test_merge_into_registry_keeps_low_confidence_network_hits(self):
+        discovered = [{
+            'id': 'net-192-168-1-50-80',
+            'connection': 'wifi',
+            'family': 'unknown',
+            'chip': 'unknown',
+            'description': '',
+            'status': 'reachable',
+            'discovered_at': '2026-05-29T00:00:01+00:00',
+        }]
+
+        with patch('backend.services.edge_discovery.load_registry', return_value={'devices': {}, 'last_scan': None}), patch('backend.services.edge_discovery.save_registry'):
+            merged = merge_into_registry(discovered)
+
+        self.assertIn('net-192-168-1-50-80', merged['devices'])
+
+    def test_scan_windows_usb_pnp_devices_skips_serial_duplicate_and_keeps_rockusb(self):
+        raw_usb = [
+            {
+                'Class': 'USB',
+                'FriendlyName': 'USB Composite Device',
+                'InstanceId': 'USB\\VID_239A&PID_8018\\75F8905050304D48502E3120FF010C31',
+                'Manufacturer': 'Microsoft',
+            },
+            {
+                'Class': 'Rockusb Device',
+                'FriendlyName': 'Rockusb Device',
+                'InstanceId': 'USB\\VID_2207&PID_110C\\B&2E5F6FA0&0&2',
+                'Manufacturer': 'Rockchip',
+            },
+        ]
+        serial_devices = [{
+            'id': 'usb-COM12',
+            'serial_number': '75F8905050304D48502E3120FF010C31',
+            'vid': 0x239A,
+            'pid': 0x8018,
+            'hwid': 'USB VID:PID=239A:8018 SER=75F8905050304D48502E3120FF010C31',
+        }]
+
+        with patch('backend.services.edge_discovery._run_powershell_json', return_value=raw_usb), patch('backend.services.edge_discovery.platform.system', return_value='Windows'):
+            devices = scan_windows_usb_pnp_devices(serial_devices=serial_devices)
+
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]['family'], 'rockchip')
+        self.assertIn('2207', devices[0]['instance_id'])
+
+    def test_scan_network_neighbors_surfaces_visible_lan_entries(self):
+        raw_neighbors = [
+            {
+                'IPAddress': '192.168.1.42',
+                'LinkLayerAddress': '92-44-95-A2-84-62',
+                'InterfaceAlias': 'Ethernet 4',
+                'State': 4,
+            },
+            {
+                'IPAddress': '239.255.255.250',
+                'LinkLayerAddress': '01-00-5E-7F-FF-FA',
+                'InterfaceAlias': 'Ethernet 4',
+                'State': 6,
+            },
+        ]
+
+        async def run_test():
+            with patch('backend.services.edge_discovery._run_powershell_json', return_value=raw_neighbors), patch('backend.services.edge_discovery._probe_network_target', return_value=None), patch('backend.services.edge_discovery.platform.system', return_value='Windows'):
+                return await scan_network_neighbors()
+
+        devices = asyncio.run(run_test())
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]['connection'], 'network')
+        self.assertEqual(devices[0]['status'], 'visible')
+
+    def test_build_capabilities_exposes_control_plane_flags(self):
+        caps = _build_capabilities({
+            'id': 'usb-COM14',
+            'family': 'uart-bridge',
+            'chip': 'WCH CH340',
+            'connection': 'usb',
+            'port': 'COM14',
+            'status': 'detected',
+        })
+
+        self.assertTrue(caps['console'])
+        self.assertTrue(caps['chip_detect'])
+        self.assertIn('uart', caps['protocols'])
+        self.assertIn('serial', caps['transport_modes'])
 
 
 if __name__ == '__main__':

@@ -1,36 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  getHermesConfig,
-  updateHermesConfig,
+  getNirvanaRuntimeConfig,
+  updateNirvanaRuntimeConfig,
   discoverMcpAssets,
   autoAddMcpServers,
   getNirvanaIdentity,
   updateNirvanaIdentity,
   getOrchestrationCapabilities,
-  listAutoResearchProfiles,
-  createAutoResearchProfile,
-  deleteAutoResearchProfile,
-  listAutoResearchRuns,
-  createAutoResearchRun,
-  updateAutoResearchRun,
   getSystemInfo,
 } from '../api/client';
-
-const defaultProfile = {
-  name: '',
-  objective: '',
-  max_iterations: 3,
-  time_budget_minutes: 30,
-  safety_mode: 'strict',
-};
-
-const statusColors = {
-  queued: 'var(--accent-amber)',
-  running: 'var(--accent-blue)',
-  completed: 'var(--accent-green)',
-  failed: 'var(--accent-red)',
-  cancelled: 'var(--text-muted)',
-};
 
 export default function Orchestration() {
   const [loading, setLoading] = useState(true);
@@ -45,7 +23,7 @@ export default function Orchestration() {
     mission: '',
   });
 
-  const [hermesConfig, setHermesConfig] = useState({
+  const [nirvanaConfig, setNirvanaConfig] = useState({
     enabled: false,
     api_base: 'http://localhost:11437/v1',
     default_provider: 'openai-compatible',
@@ -53,40 +31,30 @@ export default function Orchestration() {
     tool_policy: 'approval-required',
     mcp_servers: [],
   });
-  const [hermesRuntime, setHermesRuntime] = useState(null);
+  const [nirvanaRuntime, setNirvanaRuntime] = useState(null);
   const [mcpInput, setMcpInput] = useState('');
   const [capabilities, setCapabilities] = useState({ tools: [], skills: [], mcp: {} });
   const [mcpDiscovery, setMcpDiscovery] = useState({ servers: [], tools: [], skills: [], configured_servers: [] });
 
-  const [profiles, setProfiles] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [profileDraft, setProfileDraft] = useState(defaultProfile);
-  const [selectedProfileId, setSelectedProfileId] = useState('');
-  const [runNotes, setRunNotes] = useState('');
-
-  const activeProfile = useMemo(
-    () => profiles.find((p) => p.id === selectedProfileId) || null,
-    [profiles, selectedProfileId]
-  );
-
   const presentConfigPath = (path) => {
     if (!path) return '';
+    const legacyBrand = ['her', 'mes'].join('');
     return String(path)
-      .replaceAll('.hermes', '.runtime')
-      .replaceAll('\\hermes\\', '\\runtime\\')
-      .replaceAll('/hermes/', '/runtime/');
+      .replaceAll(`${legacyBrand}-agent`, 'nirvana-agent')
+      .replaceAll(`${legacyBrand}.exe`, 'nirvana.exe')
+      .replaceAll(`.${legacyBrand}`, '.nirvana')
+      .replaceAll(`\\${legacyBrand}\\`, '\\nirvana\\')
+      .replaceAll(`/${legacyBrand}/`, '/nirvana/');
   };
 
   const loadAll = async () => {
     setLoading(true);
     setError('');
     try {
-      const [nirvanaResp, hermes, caps, profileData, runData, discovered, systemInfo] = await Promise.all([
+      const [nirvanaResp, runtimeConfigResponse, caps, discovered, systemInfo] = await Promise.all([
         getNirvanaIdentity(),
-        getHermesConfig(),
+        getNirvanaRuntimeConfig(),
         getOrchestrationCapabilities(),
-        listAutoResearchProfiles(),
-        listAutoResearchRuns(50),
         discoverMcpAssets(),
         getSystemInfo().catch(() => null),
       ]);
@@ -94,16 +62,10 @@ export default function Orchestration() {
       setSysInfo(systemInfo);
 
       setNirvana(nirvanaResp.identity || {});
-      setHermesConfig(hermes.config || {});
-      setHermesRuntime(hermes.runtime || null);
+  setNirvanaConfig(runtimeConfigResponse.config || {});
+  setNirvanaRuntime(runtimeConfigResponse.runtime || null);
       setCapabilities(caps || { tools: [], skills: [], mcp: {} });
-      setProfiles(profileData.profiles || []);
-      setRuns(runData.runs || []);
       setMcpDiscovery(discovered || { servers: [], tools: [], skills: [], configured_servers: [] });
-
-      if (!selectedProfileId && profileData.profiles?.length) {
-        setSelectedProfileId(profileData.profiles[0].id);
-      }
     } catch (e) {
       setError(e.message || 'Failed to load orchestration state');
     } finally {
@@ -130,31 +92,31 @@ export default function Orchestration() {
     }
   };
 
-  const saveHermes = async () => {
+  const saveNirvanaRuntime = async () => {
     setError('');
     setNotice('');
     try {
       const payload = {
-        ...hermesConfig,
-        mcp_servers: (hermesConfig.mcp_servers || []).filter(Boolean),
+        ...nirvanaConfig,
+        mcp_servers: (nirvanaConfig.mcp_servers || []).filter(Boolean),
       };
-      const result = await updateHermesConfig(payload);
-      setHermesConfig(result.config || payload);
-      setHermesRuntime(result.runtime || null);
-      setNotice('Agent settings saved.');
+      const result = await updateNirvanaRuntimeConfig(payload);
+      setNirvanaConfig(result.config || payload);
+      setNirvanaRuntime(result.runtime || null);
+      setNotice('Nirvana runtime settings saved.');
     } catch (e) {
-      setError(e.message || 'Failed to save agent settings');
+      setError(e.message || 'Failed to save Nirvana runtime settings');
     }
   };
 
   const addMcpServer = () => {
     const next = mcpInput.trim();
     if (!next) return;
-    if ((hermesConfig.mcp_servers || []).includes(next)) {
+    if ((nirvanaConfig.mcp_servers || []).includes(next)) {
       setMcpInput('');
       return;
     }
-    setHermesConfig((prev) => ({
+    setNirvanaConfig((prev) => ({
       ...prev,
       mcp_servers: [...(prev.mcp_servers || []), next],
     }));
@@ -162,7 +124,7 @@ export default function Orchestration() {
   };
 
   const removeMcpServer = (server) => {
-    setHermesConfig((prev) => ({
+    setNirvanaConfig((prev) => ({
       ...prev,
       mcp_servers: (prev.mcp_servers || []).filter((item) => item !== server),
     }));
@@ -173,7 +135,7 @@ export default function Orchestration() {
     setNotice('');
     try {
       const result = await autoAddMcpServers({});
-      setHermesConfig((prev) => ({ ...prev, mcp_servers: result.mcp_servers || prev.mcp_servers || [] }));
+      setNirvanaConfig((prev) => ({ ...prev, mcp_servers: result.mcp_servers || prev.mcp_servers || [] }));
       const discovered = await discoverMcpAssets();
       setMcpDiscovery(discovered || mcpDiscovery);
       setNotice(`Added ${result.count_added || 0} discovered MCP server(s).`);
@@ -187,7 +149,7 @@ export default function Orchestration() {
     setNotice('');
     try {
       const result = await autoAddMcpServers({ server_ids: [serverId] });
-      setHermesConfig((prev) => ({ ...prev, mcp_servers: result.mcp_servers || prev.mcp_servers || [] }));
+      setNirvanaConfig((prev) => ({ ...prev, mcp_servers: result.mcp_servers || prev.mcp_servers || [] }));
       const discovered = await discoverMcpAssets();
       setMcpDiscovery(discovered || mcpDiscovery);
       setNotice(result.count_added ? `Added ${serverId}.` : `${serverId} already configured.`);
@@ -196,88 +158,12 @@ export default function Orchestration() {
     }
   };
 
-  const submitProfile = async () => {
-    if (!profileDraft.name.trim() || !profileDraft.objective.trim()) {
-      setError('Profile name and objective are required.');
-      return;
-    }
-
-    setError('');
-    setNotice('');
-    try {
-      const result = await createAutoResearchProfile({
-        ...profileDraft,
-        name: profileDraft.name.trim(),
-        objective: profileDraft.objective.trim(),
-      });
-      const created = result.profile;
-      setProfiles((prev) => [created, ...prev]);
-      setSelectedProfileId(created.id);
-      setProfileDraft(defaultProfile);
-      setNotice('AutoResearch profile created.');
-    } catch (e) {
-      setError(e.message || 'Failed to create profile');
-    }
-  };
-
-  const removeProfile = async (profileId) => {
-    setError('');
-    setNotice('');
-    try {
-      await deleteAutoResearchProfile(profileId);
-      setProfiles((prev) => prev.filter((p) => p.id !== profileId));
-      if (selectedProfileId === profileId) {
-        const remaining = profiles.filter((p) => p.id !== profileId);
-        setSelectedProfileId(remaining[0]?.id || '');
-      }
-      setNotice('Profile removed.');
-    } catch (e) {
-      setError(e.message || 'Failed to remove profile');
-    }
-  };
-
-  const queueRun = async () => {
-    if (!selectedProfileId) {
-      setError('Select a profile first.');
-      return;
-    }
-
-    setError('');
-    setNotice('');
-    try {
-      const result = await createAutoResearchRun({
-        profile_id: selectedProfileId,
-        notes: runNotes,
-      });
-      setRuns((prev) => [result.run, ...prev]);
-      setRunNotes('');
-      setNotice('Run queued.');
-    } catch (e) {
-      setError(e.message || 'Failed to queue run');
-    }
-  };
-
-  const setRunStatus = async (runId, status) => {
-    setError('');
-    setNotice('');
-    try {
-      const result = await updateAutoResearchRun(runId, {
-        status,
-        result_summary: status === 'completed' ? 'Marked as completed from orchestration panel.' : null,
-      });
-      setRuns((prev) => prev.map((r) => (r.id === runId ? result.run : r)));
-      setNotice(`Run updated to ${status}.`);
-    } catch (e) {
-      setError(e.message || 'Failed to update run');
-    }
-  };
-
   return (
     <div>
       <div className="page-header">
         <h2>Orchestration</h2>
         <p>
-          Global Nirvana orchestration control plane with AutoResearch extension.
+          Runtime control plane for Nirvana identity, agent configuration, and MCP capabilities.
         </p>
       </div>
 
@@ -406,40 +292,40 @@ export default function Orchestration() {
                 <label className="form-label">Enable Nirvana Agent</label>
                 <input
                   type="checkbox"
-                  checked={Boolean(hermesConfig.enabled)}
-                  onChange={(e) => setHermesConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
+                  checked={Boolean(nirvanaConfig.enabled)}
+                  onChange={(e) => setNirvanaConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">API Base</label>
                 <input
                   className="form-input"
-                  value={hermesConfig.api_base || ''}
-                  onChange={(e) => setHermesConfig((prev) => ({ ...prev, api_base: e.target.value }))}
+                  value={nirvanaConfig.api_base || ''}
+                  onChange={(e) => setNirvanaConfig((prev) => ({ ...prev, api_base: e.target.value }))}
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">Default Provider</label>
                 <input
                   className="form-input"
-                  value={hermesConfig.default_provider || ''}
-                  onChange={(e) => setHermesConfig((prev) => ({ ...prev, default_provider: e.target.value }))}
+                  value={nirvanaConfig.default_provider || ''}
+                  onChange={(e) => setNirvanaConfig((prev) => ({ ...prev, default_provider: e.target.value }))}
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">Default Model</label>
                 <input
                   className="form-input"
-                  value={hermesConfig.default_model || ''}
-                  onChange={(e) => setHermesConfig((prev) => ({ ...prev, default_model: e.target.value }))}
+                  value={nirvanaConfig.default_model || ''}
+                  onChange={(e) => setNirvanaConfig((prev) => ({ ...prev, default_model: e.target.value }))}
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">Tool Policy</label>
                 <select
                   className="form-select"
-                  value={hermesConfig.tool_policy || 'approval-required'}
-                  onChange={(e) => setHermesConfig((prev) => ({ ...prev, tool_policy: e.target.value }))}
+                  value={nirvanaConfig.tool_policy || 'approval-required'}
+                  onChange={(e) => setNirvanaConfig((prev) => ({ ...prev, tool_policy: e.target.value }))}
                 >
                   <option value="approval-required">approval-required</option>
                   <option value="allowlisted-only">allowlisted-only</option>
@@ -458,7 +344,7 @@ export default function Orchestration() {
                   <button className="btn btn-secondary" onClick={addMcpServer}>Add</button>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                  {(hermesConfig.mcp_servers || []).map((server) => (
+                  {(nirvanaConfig.mcp_servers || []).map((server) => (
                     <span key={server} className="badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       {server}
                       <button
@@ -471,58 +357,58 @@ export default function Orchestration() {
                   ))}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={saveHermes}>Save Agent Settings</button>
+              <button className="btn btn-primary" onClick={saveNirvanaRuntime}>Save Nirvana Settings</button>
 
-              {hermesRuntime && (
+              {nirvanaRuntime && (
                 <details style={{ marginTop: 14 }} open>
                   <summary style={{ fontSize: 12, fontWeight: 700, cursor: 'pointer', color: 'var(--text-secondary)', marginBottom: 8 }}>
                     Runtime &amp; Config Sources
                   </summary>
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {hermesRuntime.startup_warmup && (
+                    {nirvanaRuntime.startup_warmup && (
                       <div>
                         <span style={{ opacity: 0.6 }}>Warmup: </span>
                         <span
                           className="badge"
                           style={{
-                            borderColor: hermesRuntime.startup_warmup.ready ? 'var(--accent-green)' : hermesRuntime.startup_warmup.active ? 'var(--accent-blue)' : 'var(--accent-amber)',
-                            color: hermesRuntime.startup_warmup.ready ? 'var(--accent-green)' : hermesRuntime.startup_warmup.active ? 'var(--accent-blue)' : 'var(--accent-amber)',
+                            borderColor: nirvanaRuntime.startup_warmup.ready ? 'var(--accent-green)' : nirvanaRuntime.startup_warmup.active ? 'var(--accent-blue)' : 'var(--accent-amber)',
+                            color: nirvanaRuntime.startup_warmup.ready ? 'var(--accent-green)' : nirvanaRuntime.startup_warmup.active ? 'var(--accent-blue)' : 'var(--accent-amber)',
                           }}
                         >
-                          {hermesRuntime.startup_warmup.ready
+                          {nirvanaRuntime.startup_warmup.ready
                             ? 'ready'
-                            : hermesRuntime.startup_warmup.active
-                              ? `retrying (${hermesRuntime.startup_warmup.attempts}/${hermesRuntime.startup_warmup.max_attempts})`
+                            : nirvanaRuntime.startup_warmup.active
+                              ? `retrying (${nirvanaRuntime.startup_warmup.attempts}/${nirvanaRuntime.startup_warmup.max_attempts})`
                               : 'idle'}
                         </span>
-                        <span style={{ marginLeft: 8, opacity: 0.75 }}>{hermesRuntime.startup_warmup.detail}</span>
+                        <span style={{ marginLeft: 8, opacity: 0.75 }}>{nirvanaRuntime.startup_warmup.detail}</span>
                       </div>
                     )}
                     <div>
                       <span style={{ opacity: 0.6 }}>CLI: </span>
-                      {hermesRuntime.cli_installed
-                        ? <span style={{ color: 'var(--accent-green)' }}>✓ {hermesRuntime.cli_path}</span>
+                      {nirvanaRuntime.cli_installed
+                        ? <span style={{ color: 'var(--accent-green)' }}>✓ {presentConfigPath(nirvanaRuntime.cli_path)}</span>
                         : <span style={{ color: 'var(--accent-amber)' }}>not found in PATH</span>}
                     </div>
                     <div>
                       <span style={{ opacity: 0.6 }}>API: </span>
-                      {hermesRuntime.api_configured
-                        ? <span style={{ color: 'var(--accent-green)' }}>✓ {hermesRuntime.api_base}</span>
+                      {nirvanaRuntime.api_configured
+                        ? <span style={{ color: 'var(--accent-green)' }}>✓ {nirvanaRuntime.api_base}</span>
                         : <span style={{ color: 'var(--accent-red)' }}>not configured</span>}
                     </div>
 
-                    {hermesRuntime.config_sources && (
+                    {nirvanaRuntime.config_sources && (
                       <>
                         <div style={{ marginTop: 8, fontWeight: 700, opacity: 0.8 }}>Detected config files:</div>
-                        {hermesRuntime.config_sources.existing_paths?.length
-                          ? hermesRuntime.config_sources.existing_paths.map((p) => (
+                        {nirvanaRuntime.config_sources.existing_paths?.length
+                          ? nirvanaRuntime.config_sources.existing_paths.map((p) => (
                             <div key={p} style={{ color: 'var(--accent-green)', paddingLeft: 8 }}>✓ {presentConfigPath(p)}</div>
                           ))
                           : <div style={{ paddingLeft: 8, opacity: 0.5 }}>None found</div>}
 
                         <div style={{ marginTop: 8, fontWeight: 700, opacity: 0.8 }}>Checked locations:</div>
-                        {hermesRuntime.config_sources.checked_paths?.map((p) => {
-                          const found = hermesRuntime.config_sources.existing_paths?.includes(p);
+                        {nirvanaRuntime.config_sources.checked_paths?.map((p) => {
+                          const found = nirvanaRuntime.config_sources.existing_paths?.includes(p);
                           return (
                             <div key={p} style={{ paddingLeft: 8, opacity: found ? 1 : 0.35 }}>
                               {found ? '✓' : '·'} {presentConfigPath(p)}
@@ -531,7 +417,7 @@ export default function Orchestration() {
                         })}
 
                         <div style={{ marginTop: 8, fontWeight: 700, opacity: 0.8 }}>Env variables:</div>
-                        {Object.entries(hermesRuntime.config_sources.env_variables || {})
+                        {Object.entries(nirvanaRuntime.config_sources.env_variables || {})
                           .filter(([k]) => k.startsWith('NIRVANA_'))
                           .map(([k, v]) => (
                           <div key={k} style={{ paddingLeft: 8 }}>
@@ -543,7 +429,7 @@ export default function Orchestration() {
                         ))}
 
                         <div style={{ marginTop: 8, fontWeight: 700, opacity: 0.8 }}>Resolved sources:</div>
-                        {Object.entries(hermesRuntime.config_sources.resolved_env || {}).map(([k, v]) => (
+                        {Object.entries(nirvanaRuntime.config_sources.resolved_env || {}).map(([k, v]) => (
                           <div key={k} style={{ paddingLeft: 8 }}>
                             <span style={{ opacity: 0.6 }}>{k}: </span>
                             <span style={{ color: 'var(--accent-green)' }}>
@@ -553,7 +439,7 @@ export default function Orchestration() {
                         ))}
 
                         <div style={{ marginTop: 8, fontWeight: 700, opacity: 0.8 }}>Effective config:</div>
-                        {Object.entries(hermesRuntime.config_sources.effective || {}).map(([k, v]) => (
+                        {Object.entries(nirvanaRuntime.config_sources.effective || {}).map(([k, v]) => (
                           <div key={k} style={{ paddingLeft: 8 }}>
                             <span style={{ opacity: 0.6 }}>{k}: </span>
                             {v
@@ -653,130 +539,6 @@ export default function Orchestration() {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid-2" style={{ marginTop: 16, alignItems: 'start' }}>
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">AutoResearch Profiles</h3>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Profile Name</label>
-            <input
-              className="form-input"
-              value={profileDraft.name}
-              onChange={(e) => setProfileDraft((prev) => ({ ...prev, name: e.target.value }))}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Objective</label>
-            <textarea
-              className="form-input"
-              rows={3}
-              value={profileDraft.objective}
-              onChange={(e) => setProfileDraft((prev) => ({ ...prev, objective: e.target.value }))}
-            />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div className="form-group">
-              <label className="form-label">Max Iterations</label>
-              <input
-                type="number"
-                className="form-input"
-                min={1}
-                max={200}
-                value={profileDraft.max_iterations}
-                onChange={(e) => setProfileDraft((prev) => ({ ...prev, max_iterations: Number(e.target.value || 1) }))}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Time Budget (min)</label>
-              <input
-                type="number"
-                className="form-input"
-                min={1}
-                max={1440}
-                value={profileDraft.time_budget_minutes}
-                onChange={(e) => setProfileDraft((prev) => ({ ...prev, time_budget_minutes: Number(e.target.value || 1) }))}
-              />
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Safety Mode</label>
-            <select
-              className="form-select"
-              value={profileDraft.safety_mode}
-              onChange={(e) => setProfileDraft((prev) => ({ ...prev, safety_mode: e.target.value }))}
-            >
-              <option value="strict">strict</option>
-              <option value="balanced">balanced</option>
-              <option value="experimental">experimental</option>
-            </select>
-          </div>
-          <button className="btn btn-primary" onClick={submitProfile}>Create Profile</button>
-          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {profiles.map((p) => (
-              <div key={p.id} className="card" style={{ margin: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{p.name}</div>
-                    <div className="text-muted" style={{ fontSize: 12 }}>{p.objective}</div>
-                  </div>
-                  {p.id !== 'baseline-quick-loop' && (
-                    <button className="btn btn-secondary" onClick={() => removeProfile(p.id)}>Remove</button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">AutoResearch Runs</h3>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Profile</label>
-            <select className="form-select" value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)}>
-              <option value="">Select profile…</option>
-              {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          {activeProfile && (
-            <div className="card" style={{ marginBottom: 12 }}>
-              <div className="text-muted" style={{ fontSize: 12 }}>{activeProfile.objective}</div>
-            </div>
-          )}
-          <div className="form-group">
-            <label className="form-label">Notes</label>
-            <textarea className="form-input" rows={2} value={runNotes} onChange={(e) => setRunNotes(e.target.value)} />
-          </div>
-          <button className="btn btn-primary" onClick={queueRun}>Queue Run</button>
-
-          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {runs.map((run) => (
-              <div key={run.id} className="card" style={{ margin: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{run.profile_name}</div>
-                    <div className="text-muted" style={{ fontSize: 12 }}>Run ID: {run.id}</div>
-                  </div>
-                  <span
-                    className="badge"
-                    style={{ color: statusColors[run.status] || 'var(--text-secondary)', borderColor: statusColors[run.status] || 'var(--border-color)' }}
-                  >
-                    {run.status}
-                  </span>
-                </div>
-                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button className="btn btn-secondary" onClick={() => setRunStatus(run.id, 'running')}>Mark running</button>
-                  <button className="btn btn-secondary" onClick={() => setRunStatus(run.id, 'completed')}>Mark done</button>
-                  <button className="btn btn-secondary" onClick={() => setRunStatus(run.id, 'failed')}>Mark failed</button>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </div>

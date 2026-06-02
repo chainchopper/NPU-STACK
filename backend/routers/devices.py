@@ -42,6 +42,7 @@ from services.edge_discovery import (
     rp2040_flash_uf2,
     FIRMWARE_DIR,
 )
+from services.fleet_orchestrator import query_device_telemetry, run_device_control_action
 
 router = APIRouter(prefix="/api/devices", tags=["edge-fleet"])
 
@@ -91,18 +92,30 @@ class InstallPreparedRequest(BaseModel):
     bundle_id: Optional[str] = None
 
 
+class DeviceExecRequest(BaseModel):
+    command: str
+    timeout_seconds: int = 30
+    dry_run: bool = False
+
+
+class DeviceRebootRequest(BaseModel):
+    dry_run: bool = False
+
+
 # ── Discovery ─────────────────────────────────────────────────────
 
 @router.get("/scan")
 async def scan_devices(
     usb: bool = Query(True, description="Scan USB serial ports"),
     mdns: bool = Query(True, description="Scan mDNS services on WiFi"),
+    neighbors: bool = Query(True, description="Inspect local LAN neighbor tables for Ethernet/Wi-Fi nodes"),
     ble: bool = Query(False, description="Scan Bluetooth Low Energy (slower)"),
     subnet: bool = Query(False, description="Ping sweep local subnet (slow)"),
     known_only: bool = Query(False, description="When subnet scan is enabled, probe only known edge hosts instead of the full subnet"),
     known_hosts: Optional[str] = Query(None, description="Optional comma-separated known IPs/hosts for targeted edge probing"),
     mdns_timeout: float = Query(5.0, description="mDNS scan duration in seconds"),
     ble_timeout: float = Query(10.0, description="BLE scan duration in seconds"),
+    include_low_confidence: bool = Query(False, description="Include low-confidence generic network hits in the returned device list"),
 ):
     """
     Run device discovery across all enabled methods.
@@ -111,12 +124,14 @@ async def scan_devices(
     result = await run_full_discovery(
         usb=usb,
         mdns=mdns,
+        neighbors=neighbors,
         ble=ble,
         subnet=subnet,
         known_only=known_only,
         known_hosts=known_hosts,
         mdns_timeout=mdns_timeout,
         ble_timeout=ble_timeout,
+        include_low_confidence=include_low_confidence,
     )
     return result
 
@@ -286,6 +301,62 @@ def install_device_bundle(device_id: str, req: InstallPreparedRequest):
     if result.get("status") == "failed":
         raise HTTPException(400, result.get("error", "Install failed"))
     return result
+
+
+@router.get("/{device_id}/telemetry")
+def get_device_telemetry_snapshot(
+    device_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    refresh: bool = Query(False, description="Attempt a live telemetry refresh before returning history"),
+):
+    """Return the latest telemetry plus recent history for a managed device."""
+    if not get_device_from_registry(device_id):
+        raise HTTPException(404, f"Device '{device_id}' not found")
+    try:
+        return query_device_telemetry(device_id, limit=limit, refresh=refresh)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/{device_id}/telemetry/history")
+def get_device_telemetry_history(
+    device_id: str,
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Compatibility alias for retrieving recent telemetry history."""
+    if not get_device_from_registry(device_id):
+        raise HTTPException(404, f"Device '{device_id}' not found")
+    try:
+        snapshot = query_device_telemetry(device_id, limit=limit, refresh=False)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "device_id": device_id,
+        "history": snapshot.get("history", []),
+        "history_count": snapshot.get("history_count", 0),
+        "latest": snapshot.get("latest"),
+    }
+
+
+@router.post("/{device_id}/exec")
+def execute_device_command(device_id: str, req: DeviceExecRequest):
+    """Run a manual shell command against a single managed device."""
+    if not get_device_from_registry(device_id):
+        raise HTTPException(404, f"Device '{device_id}' not found")
+    return run_device_control_action(
+        device_id,
+        "shell",
+        {"shell_command": req.command, "timeout_seconds": req.timeout_seconds},
+        dry_run=req.dry_run,
+    )
+
+
+@router.post("/{device_id}/reboot")
+def reboot_device(device_id: str, req: DeviceRebootRequest):
+    """Trigger a managed-device reboot through the fleet orchestrator."""
+    if not get_device_from_registry(device_id):
+        raise HTTPException(404, f"Device '{device_id}' not found")
+    return run_device_control_action(device_id, "reboot", {}, dry_run=req.dry_run)
 
 
 # ── Individual device CRUD (MUST BE LAST — /{device_id} is greedy) ─

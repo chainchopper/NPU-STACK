@@ -1,20 +1,22 @@
-"""System Agent Router — Built-in AI assistant powered by a local GGUF model.
+"""System Agent Router — Nirvana bridge to the absorbed upstream agent + WebUI.
 
 Endpoints:
-  GET  /api/agent/status           — Check if agent model is downloaded/running
-  POST /api/agent/init             — Download the Phi-3-mini GGUF in background
-  POST /api/agent/start            — Load the agent model into memory via gguf_service
-  POST /api/agent/chat             — Chat with the loaded agent model directly
-  POST /api/agent/generate-dataset — Generate npu_stack_knowledge.jsonl
+    GET  /api/agent/status           — Check if the embedded Nirvana bridge is prepared/running
+    GET  /api/agent/runtime          — Return upstream Nirvana bridge, onboarding, and path details
+    POST /api/agent/init             — Prepare the isolated Nirvana runtime home/config
+    POST /api/agent/start            — Launch the upstream Nirvana WebUI on localhost
+    POST /api/agent/chat             — Proxy chat through the real upstream Nirvana WebUI session API
+    POST /api/agent/generate-dataset — Generate npu_stack_knowledge.jsonl
 """
 
 import os
 import json
 import shutil
 import threading
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from sqlalchemy.orm import Session
 from database import SessionLocal, ModelRecord, get_db
 
@@ -28,6 +30,7 @@ DATASET_FILENAME = "npu_stack_knowledge.jsonl"
 # Thread-safe flag tracking whether a background download is in progress
 _download_lock = threading.Lock()
 _download_in_progress = False
+_DOCS_CONTEXT_CACHE: Optional[str] = None
 
 def _get_token():
     return os.getenv("HUGGINGFACE_TOKEN")
@@ -44,6 +47,62 @@ def _dataset_path():
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "datasets", DATASET_FILENAME)
 
 
+def _build_docs_context() -> str:
+    """Build a lightweight docs index for immediate in-agent grounding."""
+    global _DOCS_CONTEXT_CACHE
+    if _DOCS_CONTEXT_CACHE:
+        return _DOCS_CONTEXT_CACHE
+
+    project_root = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    doc_roots = [
+        project_root / "docs",
+        project_root / "gitbook-npu-stack",
+        project_root / "gitbook-clone",
+        project_root / "frontend",
+        project_root / "backend",
+    ]
+
+    lines: List[str] = []
+    for root in doc_roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        lines.append(f"- {root.name}/")
+        files = sorted(
+            [
+                p
+                for p in root.rglob("*")
+                if p.is_file() and p.suffix.lower() in {".md", ".txt", ".json", ".yaml", ".yml"}
+            ],
+            key=lambda p: str(p).lower(),
+        )
+        for p in files[:15]:
+            rel = p.relative_to(project_root).as_posix()
+            lines.append(f"  - {rel}")
+
+    lines.append("- External runtime docs: https://docs.nirvanalabs.ai/docs/llms.txt")
+    lines.append("- External runtime docs (full): https://docs.nirvanalabs.ai/docs/llms-full.txt")
+
+    _DOCS_CONTEXT_CACHE = "\n".join(lines[:120])
+    return _DOCS_CONTEXT_CACHE
+
+
+def _build_docs_query_context(query: str) -> str:
+    """Retrieve query-specific docs context from the unified docs index."""
+    try:
+        from services.docs_index_service import ensure_docs_index
+        from services.docs_index_service import format_docs_context
+
+        ensure_docs_index(max_age_seconds=6 * 3600)
+        contextual = format_docs_context(query=query, top_k=5, max_chars=4500)
+        if contextual:
+            return contextual
+    except Exception:
+        pass
+
+    # Safe fallback if index is unavailable.
+    return _build_docs_context()
+
+
 # ── Status ──────────────────────────────────────────────
 
 
@@ -52,44 +111,78 @@ class AgentState(BaseModel):
     is_running: bool
     dataset_ready: bool
     download_in_progress: bool = False
+    webui_url: Optional[str] = None
+    bridge_ready: bool = False
+    onboarding_completed: bool = False
+    provider_ready: bool = False
+    chat_ready: bool = False
 
 
 @router.get("/runtime")
 def get_agent_runtime_details():
-    """Return explicit runtime/provenance data for the built-in Nirvana agent."""
-    from services import gguf_service
+    """Return explicit runtime/provenance data for the real upstream Nirvana bridge."""
+    from services.nirvana_service import get_bridge_status
 
-    model_path = _model_path()
-    loaded = gguf_service.get_loaded_models()
-    is_loaded = any(m.get("filename") == AGENT_MODEL_FILENAME for m in loaded)
+    status = get_bridge_status()
+    summary = status.get("summary") or {}
+    paths = status.get("paths") or {}
 
     return {
         "agent_name": "Nirvana",
-        "engine": "llama-cpp-python",
-        "gguf_service_available": gguf_service.is_available(),
-        "model_file": AGENT_MODEL_FILENAME,
-        "model_path": model_path,
-        "model_exists": os.path.exists(model_path),
-        "model_loaded": is_loaded,
-        "loaded_models": loaded,
+        "engine": "nirvana-webui" if status.get("webui_running") else "nirvana-bridge",
+        "bridge_mode": "upstream-webui-sync-proxy",
+        "model_file": summary.get("current_model") or "upstream-managed",
+        "model_path": summary.get("config_path") or paths.get("config_path"),
+        "model_exists": bool(status.get("prepared")),
+        "model_loaded": bool(status.get("webui_running")),
         "uses_mock_responses": False,
+        "webui_running": bool(status.get("webui_running")),
+        "webui_url": status.get("webui_url"),
+        "agent_repo_present": bool(status.get("agent_repo_present")),
+        "webui_repo_present": bool(status.get("webui_repo_present")),
+        "start_script_present": bool(status.get("start_script_present")),
+        "prepared": bool(status.get("prepared")),
+        "nirvana_home": paths.get("hermes_home"),
+        "hermes_home": paths.get("hermes_home"),
+        "webui_state_dir": paths.get("webui_state_dir"),
+        "config_path": summary.get("config_path") or paths.get("config_path"),
+        "env_path": summary.get("env_path") or paths.get("env_path"),
+        "setup_state": summary.get("setup_state") or "not_started",
+        "completed": bool(summary.get("completed")),
+        "nirvana_found": bool(summary.get("hermes_found")),
+        "hermes_found": bool(summary.get("hermes_found")),
+        "imports_ok": bool(summary.get("imports_ok")),
+        "provider_configured": bool(summary.get("provider_configured")),
+        "provider_ready": bool(summary.get("provider_ready")),
+        "chat_ready": bool(summary.get("chat_ready")),
+        "current_provider": summary.get("current_provider"),
+        "current_model": summary.get("current_model"),
+        "current_base_url": summary.get("current_base_url"),
+        "health": status.get("health"),
+        "process": status.get("process"),
+        "recommended_commands": status.get("recommended_commands") or [],
+        "log_excerpt": status.get("log_excerpt") or "",
     }
 
 
 @router.get("/status", response_model=AgentState)
 def get_agent_status():
-    """Check if the system agent model is downloaded, loaded, and if the dataset exists."""
-    from services.gguf_service import get_loaded_models
+    """Check if the embedded upstream Nirvana bridge is prepared and reachable."""
+    from services.nirvana_service import get_bridge_status
 
-    loaded = get_loaded_models()
-    model_path = _model_path()
-    is_running = any(m.get("filename") == AGENT_MODEL_FILENAME for m in loaded)
+    status = get_bridge_status()
+    summary = status.get("summary") or {}
 
     return AgentState(
-        is_downloaded=os.path.exists(model_path),
-        is_running=is_running,
-        dataset_ready=os.path.exists(_dataset_path()),
-        download_in_progress=_download_in_progress,
+        is_downloaded=bool(status.get("prepared") and status.get("agent_repo_present") and status.get("webui_repo_present")),
+        is_running=bool(status.get("webui_running")),
+        dataset_ready=bool(summary.get("provider_configured") or summary.get("completed") or status.get("prepared")),
+        download_in_progress=False,
+        webui_url=status.get("webui_url"),
+        bridge_ready=bool(status.get("prepared") and status.get("start_script_present")),
+        onboarding_completed=bool(summary.get("completed")),
+        provider_ready=bool(summary.get("provider_ready")),
+        chat_ready=bool(summary.get("chat_ready")),
     )
 
 
@@ -180,11 +273,15 @@ def _download_model_task():
 
 @router.post("/init")
 def initialize_agent(background_tasks: BackgroundTasks):
-    """Start background download of the agent model if it doesn't exist."""
-    if os.path.exists(_model_path()):
-        return {"message": "Agent model already downloaded.", "path": _model_path()}
-    background_tasks.add_task(_download_model_task)
-    return {"message": "Agent download started in background."}
+    """Prepare the isolated Nirvana runtime home/config without touching the user's real runtime home."""
+    del background_tasks
+    from services.nirvana_service import prepare_runtime
+
+    prepared = prepare_runtime()
+    return {
+        "message": "Prepared isolated Nirvana runtime for NPU-STACK.",
+        **prepared,
+    }
 
 
 # ── Start (Load into memory) ───────────────────────────
@@ -192,26 +289,25 @@ def initialize_agent(background_tasks: BackgroundTasks):
 
 @router.post("/start")
 def start_agent(background_tasks: BackgroundTasks):
-    """Load the system agent GGUF model. Triggers auto-download if missing."""
-    model_path = _model_path()
-    
-    if not os.path.exists(model_path):
-        # Auto-trigger download
-        print(f"[Agent] Model missing at {model_path}. Triggering auto-download.")
-        background_tasks.add_task(_download_model_task)
-        return {
-            "success": False, 
-            "status": "downloading",
-            "message": "Agent model is missing. Download has been started automatically. Please try again in a few minutes."
-        }
-
-    from services.gguf_service import load_model
+    """Launch the real upstream Nirvana WebUI bridge on localhost."""
+    del background_tasks
+    from services.nirvana_service import NirvanaServiceError, start_webui
 
     try:
-        result = load_model(model_path, n_ctx=4096, n_gpu_layers=-1)
-        return {"success": True, **result}
-    except Exception as e:
-        raise HTTPException(500, f"Failed to load agent model: {str(e)}")
+        result = start_webui()
+    except NirvanaServiceError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+    if not result.get("success"):
+        raise HTTPException(502, result.get("startup_error") or result.get("message") or "Nirvana WebUI failed to start")
+
+    return {
+        "success": True,
+        "status": "running",
+        "message": result.get("message") or "Nirvana WebUI started.",
+        "webui_url": result.get("webui_url"),
+        "process": result.get("process"),
+    }
 
 
 # ── Chat ────────────────────────────────────────────────
@@ -228,108 +324,256 @@ class ChatRequest(BaseModel):
     messages: List[Dict[str, str]]
     temperature: float = 0.7
     max_tokens: int = 512
-    use_fleet_tools: bool = False
-    use_orchestration_context: bool = True
+    use_fleet_tools: Optional[bool] = None
+    use_orchestration_context: Optional[bool] = None
+    profile_id: Optional[str] = None
+    session_id: Optional[str] = None
+    runtime_mode: Optional[str] = None
+    preferred_model: Optional[str] = None
 
 
-@router.post("/chat")
-def agent_chat(req: ChatRequest):
-    """Chat with the system agent.
-
-    Routes to the external Nirvana runtime API when ``hermes.enabled`` is set in the
-    orchestration state, otherwise falls back to the local GGUF engine.
-    """
-    # ── External runtime API routing ──────────────────────────────────
+def _resolve_chat_profile(profile_id: Optional[str]) -> Dict[str, Any]:
+    if not profile_id:
+        return {}
     try:
         from routers.orchestration import _load_state as _orch_state
-        orch = _orch_state()
-        hermes_cfg = orch.get("hermes", {})
-        if hermes_cfg.get("enabled") and hermes_cfg.get("api_base"):
-            return _hermes_api_chat(hermes_cfg, req)
+
+        state = _orch_state()
+        profiles = state.get("agent_profiles", [])
+        profile = next((p for p in profiles if p.get("id") == profile_id), None)
+        return profile or {}
     except Exception:
-        pass  # fall through to built-in engine
+        return {}
 
-    model_path = _model_path()
 
-    from services.gguf_service import chat_completion, get_loaded_models
+def _profile_system_message(profile: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    if not profile:
+        return None
+    prompt = str(profile.get("system_prompt") or "").strip()
+    if not prompt:
+        return None
+    name = str(profile.get("name") or "Agent Profile").strip()
+    return {
+        "role": "system",
+        "content": f"Active profile ({name}):\n{prompt}",
+    }
 
-    loaded = get_loaded_models()
-    if not any(m.get("filename") == AGENT_MODEL_FILENAME for m in loaded):
-        raise HTTPException(400, "Agent model is not loaded. Call /start first.")
 
-    # Prepend system prompt and optional orchestration context
-    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+def _effective_runtime_mode(req: ChatRequest, profile: Dict[str, Any]) -> str:
+    requested = str(req.runtime_mode or profile.get("runtime_mode") or "auto").strip().lower()
+    if requested in {"local", "external"}:
+        return requested
+    return "auto"
 
-    if req.use_orchestration_context:
+
+def _effective_preferred_model(req: ChatRequest, profile: Dict[str, Any]) -> str:
+    return str(req.preferred_model or profile.get("preferred_model") or "").strip()
+
+
+def _latest_user_message(messages: List[Dict[str, str]]) -> Dict[str, str]:
+    for message in reversed(messages or []):
+        if str(message.get("role") or "").strip().lower() == "user":
+            return {
+                "role": "user",
+                "content": str(message.get("content") or ""),
+            }
+    return {
+        "role": "user",
+        "content": "",
+    }
+
+
+def _linked_nirvana_session_id(session_id: Optional[str]) -> str:
+    if not session_id:
+        return ""
+    try:
+        from routers.orchestration import _load_state as _orch_state
+
+        state = _orch_state()
+        sessions = state.get("agent_sessions", [])
+        session = next((item for item in sessions if item.get("id") == session_id), None)
+        return str((session or {}).get("nirvana_session_id") or "").strip()
+    except Exception:
+        return ""
+
+
+def _compose_nirvana_bridge_message(
+    user_text: str,
+    profile: Dict[str, Any],
+    req: ChatRequest,
+    *,
+    use_fleet_tools: bool,
+    use_orchestration_context: bool,
+    preferred_model: str,
+) -> str:
+    sections: List[str] = []
+    profile_name = str(profile.get("name") or "Nirvana Profile").strip()
+    profile_prompt = str(profile.get("system_prompt") or "").strip()
+
+    if profile_prompt:
+        sections.append(
+            f"Profile instructions ({profile_name}):\n{profile_prompt}"
+        )
+
+    if use_orchestration_context:
         try:
-            from routers.orchestration import _load_state, _capabilities_catalog
+            from routers.orchestration import _capabilities_catalog, _load_state
 
             state = _load_state()
             nirvana = state.get("nirvana", {})
             capabilities = _capabilities_catalog(state)
-
-            full_messages.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "Nirvana identity and orchestration context (always authoritative):\n"
-                        + json.dumps(
-                            {
-                                "identity": nirvana,
-                                "capabilities": capabilities,
-                            },
-                            indent=2,
-                        )
-                    ),
-                }
+            sections.append(
+                "NPU-STACK orchestration context:\n"
+                + json.dumps(
+                    {
+                        "identity": {
+                            "agent_name": nirvana.get("agent_name"),
+                            "mission": nirvana.get("mission"),
+                            "identity_statement": nirvana.get("identity_statement"),
+                        },
+                        "capability_labels": [tool.get("label") for tool in capabilities.get("tools", [])],
+                    },
+                    indent=2,
+                )
             )
         except Exception as exc:
-            full_messages.append(
-                {
-                    "role": "system",
-                    "content": f"Orchestration context unavailable: {exc}",
-                }
-            )
+            sections.append(f"Orchestration context unavailable: {exc}")
 
-    if req.use_fleet_tools:
-        try:
-            from services.fleet_orchestrator import build_tool_context
+    if use_fleet_tools:
+        sections.append(
+            "Fleet-aware mode is enabled for this turn. Prioritize OTA, discovery, registry, deployment, and remote execution workflows when relevant."
+        )
 
-            fleet_context = build_tool_context(include_jobs=True)
-            full_messages.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "Fleet tools are available through the following live context. "
-                        "Use it before recommending or executing fleet actions:\n"
-                        + json.dumps(fleet_context, indent=2)
-                    ),
-                }
-            )
-        except Exception as exc:
-            full_messages.append(
-                {
-                    "role": "system",
-                    "content": f"Fleet tool context could not be loaded: {exc}",
-                }
-            )
-    full_messages.extend(req.messages)
+    if preferred_model:
+        sections.append(f"Preferred model hint from NPU-STACK UI: {preferred_model}")
+    if req.runtime_mode:
+        sections.append(f"Runtime preference from NPU-STACK UI: {req.runtime_mode}")
 
-    result = chat_completion(
-        model_path=model_path,
-        messages=full_messages,
-        temperature=req.temperature,
-        max_tokens=req.max_tokens,
+    if not sections:
+        return user_text
+
+    return "\n\n".join(
+        [
+            "NPU-STACK Nirvana control-plane instructions for this turn:",
+            *sections,
+            f"User request:\n{user_text}",
+        ]
     )
 
-    # Add explicit provenance metadata to remove ambiguity in UI/client logs.
-    if isinstance(result, dict):
-        result["nirvana_runtime"] = {
-            "agent_name": "Nirvana",
-            "engine": "llama-cpp-python",
-            "model_file": AGENT_MODEL_FILENAME,
-            "model_loaded": True,
-            "uses_mock_responses": False,
+
+def _persist_session_turn(
+    req: ChatRequest,
+    profile: Dict[str, Any],
+    response_text: str,
+    runtime_meta: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    if not req.session_id or not req.profile_id:
+        return None
+    try:
+        from routers.orchestration import record_agent_session_turn
+
+        return record_agent_session_turn(
+            session_id=req.session_id,
+            profile_id=req.profile_id,
+            user_message=_latest_user_message(req.messages),
+            assistant_message={
+                "role": "assistant",
+                "content": response_text or "",
+            },
+            runtime_meta=runtime_meta,
+        )
+    except Exception:
+        return None
+
+
+@router.post("/chat")
+def agent_chat(req: ChatRequest):
+    """Chat with the real upstream Nirvana WebUI session API."""
+    profile = _resolve_chat_profile(req.profile_id)
+    use_fleet_tools = req.use_fleet_tools if req.use_fleet_tools is not None else bool(profile.get("use_fleet_tools"))
+    use_orchestration_context = (
+        req.use_orchestration_context
+        if req.use_orchestration_context is not None
+        else bool(profile.get("use_orchestration_context", True))
+    )
+    runtime_mode = _effective_runtime_mode(req, profile)
+    preferred_model = _effective_preferred_model(req, profile)
+    from services.nirvana_service import (
+        NirvanaServiceError,
+        create_webui_session,
+        ensure_webui_running,
+        get_bridge_status,
+        send_sync_chat,
+    )
+
+    user_message = _latest_user_message(req.messages)
+    bridged_prompt = _compose_nirvana_bridge_message(
+        str(user_message.get("content") or ""),
+        profile,
+        req,
+        use_fleet_tools=use_fleet_tools,
+        use_orchestration_context=use_orchestration_context,
+        preferred_model=preferred_model,
+    )
+
+    try:
+        ensure_webui_running()
+        upstream_session_id = _linked_nirvana_session_id(req.session_id)
+        if not upstream_session_id:
+            created = create_webui_session(preferred_model=preferred_model)
+            upstream_session_id = str(created.get("session_id") or "").strip()
+        chat_result = send_sync_chat(upstream_session_id, bridged_prompt, preferred_model=preferred_model)
+        status = get_bridge_status()
+    except NirvanaServiceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, f"Nirvana bridge failed: {exc}") from exc
+
+    response_text = (
+        str(chat_result.get("answer") or "")
+        or str((chat_result.get("result") or {}).get("final_response") or "")
+    )
+    runtime_meta = {
+        "agent_name": "Nirvana",
+        "engine": "nirvana-webui",
+        "model_file": (status.get("summary") or {}).get("current_model") or preferred_model or "upstream-managed",
+        "model_loaded": bool(status.get("webui_running")),
+        "uses_mock_responses": False,
+        "via": "nirvana-webui-sync-chat",
+        "runtime_mode": runtime_mode,
+        "requested_model": preferred_model or None,
+        "profile_id": req.profile_id,
+        "profile_name": profile.get("name") if profile else None,
+        "nirvana_session_id": upstream_session_id,
+        "webui_url": status.get("webui_url"),
+        "provider": (status.get("summary") or {}).get("current_provider"),
+        "chat_ready": bool((status.get("summary") or {}).get("chat_ready")),
+        "onboarding_completed": bool((status.get("summary") or {}).get("completed")),
+    }
+
+    persisted_session = _persist_session_turn(
+        req,
+        profile,
+        response_text,
+        runtime_meta=runtime_meta,
+    )
+
+    result = {
+        "response": response_text,
+        "tool_calls": [],
+        "reasoning": None,
+        "nirvana_runtime": runtime_meta,
+        "upstream": {
+            "session_id": upstream_session_id,
+            "status": chat_result.get("status"),
+        },
+    }
+    if persisted_session:
+        result["agent_session"] = {
+            "id": persisted_session.get("id"),
+            "title": persisted_session.get("title"),
+            "updated_at": persisted_session.get("updated_at"),
+            "message_count": persisted_session.get("message_count"),
         }
 
     return result
@@ -338,28 +582,51 @@ def agent_chat(req: ChatRequest):
 # ── External runtime API proxy ───────────────────────
 
 
-def _hermes_api_chat(hermes_cfg: dict, req: "ChatRequest") -> dict:
+def _nirvana_api_chat(
+    runtime_cfg: dict,
+    req: "ChatRequest",
+    messages: Optional[List[Dict[str, str]]] = None,
+    profile: Optional[Dict[str, Any]] = None,
+    runtime_mode: str = "auto",
+) -> dict:
     """Proxy a chat request to the external Nirvana OpenAI-compatible runtime API."""
     import requests as _req_lib  # local import to avoid polluting module scope
 
-    api_base = (hermes_cfg.get("api_base") or "http://localhost:11437/v1").rstrip("/")
-    model = hermes_cfg.get("default_model") or "default"
+    api_base = (runtime_cfg.get("api_base") or "http://localhost:11437/v1").rstrip("/")
+    model = runtime_cfg.get("default_model") or "default"
 
     payload = {
         "model": model,
-        "messages": req.messages,
+        "messages": messages if messages is not None else req.messages,
         "temperature": req.temperature,
         "max_tokens": req.max_tokens,
     }
 
+    candidate_bases = [api_base]
+    if api_base.endswith("/v1"):
+        candidate_bases.append(api_base[:-3])
+    else:
+        candidate_bases.append(f"{api_base}/v1")
+
+    data = None
+    final_base = api_base
+    last_error: Optional[Exception] = None
     try:
-        r = _req_lib.post(
-            f"{api_base}/chat/completions",
-            json=payload,
-            timeout=120,
-        )
-        r.raise_for_status()
-        data = r.json()
+        for base in candidate_bases:
+            try:
+                r = _req_lib.post(
+                    f"{base.rstrip('/')}/chat/completions",
+                    json=payload,
+                    timeout=120,
+                )
+                r.raise_for_status()
+                data = r.json()
+                final_base = base.rstrip("/")
+                break
+            except Exception as exc:  # noqa: PERF203
+                last_error = exc
+        if data is None:
+            raise last_error or RuntimeError("no successful runtime endpoint")
     except _req_lib.exceptions.ConnectionError:
         raise HTTPException(502, f"Cannot connect to Nirvana runtime API at {api_base}. Ensure the runtime is running.")
     except _req_lib.exceptions.Timeout:
@@ -387,8 +654,12 @@ def _hermes_api_chat(hermes_cfg: dict, req: "ChatRequest") -> dict:
             "model_file": model,
             "model_loaded": True,
             "uses_mock_responses": False,
-            "api_base": api_base,
+            "api_base": final_base,
             "via": "nirvana-proxy",
+            "profile_id": req.profile_id,
+            "profile_name": profile.get("name") if profile else None,
+            "runtime_mode": runtime_mode,
+            "requested_model": model,
         },
         "usage": data.get("usage", {}),
     }

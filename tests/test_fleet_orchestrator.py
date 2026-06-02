@@ -23,6 +23,7 @@ class FleetOrchestratorTests(unittest.TestCase):
         orchestrator._command_history.clear()
         orchestrator._command_jobs.clear()
         orchestrator._pending_agent_jobs.clear()
+        orchestrator._telemetry_history.clear()
 
     def test_parse_command_matches_firmware_template(self):
         registry = {
@@ -158,6 +159,60 @@ class FleetOrchestratorTests(unittest.TestCase):
         reported_job = report_response.json()
         self.assertEqual(reported_job["status"], "complete")
         self.assertEqual(reported_job["results_by_device"]["linux-edge-1"]["stdout"], "worker started")
+
+    def test_heartbeat_records_telemetry_history(self):
+        with patch.object(orchestrator, "_save_registered_device", return_value={"id": "linux-edge-1", "status": "online"}), patch.object(
+            orchestrator,
+            "_save_command_state",
+        ):
+            response = orchestrator.heartbeat_mobile_agent(
+                {
+                    "device_id": "linux-edge-1",
+                    "status": "online",
+                    "telemetry": {"cpu_percent": 12, "temp_c": 44.5},
+                }
+            )
+
+        self.assertEqual(response["status"], "ok")
+
+        with patch.object(orchestrator, "get_device_from_registry", return_value={"id": "linux-edge-1", "telemetry": {"cpu_percent": 12}, "status": "online"}):
+            telemetry = orchestrator.get_device_telemetry("linux-edge-1", limit=5)
+
+        self.assertEqual(telemetry["latest"]["telemetry"]["cpu_percent"], 12)
+        self.assertEqual(telemetry["history_count"], 1)
+
+    def test_device_exec_endpoint_returns_job_payload(self):
+        with patch("routers.devices.get_device_from_registry", return_value={"id": "edge-1"}), patch(
+            "routers.devices.run_device_control_action",
+            return_value={
+                "job_id": "cmd-test",
+                "status": "complete",
+                "intent": "shell",
+                "results_by_device": {"edge-1": {"status": "success", "stdout": "ok"}},
+            },
+        ):
+            response = self.client.post("/api/devices/edge-1/exec", json={"command": "uptime"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["job_id"], "cmd-test")
+        self.assertEqual(payload["results_by_device"]["edge-1"]["stdout"], "ok")
+
+    def test_device_telemetry_endpoint_returns_latest_snapshot(self):
+        with patch("routers.devices.get_device_from_registry", return_value={"id": "edge-1"}), patch(
+            "routers.devices.query_device_telemetry",
+            return_value={
+                "device_id": "edge-1",
+                "latest": {"telemetry": {"cpu_percent": 18}},
+                "history": [{"telemetry": {"cpu_percent": 18}}],
+                "history_count": 1,
+            },
+        ):
+            response = self.client.get("/api/devices/edge-1/telemetry?limit=10")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["latest"]["telemetry"]["cpu_percent"], 18)
 
 
 if __name__ == "__main__":

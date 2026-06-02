@@ -53,6 +53,14 @@ hardware_results.json
 
 # Environment config (contains secrets)
 .env
+.env.local
+.env.*.local
+!.env.example
+
+# Local agent transcript exports
+renamed-persistence-session.json
+agent-session-export-*.json
+agent-session-export-*.md
 
 # Temp scripts
 backend/_create_test_model.py
@@ -68,3 +76,10 @@ libraries/
 test_escape.bat
 test_hardware.py
 test_quote.bat
+
+# Local reference clones / generated doc worktrees
+hermes-agent/
+gitbook-clone/
+gitbook-npu-stack/
+hermes-webui/
+temp_unsloth_studio_inspect/

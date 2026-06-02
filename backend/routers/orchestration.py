@@ -14,6 +14,11 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+try:
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None
+
 router = APIRouter(prefix="/api/orchestration", tags=["orchestration"])
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -47,6 +52,60 @@ def _read_json_file(path: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
     return None
+
+
+def _read_structured_config(path: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not path:
+        return None
+
+    lower = path.lower()
+    if lower.endswith(".json"):
+        return _read_json_file(path)
+
+    if lower.endswith((".yaml", ".yml")):
+        if yaml is None:
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            return None
+
+    return None
+
+
+def _extract_hermes_file_values(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(cfg, dict):
+        return {}
+
+    out: Dict[str, Any] = {}
+
+    for key in ("api_base", "default_model", "default_provider", "tool_policy", "enabled"):
+        if cfg.get(key) not in (None, ""):
+            out[key] = cfg.get(key)
+
+    model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+    if model_cfg:
+        if model_cfg.get("default") not in (None, ""):
+            out.setdefault("default_model", model_cfg.get("default"))
+        if model_cfg.get("provider") not in (None, ""):
+            out.setdefault("default_provider", model_cfg.get("provider"))
+        if model_cfg.get("base_url") not in (None, ""):
+            base = str(model_cfg.get("base_url")).rstrip("/")
+            if base and not base.endswith("/v1"):
+                base = f"{base}/v1"
+            out.setdefault("api_base", base)
+
+    for nested_key in ("hermes", "nirvana", "runtime"):
+        nested = cfg.get(nested_key)
+        if isinstance(nested, dict):
+            for key in ("api_base", "default_model", "default_provider", "tool_policy", "enabled"):
+                if nested.get(key) not in (None, ""):
+                    out.setdefault(key, nested.get(key))
+
+    return out
 
 
 def _discover_mcp_servers(configured: Optional[List[str]] = None) -> List[Dict[str, Any]]:
@@ -241,14 +300,18 @@ def _discover_hermes_config_sources(config: Dict[str, Any]) -> Dict[str, Any]:
     checked_paths = [
         os.path.join(project_root, ".env"),
         os.path.join(project_root, ".hermes"),
+        os.path.join(project_root, ".hermes", "config.json"),
         os.path.join(project_root, ".hermes", "config.yaml"),
         os.path.join(project_root, ".hermes", "config.yml"),
         os.path.join(venv_dir, ".hermes"),
+        os.path.join(venv_dir, ".hermes", "config.json"),
         os.path.join(venv_dir, ".hermes", "config.yaml"),
         os.path.join(venv_dir, ".hermes", "config.yml"),
         os.path.join(home_dir, ".hermes"),
+        os.path.join(home_dir, ".hermes", "config.json"),
         os.path.join(home_dir, ".hermes", "config.yaml"),
         os.path.join(home_dir, ".hermes", "config.yml"),
+        os.path.join(home_dir, ".config", "hermes", "config.json"),
         os.path.join(home_dir, ".config", "hermes", "config.yaml"),
         os.path.join(home_dir, ".config", "hermes", "config.yml"),
     ]
@@ -259,6 +322,16 @@ def _discover_hermes_config_sources(config: Dict[str, Any]) -> Dict[str, Any]:
     default_model = _resolve_env_alias("NIRVANA_DEFAULT_MODEL", "HERMES_DEFAULT_MODEL")
     default_provider = _resolve_env_alias("NIRVANA_DEFAULT_PROVIDER", "HERMES_DEFAULT_PROVIDER")
     tool_policy = _resolve_env_alias("NIRVANA_TOOL_POLICY", "HERMES_TOOL_POLICY")
+
+    parsed_config_path = next(
+        (
+            path
+            for path in existing
+            if path.lower().endswith((".yaml", ".yml", ".json"))
+        ),
+        None,
+    )
+    parsed_config_values = _extract_hermes_file_values(_read_structured_config(parsed_config_path))
 
     env_config = {
         # Preferred branding
@@ -284,11 +357,13 @@ def _discover_hermes_config_sources(config: Dict[str, Any]) -> Dict[str, Any]:
             "default_provider": default_provider,
             "tool_policy": tool_policy,
         },
+        "parsed_config_path": parsed_config_path,
+        "parsed_config_values": parsed_config_values,
         "effective": {
-            "api_base": config.get("api_base") or api_base["value"],
-            "default_model": config.get("default_model") or default_model["value"],
-            "default_provider": config.get("default_provider") or default_provider["value"],
-            "tool_policy": config.get("tool_policy") or tool_policy["value"] or "approval-required",
+            "api_base": config.get("api_base") or api_base["value"] or parsed_config_values.get("api_base"),
+            "default_model": config.get("default_model") or default_model["value"] or parsed_config_values.get("default_model"),
+            "default_provider": config.get("default_provider") or default_provider["value"] or parsed_config_values.get("default_provider"),
+            "tool_policy": config.get("tool_policy") or tool_policy["value"] or parsed_config_values.get("tool_policy") or "approval-required",
         },
     }
 
@@ -297,7 +372,41 @@ def _utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _default_agent_session(profile: Dict[str, Any], title: str = "") -> Dict[str, Any]:
+    now = _utc_iso()
+    profile_name = str(profile.get("name") or "Agent").strip() or "Agent"
+    session_title = str(title or "").strip() or f"{profile_name} Session"
+    return {
+        "id": f"session-{uuid.uuid4().hex[:10]}",
+        "profile_id": profile.get("id"),
+        "profile_name": profile_name,
+        "title": session_title,
+        "pinned": False,
+        "messages": [],
+        "message_count": 0,
+        "last_message_preview": "",
+        "nirvana_session_id": None,
+        "created_at": now,
+        "updated_at": now,
+        "last_message_at": None,
+    }
+
+
 def _default_state() -> Dict[str, Any]:
+    default_profile = {
+        "id": "orchestration-agent",
+        "name": "Orchestration Agent",
+        "description": "Default Nirvana orchestration assistant with stack and docs context.",
+        "system_prompt": (
+            "You are the orchestration control-plane assistant for NPU-STACK. "
+            "Be precise, operator-friendly, and explicit about runtime/tool provenance."
+        ),
+        "use_fleet_tools": True,
+        "use_orchestration_context": True,
+        "preferred_model": "",
+        "runtime_mode": "auto",
+        "updated_at": _utc_iso(),
+    }
     return {
         "nirvana": {
             "agent_name": "Nirvana",
@@ -313,7 +422,7 @@ def _default_state() -> Dict[str, Any]:
             "updated_at": _utc_iso(),
         },
         "hermes": {
-            "enabled": False,
+            "enabled": True,
             "api_base": "http://localhost:11437/v1",
             "default_provider": "openai-compatible",
             "default_model": "",
@@ -335,6 +444,8 @@ def _default_state() -> Dict[str, Any]:
             ],
             "runs": [],
         },
+        "agent_profiles": [default_profile],
+        "agent_sessions": [_default_agent_session(default_profile)],
     }
 
 
@@ -347,11 +458,15 @@ def _load_state() -> Dict[str, Any]:
     with open(STATE_FILE, "r", encoding="utf-8") as f:
         state = json.load(f)
 
+    state_changed = False
+
     # Backfill schema fields for forward compatibility
     if "hermes" not in state:
         state["hermes"] = _default_state()["hermes"]
+        state_changed = True
     if "nirvana" not in state:
         state["nirvana"] = _default_state()["nirvana"]
+        state_changed = True
     # Enforce branding protocol in perpetuity
     state["nirvana"]["agent_name"] = "Nirvana"
     # Migrate any legacy mission wording away from Hermes branding.
@@ -363,13 +478,72 @@ def _load_state() -> Dict[str, Any]:
         )
     if "autoresearch" not in state:
         state["autoresearch"] = _default_state()["autoresearch"]
+        state_changed = True
     if "profiles" not in state["autoresearch"]:
         state["autoresearch"]["profiles"] = _default_state()["autoresearch"]["profiles"]
+        state_changed = True
     if "runs" not in state["autoresearch"]:
         state["autoresearch"]["runs"] = []
+        state_changed = True
+    if "agent_profiles" not in state or not isinstance(state.get("agent_profiles"), list):
+        state["agent_profiles"] = _default_state()["agent_profiles"]
+        state_changed = True
+    if not state["agent_profiles"]:
+        state["agent_profiles"] = _default_state()["agent_profiles"]
+        state_changed = True
+    if "agent_sessions" not in state or not isinstance(state.get("agent_sessions"), list):
+        state["agent_sessions"] = []
+
+    profile_map = {
+        str(profile.get("id")): profile
+        for profile in state.get("agent_profiles", [])
+        if profile.get("id")
+    }
+    normalized_sessions: List[Dict[str, Any]] = []
+    for session in state.get("agent_sessions", []):
+        if not isinstance(session, dict):
+            state_changed = True
+            continue
+        profile = profile_map.get(str(session.get("profile_id") or ""))
+        if not profile:
+            state_changed = True
+            continue
+        messages = session.get("messages") if isinstance(session.get("messages"), list) else []
+        normalized_sessions.append(
+            {
+                "id": session.get("id") or f"session-{uuid.uuid4().hex[:10]}",
+                "profile_id": profile.get("id"),
+                "profile_name": profile.get("name") or session.get("profile_name") or "Agent",
+                "title": session.get("title") or f"{profile.get('name') or 'Agent'} Session",
+                "pinned": bool(session.get("pinned")),
+                "messages": messages,
+                "message_count": session.get("message_count") or len(messages),
+                "last_message_preview": session.get("last_message_preview") or (str(messages[-1].get("content") or "")[:160] if messages else ""),
+                "nirvana_session_id": session.get("nirvana_session_id") or None,
+                "created_at": session.get("created_at") or _utc_iso(),
+                "updated_at": session.get("updated_at") or session.get("created_at") or _utc_iso(),
+                "last_message_at": session.get("last_message_at") or session.get("updated_at") or None,
+            }
+        )
+
+    if not normalized_sessions and state.get("agent_profiles"):
+        normalized_sessions = [_default_agent_session(state["agent_profiles"][0])]
+        state_changed = True
+
+    state["agent_sessions"] = sorted(
+        normalized_sessions,
+        key=lambda item: (
+            bool(item.get("pinned")),
+            str(item.get("updated_at") or item.get("created_at") or ""),
+        ),
+        reverse=True,
+    )
 
     # Auto-register discovered baseline MCP servers if missing.
     if _ensure_default_mcp_servers(state):
+        state_changed = True
+
+    if state_changed:
         _save_state(state)
 
     return state
@@ -486,7 +660,13 @@ def initialize_nirvana_runtime_on_startup() -> Dict[str, Any]:
             _truthy_env("NIRVANA_AUTO_ENABLE")
             or _truthy_env("HERMES_AUTO_ENABLE")
         )
-        if auto_enable and cfg.get("api_base") and not cfg.get("enabled"):
+
+        should_enable = bool(cfg.get("api_base")) and (
+            auto_enable
+            or bool(cfg.get("default_model"))
+            or bool(shutil.which("hermes-agent") or shutil.which("hermes"))
+        )
+        if should_enable and not cfg.get("enabled"):
             cfg["enabled"] = True
             changed = True
 
@@ -610,7 +790,7 @@ def start_nirvana_runtime_warmup_retry(startup_state: Dict[str, Any]) -> Dict[st
     return _get_warmup_status()
 
 
-class HermesConfigPayload(BaseModel):
+class NirvanaRuntimeConfigPayload(BaseModel):
     enabled: bool = False
     api_base: str = "http://localhost:11437/v1"
     default_provider: str = "openai-compatible"
@@ -628,9 +808,112 @@ class MCPAutoAddPayload(BaseModel):
     server_ids: List[str] = Field(default_factory=list)
 
 
+class AgentProfilePayload(BaseModel):
+    name: str
+    description: str = ""
+    system_prompt: str = ""
+    use_fleet_tools: bool = False
+    use_orchestration_context: bool = True
+    preferred_model: str = ""
+    runtime_mode: Literal["auto", "local", "external"] = "auto"
+
+
+class AgentSessionPayload(BaseModel):
+    profile_id: str
+    title: str = ""
+
+
+class AgentSessionUpdatePayload(BaseModel):
+    title: Optional[str] = None
+    pinned: Optional[bool] = None
+
+
+def _normalize_agent_session_title(title: str) -> str:
+    cleaned = " ".join(str(title or "").split())
+    if not cleaned:
+        return "New Session"
+    return cleaned[:80]
+
+
+def _derive_agent_session_title(text: str) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return "New Session"
+    return cleaned[:80]
+
+
+def _find_agent_profile(state: Dict[str, Any], profile_id: str) -> Optional[Dict[str, Any]]:
+    return next((p for p in state.get("agent_profiles", []) if p.get("id") == profile_id), None)
+
+
+def _find_agent_session(state: Dict[str, Any], session_id: str) -> Optional[Dict[str, Any]]:
+    return next((s for s in state.get("agent_sessions", []) if s.get("id") == session_id), None)
+
+
+def _sort_agent_sessions(state: Dict[str, Any]) -> None:
+    state["agent_sessions"] = sorted(
+        state.get("agent_sessions", []),
+        key=lambda item: (
+            bool(item.get("pinned")),
+            str(item.get("updated_at") or item.get("created_at") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def record_agent_session_turn(
+    session_id: str,
+    profile_id: str,
+    user_message: Dict[str, Any],
+    assistant_message: Dict[str, Any],
+    runtime_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    with _STATE_LOCK:
+        state = _load_state()
+        session = _find_agent_session(state, session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        if session.get("profile_id") != profile_id:
+            raise HTTPException(status_code=400, detail="Agent session does not belong to the active profile")
+
+        now = _utc_iso()
+        user_entry = {
+            "id": f"msg-{uuid.uuid4().hex[:10]}",
+            "role": "user",
+            "content": str(user_message.get("content") or ""),
+            "created_at": now,
+        }
+        assistant_entry = {
+            "id": f"msg-{uuid.uuid4().hex[:10]}",
+            "role": "assistant",
+            "content": str(assistant_message.get("content") or ""),
+            "created_at": now,
+        }
+        if runtime_meta:
+            assistant_entry["runtime"] = runtime_meta
+            linked_session_id = str(runtime_meta.get("nirvana_session_id") or "").strip()
+            if linked_session_id:
+                session["nirvana_session_id"] = linked_session_id
+
+        session.setdefault("messages", [])
+        session["messages"].extend([user_entry, assistant_entry])
+        session["message_count"] = len(session["messages"])
+        session["last_message_preview"] = str(assistant_entry.get("content") or user_entry.get("content") or "")[:160]
+        session["updated_at"] = now
+        session["last_message_at"] = now
+
+        if session.get("title") in (None, "", "New Session"):
+            session["title"] = _derive_agent_session_title(user_entry["content"])
+
+        _sort_agent_sessions(state)
+        _save_state(state)
+        return session
+
+
 def _capabilities_catalog(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "agent": state.get("nirvana", {}),
+        "agent_profiles": state.get("agent_profiles", []),
         "tools": [
             {"id": "models", "label": "Model Registry", "scope": "upload/list/delete/chat"},
             {"id": "training", "label": "Training", "scope": "jobs/start/stop/monitor"},
@@ -688,10 +971,13 @@ class AutoResearchRunStatusPayload(BaseModel):
 def get_orchestration_state():
     with _STATE_LOCK:
         state = _load_state()
+    nirvana_runtime = _hermes_runtime_status(state["hermes"])
     return {
         **state,
         "capabilities": _capabilities_catalog(state),
-        "hermes_runtime": _hermes_runtime_status(state["hermes"]),
+        "nirvana_config": state["hermes"],
+        "nirvana_runtime": nirvana_runtime,
+        "hermes_runtime": nirvana_runtime,
     }
 
 
@@ -732,7 +1018,7 @@ def get_orchestration_capabilities():
 
 
 @router.get("/hermes")
-def get_hermes_config():
+def get_legacy_runtime_config():
     with _STATE_LOCK:
         state = _load_state()
         config = state["hermes"]
@@ -755,7 +1041,7 @@ def get_nirvana_runtime_config():
 
 
 @router.put("/hermes")
-def update_hermes_config(payload: HermesConfigPayload):
+def update_legacy_runtime_config(payload: NirvanaRuntimeConfigPayload):
     with _STATE_LOCK:
         state = _load_state()
         state["hermes"] = {
@@ -772,7 +1058,7 @@ def update_hermes_config(payload: HermesConfigPayload):
 
 
 @router.put("/nirvana-config")
-def update_nirvana_runtime_config(payload: HermesConfigPayload):
+def update_nirvana_runtime_config(payload: NirvanaRuntimeConfigPayload):
     """Nirvana-branded alias of /hermes for UI-facing usage."""
     with _STATE_LOCK:
         state = _load_state()
@@ -836,6 +1122,184 @@ def auto_add_discovered_mcp_servers(payload: MCPAutoAddPayload):
         "added": added,
         "count_added": len(added),
         "mcp_servers": cfg.get("mcp_servers", []),
+    }
+
+
+@router.get("/agent-profiles")
+def list_agent_profiles():
+    with _STATE_LOCK:
+        state = _load_state()
+        profiles = state.get("agent_profiles", [])
+    return {
+        "count": len(profiles),
+        "profiles": profiles,
+    }
+
+
+@router.post("/agent-profiles")
+def create_agent_profile(payload: AgentProfilePayload):
+    with _STATE_LOCK:
+        state = _load_state()
+        profile = {
+            "id": f"agent-{uuid.uuid4().hex[:10]}",
+            **payload.model_dump(),
+            "updated_at": _utc_iso(),
+        }
+        state.setdefault("agent_profiles", [])
+        state["agent_profiles"].insert(0, profile)
+        state.setdefault("agent_sessions", [])
+        state["agent_sessions"].insert(0, _default_agent_session(profile))
+        _save_state(state)
+
+    return {
+        "message": "Agent profile created.",
+        "profile": profile,
+    }
+
+
+@router.put("/agent-profiles/{profile_id}")
+def update_agent_profile(profile_id: str, payload: AgentProfilePayload):
+    with _STATE_LOCK:
+        state = _load_state()
+        profiles = state.get("agent_profiles", [])
+        profile = next((p for p in profiles if p.get("id") == profile_id), None)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Agent profile not found")
+
+        profile.update(payload.model_dump())
+        profile["updated_at"] = _utc_iso()
+        for session in state.get("agent_sessions", []):
+            if session.get("profile_id") == profile_id:
+                session["profile_name"] = profile.get("name") or session.get("profile_name") or "Agent"
+        _save_state(state)
+
+    return {
+        "message": "Agent profile updated.",
+        "profile": profile,
+    }
+
+
+@router.delete("/agent-profiles/{profile_id}")
+def delete_agent_profile(profile_id: str):
+    with _STATE_LOCK:
+        state = _load_state()
+        profiles = state.get("agent_profiles", [])
+        if len(profiles) <= 1:
+            raise HTTPException(status_code=400, detail="At least one agent profile must remain")
+
+        before = len(profiles)
+        state["agent_profiles"] = [p for p in profiles if p.get("id") != profile_id]
+        if len(state["agent_profiles"]) == before:
+            raise HTTPException(status_code=404, detail="Agent profile not found")
+        state["agent_sessions"] = [s for s in state.get("agent_sessions", []) if s.get("profile_id") != profile_id]
+        _save_state(state)
+
+    return {
+        "message": "Agent profile removed.",
+    }
+
+
+@router.get("/agent-sessions")
+def list_agent_sessions(profile_id: Optional[str] = None):
+    with _STATE_LOCK:
+        state = _load_state()
+        sessions = list(state.get("agent_sessions", []))
+    if profile_id:
+        sessions = [s for s in sessions if s.get("profile_id") == profile_id]
+    sessions = sorted(
+        sessions,
+        key=lambda item: (
+            bool(item.get("pinned")),
+            str(item.get("updated_at") or item.get("created_at") or ""),
+        ),
+        reverse=True,
+    )
+    return {
+        "count": len(sessions),
+        "sessions": sessions,
+    }
+
+
+@router.post("/agent-sessions")
+def create_agent_session(payload: AgentSessionPayload):
+    with _STATE_LOCK:
+        state = _load_state()
+        profile = _find_agent_profile(state, payload.profile_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Agent profile not found")
+
+        now = _utc_iso()
+        session = {
+            "id": f"session-{uuid.uuid4().hex[:10]}",
+            "profile_id": profile["id"],
+            "profile_name": profile.get("name") or "Agent",
+            "title": _normalize_agent_session_title(payload.title),
+            "pinned": False,
+            "messages": [],
+            "message_count": 0,
+            "last_message_preview": "",
+            "nirvana_session_id": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        state.setdefault("agent_sessions", [])
+        state["agent_sessions"].insert(0, session)
+        _sort_agent_sessions(state)
+        _save_state(state)
+
+    return {
+        "message": "Agent session created.",
+        "session": session,
+    }
+
+
+@router.get("/agent-sessions/{session_id}")
+def get_agent_session(session_id: str):
+    with _STATE_LOCK:
+        state = _load_state()
+        session = _find_agent_session(state, session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Agent session not found")
+    return {
+        "session": session,
+    }
+
+
+@router.patch("/agent-sessions/{session_id}")
+def update_agent_session(session_id: str, payload: AgentSessionUpdatePayload):
+    with _STATE_LOCK:
+        state = _load_state()
+        session = _find_agent_session(state, session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Agent session not found")
+
+        if payload.title is not None:
+            session["title"] = _normalize_agent_session_title(payload.title)
+        if payload.pinned is not None:
+            session["pinned"] = bool(payload.pinned)
+        session["updated_at"] = _utc_iso()
+        _sort_agent_sessions(state)
+        _save_state(state)
+
+    return {
+        "message": "Agent session updated.",
+        "session": session,
+    }
+
+
+@router.delete("/agent-sessions/{session_id}")
+def delete_agent_session(session_id: str):
+    with _STATE_LOCK:
+        state = _load_state()
+        sessions = state.get("agent_sessions", [])
+        before = len(sessions)
+        state["agent_sessions"] = [s for s in sessions if s.get("id") != session_id]
+        if len(state["agent_sessions"]) == before:
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        _save_state(state)
+
+    return {
+        "message": "Agent session removed.",
     }
 
 

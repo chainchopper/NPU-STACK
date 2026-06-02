@@ -502,8 +502,9 @@ export async function scanDevices(methods = {}) {
     return request(`/devices/scan?${params}`);
 }
 
-export async function listDevices() {
-    return request('/devices');
+export async function listDevices(includeLowConfidence = false) {
+    const params = includeLowConfidence ? '?include_low_confidence=true' : '';
+    return request(`/devices${params}`);
 }
 
 export async function listDeviceProfiles(deviceId) {
@@ -546,6 +547,31 @@ export async function installPreparedBundle(deviceId, bundleId) {
     return request(`/devices/${deviceId}/install`, {
         method: 'POST',
         body: JSON.stringify({ bundle_id: bundleId }),
+    });
+}
+
+export async function getDeviceTelemetry(deviceId, { limit = 50, refresh = false } = {}) {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    if (refresh) params.set('refresh', 'true');
+    return request(`/devices/${deviceId}/telemetry?${params}`);
+}
+
+export async function getDeviceTelemetryHistory(deviceId, limit = 100) {
+    return request(`/devices/${deviceId}/telemetry/history?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function executeDeviceCommand(deviceId, command, { timeoutSeconds = 30, dryRun = false } = {}) {
+    return request(`/devices/${deviceId}/exec`, {
+        method: 'POST',
+        body: JSON.stringify({ command, timeout_seconds: timeoutSeconds, dry_run: dryRun }),
+    });
+}
+
+export async function rebootDevice(deviceId, { dryRun = false } = {}) {
+    return request(`/devices/${deviceId}/reboot`, {
+        method: 'POST',
+        body: JSON.stringify({ dry_run: dryRun }),
     });
 }
 
@@ -597,11 +623,6 @@ export async function getNirvanaRuntimeConfig() {
     return request('/orchestration/nirvana-config');
 }
 
-export async function getHermesConfig() {
-    // Backward-compatible alias
-    return getNirvanaRuntimeConfig();
-}
-
 export async function getNirvanaIdentity() {
     return request('/orchestration/nirvana');
 }
@@ -622,11 +643,6 @@ export async function updateNirvanaRuntimeConfig(payload) {
         method: 'PUT',
         body: JSON.stringify(payload),
     });
-}
-
-export async function updateHermesConfig(payload) {
-    // Backward-compatible alias
-    return updateNirvanaRuntimeConfig(payload);
 }
 
 export async function listAutoResearchProfiles() {
@@ -672,5 +688,160 @@ export async function autoAddMcpServers(payload = {}) {
     return request('/orchestration/mcp/auto-add', {
         method: 'POST',
         body: JSON.stringify(payload),
+    });
+}
+
+export async function listAgentProfiles() {
+    return request('/orchestration/agent-profiles');
+}
+
+export async function createAgentProfile(payload) {
+    return request('/orchestration/agent-profiles', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateAgentProfile(profileId, payload) {
+    return request(`/orchestration/agent-profiles/${encodeURIComponent(profileId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteAgentProfile(profileId) {
+    return request(`/orchestration/agent-profiles/${encodeURIComponent(profileId)}`, {
+        method: 'DELETE',
+    });
+}
+
+export async function listAgentSessions(profileId = '') {
+    const query = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : '';
+    return request(`/orchestration/agent-sessions${query}`);
+}
+
+export async function createAgentSession(payload) {
+    return request('/orchestration/agent-sessions', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateAgentSession(sessionId, payload) {
+    return request(`/orchestration/agent-sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteAgentSession(sessionId) {
+    return request(`/orchestration/agent-sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+    });
+}
+
+export async function getAgentStatus() {
+    return request('/agent/status');
+}
+
+export async function getAgentRuntimeDetails() {
+    return request('/agent/runtime');
+}
+
+export async function getNirvanaStatus() {
+    return getAgentStatus();
+}
+
+export async function getNirvanaRuntimeDetails() {
+    return getAgentRuntimeDetails();
+}
+
+export async function initializeAgentDownload() {
+    return request('/agent/init', {
+        method: 'POST',
+    });
+}
+
+export async function prepareNirvanaRuntime() {
+    return initializeAgentDownload();
+}
+
+export async function startLocalAgent() {
+    return request('/agent/start', {
+        method: 'POST',
+    });
+}
+
+export async function launchNirvana() {
+    return startLocalAgent();
+}
+
+export async function chatWithAgent(payload) {
+    return request('/agent/chat', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function chatWithNirvana(payload) {
+    return chatWithAgent(payload);
+}
+
+// ─── Docs Index (Unified Compatibility Docs) ─────────
+export async function getDocsIndexStatus() {
+    return request('/docs-index/status');
+}
+
+export async function ensureDocsIndex() {
+    return request('/docs-index/ensure', {
+        method: 'POST',
+    });
+}
+
+export async function rebuildDocsIndex(payload = { force: true, include_external: true }) {
+    return request('/docs-index/rebuild', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function searchDocsIndex(query, topK = 6, sourceType = null) {
+    return request('/docs-index/search', {
+        method: 'POST',
+        body: JSON.stringify({
+            query,
+            top_k: topK,
+            source_type: sourceType,
+        }),
+    });
+}
+
+export async function getGitbookRegistry() {
+    return request('/docs-index/gitbook/registry');
+}
+
+export async function listGitbookDocs(projectId = null) {
+    const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+    return request(`/docs-index/gitbook/docs${params}`);
+}
+
+export async function readGitbookDoc(path, projectId = null) {
+    return request('/docs-index/gitbook/read', {
+        method: 'POST',
+        body: JSON.stringify({ path, project_id: projectId }),
+    });
+}
+
+export async function syncExternalDocsToGitbook(projectId = null) {
+    return request('/docs-index/gitbook/sync-external', {
+        method: 'POST',
+        body: JSON.stringify({ project_id: projectId }),
+    });
+}
+
+export async function syncProjectDocsToGitbook(projectId = null) {
+    return request('/docs-index/gitbook/sync-project', {
+        method: 'POST',
+        body: JSON.stringify({ project_id: projectId }),
     });
 }

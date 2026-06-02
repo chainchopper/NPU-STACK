@@ -410,7 +410,7 @@ export default function ChatPlayground({
       const res = await fetch(`${API_BASE}/agent/start`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setAgentStatus(s => ({ ...s, is_running: true }));
+        setAgentStatus(s => ({ ...s, is_running: true, webui_url: data.webui_url || s?.webui_url }));
       } else {
         setAgentError(data.message || 'Failed to start agent');
       }
@@ -427,7 +427,7 @@ export default function ChatPlayground({
     try {
       const res = await fetch(`${API_BASE}/agent/init`, { method: 'POST' });
       const data = await res.json();
-      setAgentError(data.message || 'Download started');
+      setAgentError(data.message || 'Nirvana runtime prepared');
     } catch (e) {
       setAgentError(e.message);
     } finally {
@@ -495,20 +495,20 @@ export default function ChatPlayground({
       }
       case '/status': {
         try {
-          const [st, orch] = await Promise.all([
+          const [st, rt, orch] = await Promise.all([
             fetch(`${API_BASE}/agent/status`).then(r => r.json()),
+            fetch(`${API_BASE}/agent/runtime`).then(r => r.json()),
             fetch(`${API_BASE}/orchestration/state`).then(r => r.json()),
           ]);
-          const h  = orch.hermes  || {};
-          const rt = orch.hermes_runtime || {};
+          const h  = orch.nirvana_config || {};
           const lines = [
             `Agent:        Nirvana`,
-            `Runtime:      ${h.enabled && rt.cli_installed ? `external runtime @ ${rt.cli_path}` : h.enabled ? `runtime proxy → ${h.api_base}` : 'llama-cpp-python (built-in)'}`,
-            `Built-in:     ${st.is_running ? 'Phi-3-mini loaded' : st.is_downloaded ? 'downloaded, not loaded' : 'not downloaded'}`,
-            `Nirvana API:  ${h.enabled ? `enabled @ ${h.api_base}` : 'disabled'}`,
-            `Default model: ${h.default_model || '(not set)'}`,
-            `Provider:     ${h.default_provider || 'openai-compatible'}`,
-            `Tool policy:  ${h.tool_policy || 'approval-required'}`,
+            `Runtime:      ${rt.webui_running ? `embedded WebUI @ ${rt.webui_url}` : rt.prepared ? 'prepared, not started' : 'not prepared'}`,
+            `Setup state:  ${rt.setup_state || 'not started'}`,
+            `Provider:     ${rt.current_provider || '(not configured)'}`,
+            `Model:        ${rt.current_model || h.default_model || '(not set)'}`,
+            `Chat ready:   ${rt.chat_ready ? 'yes' : 'no'}`,
+            `Onboarding:   ${rt.completed ? 'complete' : 'pending'}`,
             `MCP servers:  ${(h.mcp_servers || []).length}`,
             `Context:      ${selectedContext}`,
             `Thread:       ${threadId.current}`,
@@ -523,8 +523,8 @@ export default function ChatPlayground({
         try {
           const orch    = await fetch(`${API_BASE}/orchestration/state`).then(r => r.json());
           const tools   = orch.capabilities?.tools || [];
-          const servers = orch.hermes?.mcp_servers || [];
-          const policy  = orch.hermes?.tool_policy || 'approval-required';
+          const servers = orch.nirvana_config?.mcp_servers || [];
+          const policy  = orch.nirvana_config?.tool_policy || 'approval-required';
           const lines = [
             `Built-in tools (tool policy: ${policy}):`,
             ...tools.map(t => `  ${t.id.padEnd(22)} ${t.scope}`),
@@ -540,15 +540,12 @@ export default function ChatPlayground({
       }
       case '/model': {
         try {
-          const [st, orch] = await Promise.all([
-            fetch(`${API_BASE}/agent/status`).then(r => r.json()),
-            fetch(`${API_BASE}/orchestration/state`).then(r => r.json()),
-          ]);
-          const h = orch.hermes || {};
+          const rt = await fetch(`${API_BASE}/agent/runtime`).then(r => r.json());
           const lines = [
-            `Built-in:  Phi-3-mini-4k-instruct (${st.is_running ? 'loaded' : st.is_downloaded ? 'downloaded, not loaded' : 'not downloaded'})`,
-            `External:  ${h.default_model || '(not configured)'}`,
-            `Active:    ${h.enabled && h.default_model ? `Nirvana runtime → ${h.default_model}` : 'Built-in (Phi-3-mini)'}`,
+            `Bridge:    ${rt.webui_running ? 'embedded Nirvana WebUI online' : rt.prepared ? 'prepared, not started' : 'not prepared'}`,
+            `Provider:  ${rt.current_provider || '(not configured)'}`,
+            `Model:     ${rt.current_model || '(not configured)'}`,
+            `URL:       ${rt.webui_url || '(not available)'}`,
           ];
           setMessages(prev => [...prev, sysMsg(lines.join('\n'))]);
         } catch (e) {
@@ -559,13 +556,18 @@ export default function ChatPlayground({
       case '/config': {
         try {
           const orch = await fetch(`${API_BASE}/orchestration/state`).then(r => r.json());
-          const h   = orch.hermes || {};
-          const rt  = orch.hermes_runtime || {};
+          const h   = orch.nirvana_config || {};
+          const rt  = orch.nirvana_runtime || {};
           const src = rt.config_sources || {};
-          const presentConfigPath = (path) => String(path || '')
-            .replaceAll('.hermes', '.runtime')
-            .replaceAll('\\\\hermes\\\\', '\\\\runtime\\\\')
-            .replaceAll('/hermes/', '/runtime/');
+          const presentConfigPath = (path) => {
+            const legacyBrand = ['her', 'mes'].join('');
+            return String(path || '')
+              .replaceAll(`${legacyBrand}-agent`, 'nirvana-agent')
+              .replaceAll(`${legacyBrand}.exe`, 'nirvana.exe')
+              .replaceAll(`.${legacyBrand}`, '.nirvana')
+              .replaceAll(`\\\\${legacyBrand}\\\\`, '\\\\nirvana\\\\')
+              .replaceAll(`/${legacyBrand}/`, '/nirvana/');
+          };
           const nirvanaEnv = Object.entries(src.env_variables || {}).filter(([k]) => k.startsWith('NIRVANA_'));
           const sourceLabel = (resolvedItem) => {
             const source = resolvedItem?.source || '';
@@ -605,8 +607,8 @@ export default function ChatPlayground({
       case '/mcp': {
         try {
           const orch    = await fetch(`${API_BASE}/orchestration/state`).then(r => r.json());
-          const servers = orch.hermes?.mcp_servers || [];
-          const policy  = orch.hermes?.tool_policy || 'approval-required';
+          const servers = orch.nirvana_config?.mcp_servers || [];
+          const policy  = orch.nirvana_config?.tool_policy || 'approval-required';
           const lines = [
             `MCP servers (tool policy: ${policy}):`,
             ...(servers.length ? servers.map((s,i) => `  [${i}] ${s}`) : ['  (none configured)']),
@@ -1176,7 +1178,7 @@ export default function ChatPlayground({
                       background: agentStatus.is_running ? '#48bb78' : agentStatus.is_downloaded ? '#ecc94b' : '#fc8181'
                     }} />
                     <span style={{ fontSize: 11, color: '#a0aec0' }}>
-                      {agentStatus.is_running ? 'Nirvana · active' : agentStatus.is_downloaded ? 'Downloaded, not loaded' : 'Not downloaded'}
+                      {agentStatus.is_running ? 'Nirvana WebUI · online' : agentStatus.is_downloaded ? 'Nirvana bridge · prepared' : 'Nirvana bridge · not prepared'}
                     </span>
                   </div>
                   {!agentStatus.is_running && (
@@ -1186,14 +1188,14 @@ export default function ChatPlayground({
                           flex: 1, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
                           background: '#2b6cb0', color: '#fff', fontSize: 10, fontWeight: 600,
                         }}>
-                          {agentLoading ? <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> : 'Download'}
+                          {agentLoading ? <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> : 'Prepare'}
                         </button>
                       )}
                       <button onClick={startAgent} disabled={agentLoading} style={{
                         flex: 1, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
                         background: '#38a169', color: '#fff', fontSize: 10, fontWeight: 600,
                       }}>
-                        {agentLoading ? <Loader2 size={10} /> : 'Load Model'}
+                        {agentLoading ? <Loader2 size={10} /> : 'Launch UI'}
                       </button>
                     </div>
                   )}

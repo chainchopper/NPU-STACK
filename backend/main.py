@@ -66,6 +66,9 @@ from routers.fleet_agent import router as fleet_agent_router
 from routers.orchestration import router as orchestration_router
 from routers.orchestration import initialize_nirvana_runtime_on_startup
 from routers.orchestration import start_nirvana_runtime_warmup_retry
+from routers.docs_index import router as docs_index_router
+from services.docs_index_service import ensure_docs_index
+from services.docs_index_service import sync_project_docs_to_gitbook
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -94,11 +97,25 @@ async def lifespan(app: FastAPI):
             "ready": False,
             "detail": f"warmup unavailable: {exc}",
         }
+    try:
+        sync_project_docs_to_gitbook()
+    except Exception:
+        pass
+    docs_index_boot = ensure_docs_index(max_age_seconds=6 * 3600)
     backend_port = int(os.getenv("NPU_STACK_BACKEND_PORT", str(DEFAULT_BACKEND_PORT)))
     print("=" * 60)
     print("  NPU-STACK Backend Server")
     print(f"  API Docs:    http://localhost:{backend_port}/api/docs")
     print(f"  OpenAI API:  http://localhost:{backend_port}/v1")
+    docs_status = (docs_index_boot or {}).get("status") or {}
+    if docs_status.get("ready"):
+        print(
+            "  Docs Index:  "
+            f"ready ({docs_status.get('stats', {}).get('chunks', 0)} chunks / "
+            f"{docs_status.get('stats', {}).get('sources', 0)} sources)"
+        )
+    else:
+        print("  Docs Index:  not ready")
     if startup_runtime.get("enabled"):
         probe = startup_runtime.get("probe", {})
         if probe.get("ready"):
@@ -183,6 +200,7 @@ app.include_router(flm_router)
 app.include_router(fleet_command_router)
 app.include_router(fleet_agent_router)
 app.include_router(orchestration_router)
+app.include_router(docs_index_router)
 
 
 @app.get("/api/health")

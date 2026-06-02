@@ -4,6 +4,21 @@
 ###############################################
 
 services:
+  # ─── Shared GitBook Renderer (optional multi-project docs host) ───
+  shared-gitbook:
+    image: oven/bun:1.3.7
+    container_name: shared-gitbook
+    working_dir: /workspace/gitbook-clone
+    command: >-
+      sh -lc "bun install && cd packages/gitbook && bun run build:local && bun run start -- --hostname 0.0.0.0 --port 3000"
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./:/workspace
+    profiles:
+      - docs
+    restart: unless-stopped
+
   # ─── Backend: FastAPI + PyTorch + OpenVINO ─────
   npu-backend:
     build:

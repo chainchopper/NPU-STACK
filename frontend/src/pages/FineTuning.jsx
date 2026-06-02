@@ -332,13 +332,13 @@ export default function FineTuning() {
                 {missingDeps.length > 0 ? (
                     <OperationNotice
                         tone="warning"
-                        title="Missing optional Unsloth dependencies"
+                        title="Accelerated Unsloth stack is incomplete"
                         message={`Current environment is missing: ${missingDeps.join(', ')}.`}
-                        details="This page's classic fine-tuning route can still run with PEFT/Transformers. Unsloth can run in CPU fallback mode when CUDA is unavailable, but acceleration needs CUDA plus the full stack installed portably via pip on the target machine."
+                        details="Baseline fine-tuning can still run via Transformers + PEFT. Install the full Unsloth stack for accelerated QLoRA paths (especially with CUDA). CPU fallback remains available when CUDA is absent."
                     />
                 ) : (
                     <p className="text-secondary" style={{ fontSize: 13 }}>
-                        Unsloth stack is available; CUDA will unlock accelerated QLoRA, while CPU fallback remains supported.
+                        Unsloth accelerated path is ready; CUDA unlocks fastest QLoRA execution, while CPU fallback remains supported.
                     </p>
                 )}
 
@@ -461,7 +461,7 @@ export default function FineTuning() {
                         </button>
 
                         <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Requires: pip install peft datasets transformers torch
+                            Baseline dependencies: <code>pip install peft datasets transformers torch</code>. Unsloth acceleration is optional and shown above.
                         </p>
                     </div>
                 </div>

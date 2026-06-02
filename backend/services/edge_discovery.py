@@ -6,6 +6,7 @@ fleet subsystem.
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ import platform
 import re
 import shutil
 import ssl
+import subprocess
 import time
 import zipfile
 from datetime import datetime, timezone
@@ -195,6 +197,19 @@ DEFAULT_MDNS_SCAN_TYPES = [
     "_workstation._tcp.local.",
 ]
 
+_USB_VID_PID_RE = re.compile(r"VID_([0-9A-F]{4})&PID_([0-9A-F]{4})", flags=re.IGNORECASE)
+_VIRTUAL_INTERFACE_TOKENS = (
+    "tailscale",
+    "loopback",
+    "vethernet",
+    "hyper-v",
+    "virtual",
+    "wintun",
+    "vmware",
+    "docker",
+    "bluetooth",
+)
+
 
 # ── Profile catalog ──────────────────────────────────────────────
 
@@ -334,6 +349,41 @@ def _should_preserve_existing_identity(existing: dict, discovered: dict) -> bool
     return False
 
 
+def _same_device_identity(existing: dict, discovered: dict) -> bool:
+    """Best-effort fingerprint check before carrying paired state across scans."""
+    if not existing:
+        return False
+
+    if (existing.get("connection") or "") != (discovered.get("connection") or ""):
+        return False
+
+    # Stable hardware identity first.
+    for field in ("serial_number", "board_id", "mac", "chip_mac"):
+        e_val = str(existing.get(field) or "").strip().lower()
+        d_val = str(discovered.get(field) or "").strip().lower()
+        if e_val and d_val:
+            return e_val == d_val
+
+    # Fallbacks per transport.
+    connection = discovered.get("connection")
+    if connection in {"usb", "usb-mass-storage"}:
+        e_port = str(existing.get("port") or existing.get("drive") or "").strip().lower()
+        d_port = str(discovered.get("port") or discovered.get("drive") or "").strip().lower()
+        return bool(e_port and d_port and e_port == d_port)
+
+    if connection == "wifi":
+        e_ip = str(existing.get("ip") or existing.get("host") or "").strip().lower()
+        d_ip = str(discovered.get("ip") or discovered.get("host") or "").strip().lower()
+        return bool(e_ip and d_ip and e_ip == d_ip)
+
+    if connection == "ble":
+        e_addr = str(existing.get("address") or "").strip().lower()
+        d_addr = str(discovered.get("address") or "").strip().lower()
+        return bool(e_addr and d_addr and e_addr == d_addr)
+
+    return True
+
+
 def _compact_text(value: str, limit: int = 160) -> str:
     compact = " ".join(str(value or "").split())
     if len(compact) <= limit:
@@ -439,6 +489,53 @@ def _recommended_profile_id(device: dict) -> Optional[str]:
     return None
 
 
+def _build_protocols(device: dict) -> list[str]:
+    family = str(device.get("family") or "").lower()
+    connection = str(device.get("connection") or "").lower()
+    protocols: list[str] = []
+
+    if connection == "usb" or family in {"uart-bridge", "esp32", "esp32-s2", "esp32-s3", "esp32-c3", "esp32-c6", "esp32-h2", "esp32-p4", "esp8266", "rp2040", "rp2350", "arduino", "stm32", "nrf", "microchip", "teensy", "radio"}:
+        protocols.append("uart")
+    if family in {"esp32", "esp32-s2", "esp32-s3", "esp32-c3", "esp32-c6", "esp32-h2", "esp32-p4", "esp8266", "rp2040", "rp2350", "arduino", "stm32", "nrf", "microchip", "teensy", "circuitpython"}:
+        protocols.extend(["gpio", "i2c", "spi"])
+    if family in {"rockchip", "allwinner", "rpi-sbc", "nvidia", "coral", "movidius", "qualcomm"}:
+        protocols.extend(["ssh", "http", "mqtt"])
+    if _recommended_profile_id(device) in {"esp32-micropython-agent", "linux-agent"}:
+        protocols.append("ota")
+
+    deduped: list[str] = []
+    seen = set()
+    for protocol in protocols:
+        if protocol not in seen:
+            deduped.append(protocol)
+            seen.add(protocol)
+    return deduped
+
+
+def _build_transport_modes(device: dict) -> list[str]:
+    connection = str(device.get("connection") or "").lower()
+    transport_modes: list[str] = []
+
+    if connection == "usb" and device.get("port"):
+        transport_modes.append("serial")
+    if connection == "usb-mass-storage" and device.get("drive"):
+        transport_modes.append("mass-storage")
+    if device.get("agent_endpoint") or device.get("agent_port"):
+        transport_modes.append("http-agent")
+    if device.get("transport_preference") == "agent-poll":
+        transport_modes.append("agent-poll")
+    if device.get("ip") or device.get("host"):
+        transport_modes.extend(["network", "ssh"])
+
+    deduped: list[str] = []
+    seen = set()
+    for mode in transport_modes:
+        if mode not in seen:
+            deduped.append(mode)
+            seen.add(mode)
+    return deduped
+
+
 def list_firmware_profiles(device: Optional[dict] = None) -> list[dict]:
     profiles = []
     recommended = _recommended_profile_id(device or {}) if device else None
@@ -456,6 +553,10 @@ def _build_capabilities(device: dict) -> dict:
     status = device.get("status", "unknown")
     recommended_profile = _recommended_profile_id(device)
     live_install = connection == "usb-mass-storage" and status == "mounted"
+    transport_modes = _build_transport_modes(device)
+    telemetry_present = bool(device.get("telemetry"))
+    can_run_remote = any(mode in {"http-agent", "agent-poll", "ssh"} for mode in transport_modes)
+    can_open_console = bool(device.get("port")) or can_run_remote
 
     return {
         "pair": True,
@@ -465,6 +566,14 @@ def _build_capabilities(device: dict) -> dict:
         "chip_detect": family.startswith("esp32") or family == "uart-bridge",
         "flash": family.startswith("esp32") or status == "bootsel",
         "ota": recommended_profile in {"esp32-micropython-agent", "linux-agent"},
+        "console": can_open_console,
+        "telemetry": telemetry_present or can_run_remote,
+        "sensor_poll": telemetry_present or can_run_remote,
+        "shell": can_run_remote,
+        "reboot": can_run_remote,
+        "build": recommended_profile is not None,
+        "protocols": _build_protocols(device),
+        "transport_modes": transport_modes,
     }
 
 
@@ -494,7 +603,7 @@ def _enrich_device(device: dict) -> dict:
 
 
 def _should_persist_device(device: dict) -> bool:
-    return not _is_low_confidence_device(device)
+    return True
 
 
 def _should_hide_from_default_listing(device: dict) -> bool:
@@ -514,6 +623,145 @@ def _read_text_file(path: Path, default: str = "") -> str:
         return path.read_text(encoding="utf-8")
     except Exception:
         return default
+
+
+def _normalize_identity_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _extract_usb_vid_pid(*values: str) -> tuple[Optional[int], Optional[int]]:
+    for value in values:
+        match = _USB_VID_PID_RE.search(str(value or ""))
+        if not match:
+            continue
+        return int(match.group(1), 16), int(match.group(2), 16)
+    return None, None
+
+
+def _classify_usb_identity(
+    vid: Optional[int],
+    pid: Optional[int],
+    description: str = "",
+    manufacturer: str = "",
+    hwid: str = "",
+) -> dict:
+    if vid is not None and pid is not None:
+        info = USB_DEVICE_MAP.get((vid, pid))
+        if info:
+            return {
+                "family": info["family"],
+                "chip": info["chip"],
+                "has_npu": info["npu"],
+                "flash_mb": info["flash_mb"],
+                "status": "detected",
+            }
+
+        vid_info = USB_VID_MAP.get(vid)
+        if vid_info:
+            family = vid_info["family"]
+            return {
+                "family": family,
+                "chip": f"{vid_info['vendor']} Device (PID:{hex(pid)})",
+                "has_npu": _family_has_npu(family),
+                "flash_mb": 0,
+                "status": "detected",
+            }
+
+    heuristic = _identify_by_heuristics(description or "", manufacturer or "", hwid or "")
+    if heuristic:
+        return {
+            "family": heuristic["family"],
+            "chip": heuristic["chip"],
+            "has_npu": heuristic["npu"],
+            "flash_mb": heuristic["flash_mb"],
+            "status": "detected",
+        }
+
+    chip_name = description or manufacturer or "USB Device"
+    if vid is not None and pid is not None:
+        chip_name += f" ({hex(vid)}:{hex(pid)})"
+    return {
+        "family": "serial" if "serial" in chip_name.lower() else "unknown",
+        "chip": chip_name,
+        "has_npu": False,
+        "flash_mb": 0,
+        "status": "detected",
+    }
+
+
+def _run_powershell_json(command: str, timeout: float = 15.0) -> list[dict]:
+    if platform.system() != "Windows":
+        return []
+
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", command],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as exc:
+        logger.debug("PowerShell probe failed: %s", exc)
+        return []
+
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").strip()
+        if stderr:
+            logger.debug("PowerShell probe returned %s: %s", completed.returncode, stderr)
+        return []
+
+    payload = (completed.stdout or "").strip()
+    if not payload:
+        return []
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        start = min((index for index in (payload.find("["), payload.find("{")) if index != -1), default=-1)
+        if start < 0:
+            logger.debug("PowerShell probe produced non-JSON output")
+            return []
+        try:
+            parsed = json.loads(payload[start:])
+        except Exception as exc:
+            logger.debug("Failed to parse PowerShell JSON payload: %s", exc)
+            return []
+
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if isinstance(parsed, dict):
+        return [parsed]
+    return []
+
+
+def _is_virtual_interface(alias: str) -> bool:
+    lowered = str(alias or "").lower()
+    return any(token in lowered for token in _VIRTUAL_INTERFACE_TOKENS)
+
+
+def _is_candidate_neighbor_ip(ip_address: str) -> bool:
+    try:
+        candidate = ipaddress.ip_address(str(ip_address or ""))
+    except ValueError:
+        return False
+
+    if candidate.version != 4 or candidate.is_loopback or candidate.is_multicast or candidate.is_unspecified:
+        return False
+
+    octets = str(candidate).split(".")
+    return octets[-1] not in {"0", "255"}
+
+
+def _is_candidate_neighbor_mac(mac_address: str) -> bool:
+    normalized = str(mac_address or "").strip().upper().replace(":", "-")
+    if not normalized or normalized in {"FF-FF-FF-FF-FF-FF", "00-00-00-00-00-00"}:
+        return False
+    return not normalized.startswith(("01-00-5E", "33-33"))
+
+
+def _safe_device_id_fragment(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-") or "device"
 
 
 def _windows_drive_letters() -> list[str]:
@@ -627,6 +875,93 @@ def scan_usb_mass_storage_devices() -> list[dict]:
     return devices
 
 
+def scan_windows_usb_pnp_devices(serial_devices: Optional[list[dict]] = None) -> list[dict]:
+    """Broader Windows USB discovery for boards that do not expose a COM port."""
+    if platform.system() != "Windows":
+        return []
+
+    raw_devices = _run_powershell_json(
+        """
+        $devices = Get-PnpDevice -PresentOnly |
+            Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -like 'USB\\VID_*' } |
+            Select-Object Class,FriendlyName,InstanceId,Manufacturer,Status
+        $devices | ConvertTo-Json -Depth 4 -Compress
+        """,
+        timeout=20.0,
+    )
+    if not raw_devices:
+        return []
+
+    serial_devices = serial_devices or []
+    serial_tokens: set[str] = set()
+    serial_vid_pid: set[tuple[int, int]] = set()
+    for device in serial_devices:
+        vid = device.get("vid")
+        pid = device.get("pid")
+        if isinstance(vid, int) and isinstance(pid, int):
+            serial_vid_pid.add((vid, pid))
+
+        for token in [device.get("serial_number"), device.get("port")]:
+            normalized = _normalize_identity_token(token)
+            if normalized:
+                serial_tokens.add(normalized)
+
+        hwid = str(device.get("hwid") or "")
+        serial_match = re.search(r"SER=([^\s]+)", hwid, flags=re.IGNORECASE)
+        if serial_match:
+            serial_tokens.add(_normalize_identity_token(serial_match.group(1)))
+
+    discovered: list[dict] = []
+    seen_ids: set[str] = set()
+    for entry in raw_devices:
+        instance_id = str(entry.get("InstanceId") or "")
+        class_name = str(entry.get("Class") or "")
+        friendly_name = str(entry.get("FriendlyName") or class_name or "USB Device")
+        manufacturer = str(entry.get("Manufacturer") or "")
+        lowered_name = friendly_name.lower()
+        lowered_class = class_name.lower()
+
+        if any(token in lowered_name for token in ("host controller", "root hub", "generic usb hub")):
+            continue
+        if lowered_class == "net":
+            continue
+
+        vid, pid = _extract_usb_vid_pid(instance_id, friendly_name)
+        classification = _classify_usb_identity(vid, pid, friendly_name, manufacturer, instance_id)
+        instance_tail = _normalize_identity_token(instance_id.split("\\")[-1])
+
+        if instance_tail and instance_tail in serial_tokens:
+            continue
+        if vid is not None and pid is not None and (vid, pid) in serial_vid_pid:
+            continue
+        if friendly_name in {"USB Composite Device", "USB Mass Storage Device"} and classification.get("family") in {"unknown", "serial", "uart-bridge"}:
+            continue
+        if classification.get("family") in {"unknown", "serial", "uart-bridge"}:
+            continue
+
+        device_id = f"usb-pnp-{_safe_device_id_fragment(instance_id)}"
+        if device_id in seen_ids:
+            continue
+        seen_ids.add(device_id)
+
+        discovered.append({
+            "id": device_id,
+            "instance_id": instance_id,
+            "device_class": class_name,
+            "description": friendly_name,
+            "manufacturer": manufacturer,
+            "vid": vid,
+            "pid": pid,
+            "hwid": instance_id,
+            "connection": "usb",
+            "discovered_at": _utcnow_iso(),
+            **classification,
+        })
+
+    logger.info("Windows USB PnP scan found %s additional device(s)", len(discovered))
+    return discovered
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  USB / Serial Discovery
 # ═══════════════════════════════════════════════════════════════════
@@ -653,56 +988,17 @@ def scan_usb_devices() -> list[dict]:
             "discovered_at": _utcnow_iso(),
         }
 
-        identified = False
-        if port.vid is not None and port.pid is not None:
-            info = USB_DEVICE_MAP.get((port.vid, port.pid))
-            if info:
-                device.update({
-                    "family": info["family"],
-                    "chip": info["chip"],
-                    "has_npu": info["npu"],
-                    "flash_mb": info["flash_mb"],
-                    "status": "detected",
-                })
-                identified = True
-
-            if not identified:
-                vid_info = USB_VID_MAP.get(port.vid)
-                if vid_info:
-                    device.update({
-                        "family": vid_info["family"],
-                        "chip": f"{vid_info['vendor']} Device (PID:{hex(port.pid)})",
-                        "has_npu": vid_info["family"] in {"rockchip", "coral", "movidius"},
-                        "flash_mb": 0,
-                        "status": "detected",
-                    })
-                    identified = True
-
-        if not identified:
-            heuristic = _identify_by_heuristics(port.description or "", port.manufacturer or "", port.hwid or "")
-            if heuristic:
-                device.update({
-                    "family": heuristic["family"],
-                    "chip": heuristic["chip"],
-                    "has_npu": heuristic["npu"],
-                    "flash_mb": heuristic["flash_mb"],
-                    "status": "detected",
-                })
-                identified = True
-
-        if not identified:
-            chip_name = port.description or port.manufacturer or "Serial Device"
-            if port.vid is not None and port.pid is not None:
-                chip_name += f" ({hex(port.vid)}:{hex(port.pid)})"
-            device.update({
-                "family": "serial",
-                "chip": chip_name,
-                "has_npu": False,
-                "flash_mb": 0,
-                "status": "detected",
-            })
+        device.update(_classify_usb_identity(
+            port.vid,
+            port.pid,
+            port.description or "",
+            port.manufacturer or "",
+            port.hwid or "",
+        ))
 
         devices.append(device)
+
+    devices.extend(scan_windows_usb_pnp_devices(serial_devices=devices))
 
     logger.info("USB scan found %s device(s)", len(devices))
     return devices
@@ -801,6 +1097,35 @@ def scan_mdns(service_type: str = "_nirvana-npu._tcp.local.", timeout: float = 5
 # ═══════════════════════════════════════════════════════════════════
 
 def get_local_subnets() -> list[str]:
+    if platform.system() == "Windows":
+        interface_rows = _run_powershell_json(
+            """
+            $rows = Get-NetIPAddress -AddressFamily IPv4 |
+                Where-Object {
+                    $_.IPAddress -and
+                    $_.IPAddress -notlike '127.*' -and
+                    $_.PrefixLength -gt 0 -and
+                    $_.InterfaceAlias
+                } |
+                Select-Object IPAddress,PrefixLength,InterfaceAlias
+            $rows | ConvertTo-Json -Depth 4 -Compress
+            """,
+            timeout=15.0,
+        )
+        subnets: list[str] = []
+        for row in interface_rows:
+            alias = str(row.get("InterfaceAlias") or "")
+            if _is_virtual_interface(alias):
+                continue
+            ip = str(row.get("IPAddress") or "")
+            if not _is_candidate_neighbor_ip(ip):
+                continue
+            subnet = ".".join(ip.split(".")[:3])
+            if subnet not in subnets:
+                subnets.append(subnet)
+        if subnets:
+            return subnets
+
     import socket
 
     subnets = []
@@ -815,6 +1140,80 @@ def get_local_subnets() -> list[str]:
     except Exception:
         pass
     return subnets
+
+
+async def scan_network_neighbors(timeout: float = 0.35) -> list[dict]:
+    """Discover adjacent LAN devices from the OS neighbor/ARP table."""
+    if platform.system() != "Windows":
+        return []
+
+    neighbor_rows = _run_powershell_json(
+        """
+        $rows = Get-NetNeighbor -AddressFamily IPv4 |
+            Select-Object IPAddress,LinkLayerAddress,InterfaceAlias,State
+        $rows | ConvertTo-Json -Depth 4 -Compress
+        """,
+        timeout=15.0,
+    )
+    if not neighbor_rows:
+        return []
+
+    base_devices: list[dict] = []
+    seen_ips: set[str] = set()
+    for row in neighbor_rows:
+        ip = str(row.get("IPAddress") or "").strip()
+        mac = str(row.get("LinkLayerAddress") or "").strip().upper().replace(":", "-")
+        interface_alias = str(row.get("InterfaceAlias") or "").strip()
+        if not _is_candidate_neighbor_ip(ip) or not _is_candidate_neighbor_mac(mac):
+            continue
+        if _is_virtual_interface(interface_alias):
+            continue
+        if ip in seen_ips:
+            continue
+        seen_ips.add(ip)
+
+        base_devices.append({
+            "id": f"lan-{ip.replace('.', '-')}",
+            "ip": ip,
+            "mac": mac,
+            "host": None,
+            "interface": interface_alias,
+            "connection": "network",
+            "family": "unknown",
+            "chip": "LAN Neighbor",
+            "description": f"Neighbor on {interface_alias}" if interface_alias else "Neighbor table entry",
+            "has_npu": False,
+            "status": "visible",
+            "discovered_at": _utcnow_iso(),
+        })
+
+    if not base_devices:
+        return []
+
+    probes = await asyncio.gather(
+        *[_probe_network_target(device["ip"], timeout=timeout) for device in base_devices]
+    )
+
+    devices: list[dict] = []
+    for base_device, probe in zip(base_devices, probes):
+        if probe:
+            devices.append({
+                **base_device,
+                **probe,
+                "id": base_device["id"],
+                "mac": base_device["mac"],
+                "interface": base_device["interface"],
+                "connection": "network",
+                "family": probe.get("family") or base_device["family"],
+                "chip": probe.get("chip") or base_device["chip"],
+                "description": probe.get("description") or base_device["description"],
+                "status": probe.get("status") or "visible",
+            })
+        else:
+            devices.append(base_device)
+
+    logger.info("Neighbor-table scan found %s network device(s)", len(devices))
+    return devices
 
 
 def _parse_known_host_tokens(raw_hosts: Optional[str] = None) -> list[str]:
@@ -1246,6 +1645,7 @@ def merge_into_registry(discovered: list[dict]) -> dict:
 
         device_id = discovered_device["id"]
         existing = devices.get(device_id, {})
+        preserve_pairing = bool(existing.get("paired") and _same_device_identity(existing, discovered_device))
         merged = {
             **existing,
             **discovered_device,
@@ -1255,8 +1655,8 @@ def merge_into_registry(discovered: list[dict]) -> dict:
             "notes": existing.get("notes", ""),
             "firmware_version": existing.get("firmware_version", ""),
             "agent_installed": existing.get("agent_installed", False),
-            "paired": existing.get("paired", False),
-            "management_state": existing.get("management_state", "paired" if existing.get("paired") else "detected"),
+            "paired": preserve_pairing,
+            "management_state": existing.get("management_state", "paired" if preserve_pairing else "detected"),
             "preferred_profile_id": existing.get("preferred_profile_id"),
             "last_prepared_bundle_id": existing.get("last_prepared_bundle_id"),
         }
@@ -1605,12 +2005,14 @@ def detect_chip_for_device(device_id: str) -> dict:
 async def run_full_discovery(
     usb: bool = True,
     mdns: bool = True,
+    neighbors: bool = True,
     ble: bool = False,
     subnet: bool = False,
     known_only: bool = False,
     known_hosts: Optional[str] = None,
     mdns_timeout: float = 5.0,
     ble_timeout: float = 10.0,
+    include_low_confidence: bool = False,
 ) -> dict:
     all_devices: list[dict] = []
     scan_methods: list[str] = []
@@ -1623,6 +2025,10 @@ async def run_full_discovery(
     if mdns:
         scan_methods.append("mdns")
         all_devices.extend(scan_mdns(timeout=mdns_timeout))
+
+    if neighbors:
+        scan_methods.append("neighbors")
+        all_devices.extend(await scan_network_neighbors())
 
     if ble:
         scan_methods.append("ble")
@@ -1639,7 +2045,7 @@ async def run_full_discovery(
                 all_devices.extend(await scan_subnet(subnet_prefix))
 
     merge_into_registry(all_devices)
-    registry_view = list_registry_devices(include_low_confidence=False)
+    registry_view = list_registry_devices(include_low_confidence=include_low_confidence)
     return {
         "scan_methods": scan_methods,
         "devices_found": len(all_devices),

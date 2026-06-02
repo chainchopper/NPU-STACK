@@ -32,18 +32,21 @@ from services.gguf_service import chat_completion, get_loaded_models
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MODEL_STORE = BACKEND_ROOT / "data" / "models"
+FLEET_STATE_FILE = BACKEND_ROOT / "data" / "fleet_command_state.json"
 AGENT_MODEL_FILENAME = "Phi-3-mini-4k-instruct-q4.gguf"
 DEFAULT_AGENT_PORT = int(os.getenv("NPU_STACK_AGENT_PORT", "9200"))
 DEFAULT_COMMAND_CENTER_URL = os.getenv("NPU_STACK_COMMAND_CENTER_URL", "http://127.0.0.1:8010").rstrip("/")
 AGENT_SHARED_SECRET = os.getenv("NPU_STACK_AGENT_SHARED_SECRET", "")
 DEFAULT_SSH_USER = os.getenv("NPU_STACK_SSH_USER", "root")
 DEFAULT_SSH_KEY_PATH = os.getenv("NPU_STACK_SSH_KEY_PATH", "").strip()
+MAX_TELEMETRY_HISTORY = int(os.getenv("NPU_STACK_MAX_TELEMETRY_HISTORY", "200"))
 
 _registry_lock = threading.Lock()
 _command_lock = threading.Lock()
 _command_history: list[dict[str, Any]] = []
 _command_jobs: dict[str, dict[str, Any]] = {}
 _pending_agent_jobs: dict[str, list[dict[str, Any]]] = {}
+_telemetry_history: dict[str, list[dict[str, Any]]] = {}
 
 DEVICE_FAMILY_KEYWORDS = {
     "esp32": ["esp32", "esp32-s2", "esp32-s3", "esp32-c3", "esp32-c6", "esp32-h2", "esp32-p4", "esp8266"],
@@ -53,6 +56,7 @@ DEVICE_FAMILY_KEYWORDS = {
 
 INTENT_KEYWORDS = {
     "status": ["status", "health", "check", "audit", "list", "query", "show"],
+    "telemetry": ["telemetry", "metrics", "sensor", "monitor", "stats"],
     "provision": ["provision", "setup", "configure", "pair", "prepare", "install agent"],
     "firmware": ["firmware", "flash", "upgrade", "update firmware", "backup"],
     "reboot": ["reboot", "restart", "reset", "power cycle"],
@@ -119,8 +123,117 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _load_command_state() -> None:
+    if not FLEET_STATE_FILE.exists():
+        return
+    try:
+        payload = json.loads(FLEET_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    with _command_lock:
+        _command_history.clear()
+        _command_history.extend(payload.get("command_history") or [])
+        _command_jobs.clear()
+        _command_jobs.update(payload.get("command_jobs") or {})
+        _pending_agent_jobs.clear()
+        _pending_agent_jobs.update(payload.get("pending_agent_jobs") or {})
+        _telemetry_history.clear()
+        for device_id, snapshots in (payload.get("telemetry_history") or {}).items():
+            if isinstance(snapshots, list):
+                _telemetry_history[str(device_id)] = snapshots[-MAX_TELEMETRY_HISTORY:]
+
+
+def _save_command_state() -> None:
+    with _command_lock:
+        payload = {
+            "command_history": deepcopy(_command_history),
+            "command_jobs": deepcopy(_command_jobs),
+            "pending_agent_jobs": deepcopy(_pending_agent_jobs),
+            "telemetry_history": deepcopy(_telemetry_history),
+        }
+    try:
+        FLEET_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FLEET_STATE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except Exception:
+        return
+
+
 def _registry_devices() -> list[dict[str, Any]]:
     return list(load_registry().get("devices", {}).values())
+
+
+def record_device_telemetry(device_id: str, telemetry: Optional[dict[str, Any]], *, source: str = "heartbeat", metadata: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
+    telemetry = telemetry or {}
+    metadata = metadata or {}
+    if not telemetry and not metadata:
+        return None
+
+    snapshot = {
+        "device_id": device_id,
+        "recorded_at": utcnow_iso(),
+        "source": source,
+        "telemetry": deepcopy(telemetry),
+        "metadata": deepcopy(metadata),
+    }
+
+    with _command_lock:
+        history = _telemetry_history.setdefault(device_id, [])
+        history.append(snapshot)
+        if len(history) > MAX_TELEMETRY_HISTORY:
+            del history[:-MAX_TELEMETRY_HISTORY]
+    _save_command_state()
+    return deepcopy(snapshot)
+
+
+def get_device_telemetry(device_id: str, *, limit: int = 50) -> dict[str, Any]:
+    device = get_device_from_registry(device_id)
+    if not device:
+        raise KeyError(f"Device '{device_id}' not found")
+
+    with _command_lock:
+        history = deepcopy((_telemetry_history.get(device_id) or [])[-max(1, limit):])
+
+    registry_telemetry = deepcopy(device.get("telemetry") or {})
+    latest = deepcopy(history[-1]) if history else None
+    if not latest and registry_telemetry:
+        latest = {
+            "device_id": device_id,
+            "recorded_at": device.get("last_agent_seen_at") or device.get("last_seen") or utcnow_iso(),
+            "source": "registry",
+            "telemetry": registry_telemetry,
+            "metadata": {"status": device.get("status")},
+        }
+
+    return {
+        "device_id": device_id,
+        "device": device,
+        "latest": latest,
+        "history": history,
+        "history_count": len(history),
+        "registry_telemetry": registry_telemetry,
+    }
+
+
+def query_device_telemetry(device_id: str, *, limit: int = 50, refresh: bool = False) -> dict[str, Any]:
+    device = get_device_from_registry(device_id)
+    if not device:
+        raise KeyError(f"Device '{device_id}' not found")
+
+    if refresh:
+        status_result = _execute_status(device)
+        if status_result.get("status") == "success":
+            record_device_telemetry(
+                device_id,
+                {
+                    "health": status_result.get("health") or {},
+                    "hardware": status_result.get("hardware") or {},
+                    "registry_telemetry": deepcopy(device.get("telemetry") or {}),
+                },
+                source=status_result.get("transport") or "status-query",
+            )
+
+    return get_device_telemetry(device_id, limit=limit)
 
 
 def list_command_templates() -> list[dict[str, Any]]:
@@ -232,6 +345,9 @@ def _heuristic_parse(command_text: str) -> dict[str, Any]:
 
     if detected_intent == "shell":
         action_params.setdefault("shell_command", _extract_shell_command(command_text) or matched_template and matched_template.get("action_params", {}).get("shell_command") or "")
+    if detected_intent == "telemetry":
+        action_params.setdefault("refresh", any(keyword in lowered for keyword in ["live", "refresh", "poll"]))
+        action_params.setdefault("limit", 20)
     if detected_intent == "firmware":
         action_params.setdefault("backup_before_update", True)
         action_params.setdefault("verify_after_flash", True)
@@ -282,6 +398,17 @@ def build_tool_context(include_jobs: bool = True) -> dict[str, Any]:
                 }
                 for device in fleet_status["devices"]
             ],
+        },
+        "query-fleet-telemetry": {
+            "devices": [
+                {
+                    "id": device.get("id"),
+                    "telemetry_keys": sorted(list((device.get("telemetry") or {}).keys())),
+                    "has_history": bool(_telemetry_history.get(device.get("id"))),
+                    "last_agent_seen_at": device.get("last_agent_seen_at"),
+                }
+                for device in fleet_status["devices"]
+            ]
         },
         "list-fleet-templates": list_command_templates(),
     }
@@ -336,7 +463,7 @@ def _agent_parse(command_text: str, context: Optional[dict[str, Any]] = None) ->
         "You are a fleet orchestration planner for NPU-STACK. "
         "Use the provided tool outputs to determine the best intent, targets, and action parameters. "
         "Return JSON only with keys: intent, target_devices, action_params, confidence, reasoning_summary, template_id, alternatives. "
-        "Valid intents: status, provision, firmware, reboot, shell. "
+        "Valid intents: status, telemetry, provision, firmware, reboot, shell. "
         "Only select target device ids that exist in query-fleet-status.devices."
     )
     user_prompt = (
@@ -447,6 +574,7 @@ def register_mobile_agent(payload: dict[str, Any]) -> dict[str, Any]:
         "telemetry": payload.get("telemetry") or {},
     }
     device = _save_registered_device(device_id, updates)
+    record_device_telemetry(device_id, updates.get("telemetry") or {}, source="agent-register", metadata={"status": updates.get("status")})
     return {"status": "registered", "device": device}
 
 
@@ -471,6 +599,7 @@ def heartbeat_mobile_agent(payload: dict[str, Any]) -> dict[str, Any]:
         "description": payload.get("description"),
     }
     device = _save_registered_device(device_id, updates)
+    record_device_telemetry(device_id, telemetry, source="agent-heartbeat", metadata={"status": updates.get("status")})
     return {"status": "ok", "device": device}
 
 
@@ -544,6 +673,7 @@ def _queue_mobile_agent_job(device: dict[str, Any], parent_job: dict[str, Any], 
     }
     with _command_lock:
         _pending_agent_jobs.setdefault(device_id, []).append(queued_job)
+    _save_command_state()
     return {
         "status": "queued_for_agent",
         "transport": "agent-poll",
@@ -568,6 +698,7 @@ def claim_mobile_agent_job(device_id: str) -> dict[str, Any]:
                 "transport": "agent-poll",
                 "claimed_at": utcnow_iso(),
             })
+    _save_command_state()
     return {"status": "job", "job": job}
 
 
@@ -604,6 +735,7 @@ def report_mobile_agent_job_result(device_id: str, job_id: str, result: dict[str
         }
         _refresh_job_status(job)
         updated = deepcopy(job)
+    _save_command_state()
     return updated
 
 
@@ -618,6 +750,15 @@ def _status_via_http(device: dict[str, Any]) -> dict[str, Any]:
             hardware = _http_request("GET", f"{endpoint}/api/hw", timeout=10)
         except Exception:
             hardware = {}
+        record_device_telemetry(
+            device["id"],
+            {
+                "health": health,
+                "hardware": hardware,
+                "registry_telemetry": deepcopy(device.get("telemetry") or {}),
+            },
+            source="http-agent-status",
+        )
         return {"status": "success", "transport": "http-agent", "health": health, "hardware": hardware}
     except Exception as exc:
         return {"status": "failed", "transport": "http-agent", "error": str(exc)}
@@ -666,12 +807,21 @@ def _execute_status(device: dict[str, Any]) -> dict[str, Any]:
     if http_result.get("status") == "success":
         return http_result
 
+    if device.get("telemetry"):
+        record_device_telemetry(device["id"], deepcopy(device.get("telemetry") or {}), source="registry-status", metadata={"status": device.get("status")})
+
     return {
         "status": "queried",
         "transport": "registry",
         "device": device,
         "note": "Returned registry metadata because no live transport was available.",
     }
+
+
+def _execute_telemetry(device: dict[str, Any], action_params: dict[str, Any]) -> dict[str, Any]:
+    limit = int(action_params.get("limit") or 20)
+    refresh = bool(action_params.get("refresh"))
+    return query_device_telemetry(device["id"], limit=limit, refresh=refresh)
 
 
 def _execute_provision(device: dict[str, Any], action_params: dict[str, Any]) -> dict[str, Any]:
@@ -760,6 +910,8 @@ def _execute_device_action(device_id: str, intent: str, action_params: dict[str,
 
     if intent == "status":
         return _execute_status(device)
+    if intent == "telemetry":
+        return _execute_telemetry(device, action_params)
     if intent == "shell":
         return _execute_shell(device, action_params, parent_job)
     if intent == "reboot":
@@ -796,6 +948,7 @@ def create_command_job(parsed_command: dict[str, Any], dry_run: bool = False) ->
             "timestamp": job["created_at"],
             "intent": job["intent"],
         })
+    _save_command_state()
     return deepcopy(job)
 
 
@@ -803,6 +956,7 @@ def execute_command_job(job_id: str, parsed_command: dict[str, Any], dry_run: bo
     with _command_lock:
         job = _command_jobs[job_id]
         job["status"] = "executing"
+    _save_command_state()
 
     results: dict[str, Any] = {}
     try:
@@ -811,17 +965,37 @@ def execute_command_job(job_id: str, parsed_command: dict[str, Any], dry_run: bo
             with _command_lock:
                 _command_jobs[job_id]["results_by_device"] = deepcopy(results)
                 _refresh_job_status(_command_jobs[job_id])
+            _save_command_state()
 
         with _command_lock:
             _command_jobs[job_id]["results_by_device"] = deepcopy(results)
             _refresh_job_status(_command_jobs[job_id])
             if _command_jobs[job_id]["status"] == "complete" and not _command_jobs[job_id].get("completed_at"):
                 _command_jobs[job_id]["completed_at"] = utcnow_iso()
+        _save_command_state()
     except Exception as exc:
         with _command_lock:
             _command_jobs[job_id]["status"] = "failed"
             _command_jobs[job_id]["completed_at"] = utcnow_iso()
             _command_jobs[job_id]["error"] = str(exc)
+        _save_command_state()
+
+
+def run_device_control_action(device_id: str, intent: str, action_params: Optional[dict[str, Any]] = None, *, dry_run: bool = False) -> dict[str, Any]:
+    parsed = {
+        "command_text": f"manual {intent} on {device_id}",
+        "intent": intent,
+        "target_devices": [device_id],
+        "action_params": deepcopy(action_params or {}),
+        "confidence": 1.0,
+        "alternatives": [],
+        "template_id": None,
+        "reasoning_summary": "Manual device control action requested via API.",
+        "tool_context": build_tool_context(include_jobs=False),
+    }
+    job = create_command_job(parsed, dry_run=dry_run)
+    execute_command_job(job["job_id"], parsed, dry_run=dry_run)
+    return get_command_job(job["job_id"]) or job
 
 
 __all__ = [
@@ -834,9 +1008,16 @@ __all__ = [
     "get_command_history",
     "get_command_job",
     "get_command_template",
+    "get_device_telemetry",
     "heartbeat_mobile_agent",
     "list_command_templates",
     "parse_command",
+    "query_device_telemetry",
+    "record_device_telemetry",
     "register_mobile_agent",
     "report_mobile_agent_job_result",
+    "run_device_control_action",
 ]
+
+
+_load_command_state()

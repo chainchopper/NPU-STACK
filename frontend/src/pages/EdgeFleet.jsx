@@ -11,6 +11,8 @@ import {
     diagnoseBackendError,
     downloadPreparedBundleUrl,
     espBackup,
+    executeDeviceCommand,
+    getDeviceTelemetry,
     inferBackendOrigin,
     installPreparedBundle,
     listBackups,
@@ -18,6 +20,7 @@ import {
     listPreparedBundles,
     pairDevice,
     prepareDevice,
+    rebootDevice,
     removeDevice,
     rp2040Detect,
     scanDevices,
@@ -49,6 +52,7 @@ const statusLabel = {
 const connIcon = {
     usb: Usb,
     wifi: Wifi,
+    network: Server,
     ble: Bluetooth,
     'usb-mass-storage': HardDrive,
 };
@@ -89,14 +93,57 @@ function buildSignalBadges(device) {
     return badges;
 }
 
+function flattenTelemetryEntries(value, prefix = '', acc = []) {
+    if (value == null) return acc;
+
+    if (Array.isArray(value)) {
+        value.forEach((entry, index) => flattenTelemetryEntries(entry, `${prefix}[${index}]`, acc));
+        return acc;
+    }
+
+    if (typeof value === 'object') {
+        Object.entries(value).forEach(([key, entry]) => {
+            const nextKey = prefix ? `${prefix}.${key}` : key;
+            flattenTelemetryEntries(entry, nextKey, acc);
+        });
+        return acc;
+    }
+
+    acc.push([prefix || 'value', value]);
+    return acc;
+}
+
+function formatTelemetryValue(value) {
+    if (typeof value === 'number') {
+        return Number.isInteger(value) ? String(value) : value.toFixed(2);
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+    }
+    if (value == null || value === '') {
+        return '—';
+    }
+    return String(value);
+}
+
+function formatRecordedAt(value) {
+    if (!value) return '—';
+    try {
+        return new Date(value).toLocaleString();
+    } catch {
+        return String(value);
+    }
+}
+
 export default function EdgeFleet() {
     const [devices, setDevices] = useState([]);
     const [summary, setSummary] = useState({ count: 0, paired_count: 0, detected_count: 0, available_count: 0, hidden_low_confidence: 0 });
     const [preparedBundles, setPreparedBundles] = useState([]);
     const [bundleSelectionByDevice, setBundleSelectionByDevice] = useState({});
     const [scanning, setScanning] = useState(false);
-    const [scanOpts, setScanOpts] = useState({ usb: true, mdns: true, ble: false, subnet: false, known_only: false });
+    const [scanOpts, setScanOpts] = useState({ usb: true, mdns: true, neighbors: true, ble: false, subnet: false, known_only: false });
     const [knownHostsInput, setKnownHostsInput] = useState('');
+    const [showLowConfidence, setShowLowConfidence] = useState(false);
     const [filter, setFilter] = useState('all');
     const [log, setLog] = useState([]);
     const [backups, setBackups] = useState([]);
@@ -106,6 +153,13 @@ export default function EdgeFleet() {
     const [loading, setLoading] = useState(true);
     const [provisioningConfig, setProvisioningConfig] = useState(buildProvisioningDefaults);
     const [backendWarning, setBackendWarning] = useState('');
+    const [telemetryByDevice, setTelemetryByDevice] = useState({});
+    const [telemetryLoadingByDevice, setTelemetryLoadingByDevice] = useState({});
+    const [telemetryErrorByDevice, setTelemetryErrorByDevice] = useState({});
+    const [commandInputByDevice, setCommandInputByDevice] = useState({});
+    const [commandBusyByDevice, setCommandBusyByDevice] = useState({});
+    const [commandResultByDevice, setCommandResultByDevice] = useState({});
+    const [rebootBusyByDevice, setRebootBusyByDevice] = useState({});
 
     const backendOrigin = useMemo(() => inferBackendOrigin(), []);
 
@@ -115,7 +169,7 @@ export default function EdgeFleet() {
 
     const fetchDevices = useCallback(async () => {
         try {
-            const data = await listDevices();
+            const data = await listDevices(showLowConfidence);
             setDevices(data.devices || []);
             setSummary({
                 count: data.count || 0,
@@ -129,7 +183,7 @@ export default function EdgeFleet() {
             setBackendWarning(diagnoseBackendError(error, 'Edge Fleet'));
         }
         setLoading(false);
-    }, []);
+    }, [showLowConfidence]);
 
     const fetchBackups = useCallback(async () => {
         try {
@@ -149,11 +203,41 @@ export default function EdgeFleet() {
         }
     }, []);
 
+    const refreshDeviceTelemetry = useCallback(async (device, { refresh = false, quiet = false } = {}) => {
+        if (!device?.id) return;
+
+        setTelemetryLoadingByDevice((prev) => ({ ...prev, [device.id]: true }));
+        setTelemetryErrorByDevice((prev) => ({ ...prev, [device.id]: '' }));
+        try {
+            const snapshot = await getDeviceTelemetry(device.id, { limit: 12, refresh });
+            setTelemetryByDevice((prev) => ({ ...prev, [device.id]: snapshot }));
+            if (!quiet) {
+                const metricCount = flattenTelemetryEntries(snapshot.latest?.telemetry || snapshot.registry_telemetry || {}).length;
+                addLog(`Telemetry ${refresh ? 'refreshed' : 'loaded'} for ${device.nickname || device.chip || device.id} (${metricCount} metrics)`);
+            }
+        } catch (error) {
+            const message = error?.message || `Telemetry query failed for ${device.id}`;
+            setTelemetryErrorByDevice((prev) => ({ ...prev, [device.id]: message }));
+            if (!quiet) addLog(message);
+        } finally {
+            setTelemetryLoadingByDevice((prev) => ({ ...prev, [device.id]: false }));
+        }
+    }, []);
+
     useEffect(() => {
         fetchDevices();
         fetchBackups();
         fetchPreparedBundles();
     }, [fetchBackups, fetchDevices, fetchPreparedBundles]);
+
+    useEffect(() => {
+        if (!expandedId) return;
+        const expandedDevice = devices.find((device) => device.id === expandedId);
+        if (!expandedDevice) return;
+        if (telemetryByDevice[expandedId] || telemetryLoadingByDevice[expandedId]) return;
+
+        refreshDeviceTelemetry(expandedDevice, { quiet: true });
+    }, [devices, expandedId, refreshDeviceTelemetry, telemetryByDevice, telemetryLoadingByDevice]);
 
     const latestBundleByDevice = useMemo(() => {
         const latest = {};
@@ -182,11 +266,12 @@ export default function EdgeFleet() {
     const runScan = async () => {
         setScanning(true);
         const requestOptions = knownHostsInput.trim()
-            ? { ...scanOpts, known_hosts: knownHostsInput.trim() }
-            : { ...scanOpts };
+            ? { ...scanOpts, known_hosts: knownHostsInput.trim(), include_low_confidence: showLowConfidence }
+            : { ...scanOpts, include_low_confidence: showLowConfidence };
         const methods = [];
         if (scanOpts.usb) methods.push('usb');
         if (scanOpts.mdns) methods.push('mdns');
+        if (scanOpts.neighbors) methods.push('neighbors');
         if (scanOpts.ble) methods.push('ble');
         if (scanOpts.subnet && scanOpts.known_only) methods.push('known-hosts');
         else if (scanOpts.subnet) methods.push('subnet');
@@ -351,10 +436,55 @@ export default function EdgeFleet() {
         }
     };
 
+    const handleRunDeviceCommand = async (device) => {
+        const command = (commandInputByDevice[device.id] || '').trim();
+        if (!command) {
+            addLog(`Enter a command before executing on ${device.nickname || device.chip || device.id}`);
+            return;
+        }
+
+        setCommandBusyByDevice((prev) => ({ ...prev, [device.id]: true }));
+        try {
+            const result = await executeDeviceCommand(device.id, command);
+            const deviceResult = result.results_by_device?.[device.id] || {};
+            setCommandResultByDevice((prev) => ({ ...prev, [device.id]: deviceResult }));
+            addLog(`Executed command on ${device.nickname || device.chip || device.id}: ${deviceResult.status || result.status}`);
+            await refreshDeviceTelemetry(device, { refresh: true, quiet: true });
+        } catch (error) {
+            const message = error?.message || `Command failed on ${device.id}`;
+            setCommandResultByDevice((prev) => ({
+                ...prev,
+                [device.id]: { status: 'failed', error: message },
+            }));
+            addLog(message);
+        } finally {
+            setCommandBusyByDevice((prev) => ({ ...prev, [device.id]: false }));
+        }
+    };
+
+    const handleRebootDevice = async (device) => {
+        setRebootBusyByDevice((prev) => ({ ...prev, [device.id]: true }));
+        try {
+            const result = await rebootDevice(device.id);
+            const deviceResult = result.results_by_device?.[device.id] || {};
+            setCommandResultByDevice((prev) => ({ ...prev, [device.id]: deviceResult }));
+            addLog(`Reboot requested for ${device.nickname || device.chip || device.id}`);
+        } catch (error) {
+            const message = error?.message || `Reboot failed on ${device.id}`;
+            setCommandResultByDevice((prev) => ({
+                ...prev,
+                [device.id]: { status: 'failed', error: message },
+            }));
+            addLog(message);
+        } finally {
+            setRebootBusyByDevice((prev) => ({ ...prev, [device.id]: false }));
+        }
+    };
+
     const filtered = devices.filter((device) => {
         if (filter === 'all') return true;
         if (filter === 'usb') return device.connection === 'usb' || device.connection === 'usb-mass-storage';
-        if (filter === 'wifi') return device.connection === 'wifi';
+        if (filter === 'wifi') return device.connection === 'wifi' || device.connection === 'network';
         if (filter === 'ble') return device.connection === 'ble';
         if (filter === 'npu') return device.has_npu;
         if (filter === 'paired') return device.paired;
@@ -374,6 +504,17 @@ export default function EdgeFleet() {
         const selectedBundle = compatibleBundles.find((bundle) => bundle.bundle_id === selectedBundleId) || latestBundleByDevice[device.id] || null;
         const family = String(device.family || '');
         const signalBadges = buildSignalBadges(device);
+        const telemetrySnapshot = telemetryByDevice[device.id];
+        const telemetryLatest = telemetrySnapshot?.latest;
+        const telemetryEntries = flattenTelemetryEntries(telemetryLatest?.telemetry || telemetrySnapshot?.registry_telemetry || {}).slice(0, 12);
+        const commandValue = commandInputByDevice[device.id] || '';
+        const commandResult = commandResultByDevice[device.id];
+        const telemetryBusy = !!telemetryLoadingByDevice[device.id];
+        const telemetryError = telemetryErrorByDevice[device.id];
+        const commandBusy = !!commandBusyByDevice[device.id];
+        const rebootBusy = !!rebootBusyByDevice[device.id];
+        const protocolBadges = device.capabilities?.protocols || [];
+        const transportBadges = device.capabilities?.transport_modes || [];
 
         return (
             <div key={device.id} className={`card fleet-device-card ${color}`}>
@@ -438,6 +579,104 @@ export default function EdgeFleet() {
                             <span className="fleet-detail-label">Recommended Bundle</span><span>{device.recommended_profile || '—'}</span>
                             {device.last_seen && <><span className="fleet-detail-label">Last Seen</span><span>{new Date(device.last_seen).toLocaleString()}</span></>}
                         </div>
+
+                        {(protocolBadges.length > 0 || transportBadges.length > 0) && (
+                            <div style={{ marginBottom: 14, padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>
+                                    Control Surface
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: protocolBadges.length > 0 && transportBadges.length > 0 ? 10 : 0 }}>
+                                    {protocolBadges.map((protocol) => (
+                                        <span key={`${device.id}-protocol-${protocol}`} className="fleet-badge blue">{protocol}</span>
+                                    ))}
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                    {transportBadges.map((mode) => (
+                                        <span key={`${device.id}-transport-${mode}`} className="fleet-badge purple">{mode}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {(device.capabilities?.telemetry || device.capabilities?.sensor_poll || telemetrySnapshot || telemetryError) && (
+                            <div style={{ marginBottom: 14, padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                                        Telemetry & Sensors
+                                    </div>
+                                    <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => refreshDeviceTelemetry(device, { refresh: true })} disabled={telemetryBusy}>
+                                        <RefreshCw size={13} className={telemetryBusy ? 'animate-spin' : ''} /> {telemetryBusy ? 'Refreshing...' : 'Refresh'}
+                                    </button>
+                                </div>
+
+                                {telemetryError && (
+                                    <div style={{ marginBottom: 10, color: 'var(--accent-red)', fontSize: 12 }}>{telemetryError}</div>
+                                )}
+
+                                {telemetryLatest ? (
+                                    <>
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                                            Latest snapshot from <strong>{telemetryLatest.source || 'registry'}</strong> at {formatRecordedAt(telemetryLatest.recorded_at)} • history: {telemetrySnapshot?.history_count || 0}
+                                        </div>
+                                        {telemetryEntries.length > 0 ? (
+                                            <div className="fleet-detail-grid">
+                                                {telemetryEntries.map(([key, value]) => (
+                                                    <React.Fragment key={`${device.id}-${key}`}>
+                                                        <span className="fleet-detail-label">{key}</span>
+                                                        <span>{formatTelemetryValue(value)}</span>
+                                                    </React.Fragment>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Telemetry is connected, but no metric values were returned yet.</div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        No telemetry snapshot recorded yet. Use refresh to poll the device and seed the history.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {(device.capabilities?.shell || device.capabilities?.reboot || device.connection === 'network' || device.connection === 'wifi') && (
+                            <div style={{ marginBottom: 14, padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>
+                                    Manual Control
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                                    <input
+                                        className="input"
+                                        placeholder="uptime, ls /opt/npu-stack, cat /proc/loadavg"
+                                        value={commandValue}
+                                        onChange={(event) => setCommandInputByDevice((prev) => ({ ...prev, [device.id]: event.target.value }))}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter') {
+                                                event.preventDefault();
+                                                handleRunDeviceCommand(device);
+                                            }
+                                        }}
+                                        style={{ flex: 1, minWidth: 220 }}
+                                    />
+                                    <button className="btn btn-secondary" onClick={() => handleRunDeviceCommand(device)} disabled={commandBusy || !commandValue.trim()}>
+                                        <Terminal size={14} /> {commandBusy ? 'Running...' : 'Exec'}
+                                    </button>
+                                    <button className="btn btn-danger" onClick={() => handleRebootDevice(device)} disabled={rebootBusy}>
+                                        <RefreshCw size={14} className={rebootBusy ? 'animate-spin' : ''} /> {rebootBusy ? 'Rebooting...' : 'Reboot'}
+                                    </button>
+                                </div>
+
+                                {commandResult && (
+                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap' }}>
+                                        <div style={{ marginBottom: 6 }}><strong>Status:</strong> {commandResult.status || 'unknown'} {commandResult.transport ? `• ${commandResult.transport}` : ''}</div>
+                                        {commandResult.stdout && <div style={{ marginBottom: 6 }}>{commandResult.stdout.trim()}</div>}
+                                        {commandResult.note && <div style={{ marginBottom: 6 }}>{commandResult.note}</div>}
+                                        {commandResult.error && <div style={{ color: 'var(--accent-red)' }}>{commandResult.error}</div>}
+                                        {commandResult.stderr && <div style={{ color: 'var(--accent-amber)' }}>{commandResult.stderr.trim()}</div>}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {(device.connection === 'wifi' || device.server_header || device.page_title || device.ssh_banner) && (
                             <div style={{ marginBottom: 14, padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
@@ -605,6 +844,7 @@ export default function EdgeFleet() {
                     {[
                         ['usb', Usb, 'USB / Serial'],
                         ['mdns', Wifi, 'WiFi (mDNS)'],
+                        ['neighbors', Server, 'LAN Neighbors'],
                         ['ble', Bluetooth, 'Bluetooth LE'],
                         ['subnet', Server, 'Subnet Scan'],
                         ['known_only', Shield, 'Known Edge Hosts'],
@@ -639,6 +879,13 @@ export default function EdgeFleet() {
                             {value.toUpperCase()}
                         </button>
                     ))}
+                    <button
+                        className={`fleet-filter-btn ${showLowConfidence ? 'active' : ''}`}
+                        onClick={() => setShowLowConfidence((prev) => !prev)}
+                        title="Show generic or weakly classified network discoveries too"
+                    >
+                        UNCERTAIN
+                    </button>
                     <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                         {filtered.length} shown • hidden low-confidence: {summary.hidden_low_confidence || 0}
                     </span>
