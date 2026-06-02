@@ -477,6 +477,133 @@ def _compose_nirvana_bridge_message(
     )
 
 
+def _compact_fallback_prompt(user_text: str, fleet_action: Optional[Dict[str, Any]] = None) -> str:
+    if not fleet_action:
+        return user_text
+
+    compact_action = {
+        "intent": fleet_action.get("intent"),
+        "status": fleet_action.get("status"),
+        "target_count": fleet_action.get("target_count"),
+        "targets": fleet_action.get("targets"),
+        "job_id": fleet_action.get("job_id"),
+    }
+    return "\n\n".join(
+        [
+            "NPU-STACK already executed the relevant fleet action for this turn.",
+            json.dumps(compact_action, indent=2),
+            "Respond concisely to the user, acknowledging the completed action when useful.",
+            f"User request:\n{user_text}",
+        ]
+    )
+
+
+def _chat_messages_with_bridge_prompt(
+    req: ChatRequest,
+    profile: Dict[str, Any],
+    prompt_text: str,
+) -> List[Dict[str, str]]:
+    prepared: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    profile_message = _profile_system_message(profile)
+    if profile_message:
+        prepared.append(profile_message)
+
+    prior_messages = (req.messages[:-1] if req.messages else [])[-4:]
+    for message in prior_messages:
+        role = str(message.get("role") or "").strip().lower()
+        if role not in {"system", "user", "assistant"}:
+            continue
+        content = str(message.get("content") or "")
+        if not content.strip():
+            continue
+        prepared.append({"role": role, "content": content})
+
+    prepared.append({"role": "user", "content": prompt_text})
+    return prepared
+
+
+def _local_agent_chat(
+    req: ChatRequest,
+    profile: Dict[str, Any],
+    fallback_prompt: str,
+    runtime_mode: str,
+) -> Dict[str, Any]:
+    from services.gguf_service import chat_completion as gguf_chat_completion
+    from services.gguf_service import is_available as gguf_available
+    from services.gguf_service import load_model as gguf_load_model
+
+    model_path = _model_path()
+    if not os.path.exists(model_path):
+        raise RuntimeError(f"Local Nirvana fallback model not found at {model_path}")
+    if not gguf_available():
+        raise RuntimeError("llama-cpp-python is not available for local Nirvana fallback")
+
+    load_errors: List[str] = []
+    for n_ctx in (4096, 3072, 2048, 1024):
+        try:
+            gguf_load_model(model_path, n_ctx=n_ctx, n_gpu_layers=0)
+            break
+        except Exception as exc:
+            load_errors.append(f"n_ctx={n_ctx}: {exc}")
+    else:
+        raise RuntimeError(" ; ".join(load_errors) or "Failed to load local GGUF fallback model")
+
+    response = gguf_chat_completion(
+        model_path=model_path,
+        messages=_chat_messages_with_bridge_prompt(req, profile, fallback_prompt),
+        temperature=req.temperature,
+        max_tokens=req.max_tokens,
+        top_p=1.0,
+        stream=False,
+    )
+
+    return {
+        "response": (((response or {}).get("choices") or [{}])[0].get("message") or {}).get("content", "") or "No response from local Nirvana fallback.",
+        "tool_calls": [],
+        "reasoning": None,
+        "nirvana_runtime": {
+            "agent_name": "Nirvana",
+            "engine": "llama-cpp-python",
+            "model_file": os.path.basename(model_path),
+            "model_loaded": True,
+            "uses_mock_responses": False,
+            "via": "local-gguf-fallback",
+            "profile_id": req.profile_id,
+            "profile_name": profile.get("name") if profile else None,
+            "runtime_mode": runtime_mode,
+            "requested_model": os.path.basename(model_path),
+        },
+        "raw": response,
+    }
+
+
+def _external_runtime_chat(
+    req: ChatRequest,
+    profile: Dict[str, Any],
+    fallback_prompt: str,
+    runtime_mode: str,
+) -> Dict[str, Any]:
+    try:
+        from routers.orchestration import _load_state as _orch_state
+
+        runtime_cfg = (_orch_state().get("hermes") or {})
+    except Exception as exc:
+        raise RuntimeError(f"Unable to load Nirvana runtime config: {exc}") from exc
+
+    if not runtime_cfg.get("enabled"):
+        raise RuntimeError("External Nirvana runtime is disabled")
+    if not str(runtime_cfg.get("api_base") or "").strip():
+        raise RuntimeError("External Nirvana runtime api_base is not configured")
+
+    return _nirvana_api_chat(
+        runtime_cfg,
+        req,
+        messages=_chat_messages_with_bridge_prompt(req, profile, fallback_prompt),
+        profile=profile,
+        runtime_mode=runtime_mode,
+    )
+
+
 FLEET_ACTION_KEYWORDS = [
     "telemetry",
     "metrics",
@@ -654,12 +781,13 @@ def agent_chat(req: ChatRequest):
     )
 
     user_message = _latest_user_message(req.messages)
+    user_text = str(user_message.get("content") or "")
     fleet_action = _maybe_execute_fleet_action(
-        str(user_message.get("content") or ""),
+        user_text,
         enabled=bool(use_fleet_tools),
     )
     bridged_prompt = _compose_nirvana_bridge_message(
-        str(user_message.get("content") or ""),
+        user_text,
         profile,
         req,
         use_fleet_tools=use_fleet_tools,
@@ -667,45 +795,94 @@ def agent_chat(req: ChatRequest):
         preferred_model=preferred_model,
         fleet_action=fleet_action,
     )
+    compact_fallback_prompt = _compact_fallback_prompt(user_text, fleet_action)
 
-    try:
-        ensure_webui_running()
-        upstream_session_id = _linked_nirvana_session_id(req.session_id)
-        if not upstream_session_id:
-            created = create_webui_session(preferred_model=preferred_model)
-            upstream_session_id = str(created.get("session_id") or "").strip()
-        chat_result = send_sync_chat(upstream_session_id, bridged_prompt, preferred_model=preferred_model)
-        status = get_bridge_status()
-    except NirvanaServiceError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(502, f"Nirvana bridge failed: {exc}") from exc
+    upstream_session_id = ""
+    status: Optional[Dict[str, Any]] = None
+    chat_result: Optional[Dict[str, Any]] = None
+    fallback_errors: List[str] = []
+
+    if runtime_mode == "local":
+        try:
+            chat_result = _local_agent_chat(req, profile, compact_fallback_prompt, runtime_mode)
+        except Exception as exc:
+            raise HTTPException(502, f"Local Nirvana runtime failed: {exc}") from exc
+    elif runtime_mode == "external":
+        try:
+            chat_result = _external_runtime_chat(req, profile, compact_fallback_prompt, runtime_mode)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(502, f"External Nirvana runtime failed: {exc}") from exc
+    else:
+        try:
+            ensure_webui_running()
+            upstream_session_id = _linked_nirvana_session_id(req.session_id)
+            if not upstream_session_id:
+                created = create_webui_session(preferred_model=preferred_model)
+                upstream_session_id = str(created.get("session_id") or "").strip()
+            chat_result = send_sync_chat(upstream_session_id, bridged_prompt, preferred_model=preferred_model)
+            status = get_bridge_status()
+        except NirvanaServiceError as exc:
+            fallback_errors.append(str(exc))
+            try:
+                status = get_bridge_status()
+            except Exception:
+                status = None
+        except Exception as exc:
+            fallback_errors.append(f"Nirvana bridge failed: {exc}")
+
+        if chat_result is None:
+            try:
+                chat_result = _local_agent_chat(req, profile, compact_fallback_prompt, runtime_mode)
+            except Exception as exc:
+                fallback_errors.append(str(exc))
+
+        if chat_result is None:
+            try:
+                chat_result = _external_runtime_chat(req, profile, compact_fallback_prompt, runtime_mode)
+            except HTTPException as exc:
+                fallback_errors.append(str(exc.detail))
+            except Exception as exc:
+                fallback_errors.append(str(exc))
+
+        if chat_result is None:
+            raise HTTPException(502, " ; ".join(error for error in fallback_errors if error) or "Nirvana chat failed")
 
     response_text = (
-        str(chat_result.get("answer") or "")
+        str(chat_result.get("response") or "")
+        or str(chat_result.get("answer") or "")
         or str((chat_result.get("result") or {}).get("final_response") or "")
     )
     if fleet_action:
         fleet_prefix = _format_fleet_action_text(fleet_action)
         response_text = f"{fleet_prefix}\n\n{response_text}" if response_text else fleet_prefix
     runtime_meta = {
-        "agent_name": "Nirvana",
-        "engine": "nirvana-webui",
-        "model_file": (status.get("summary") or {}).get("current_model") or preferred_model or "upstream-managed",
-        "model_loaded": bool(status.get("webui_running")),
-        "uses_mock_responses": False,
-        "via": "nirvana-webui-sync-chat",
-        "runtime_mode": runtime_mode,
-        "requested_model": preferred_model or None,
+        **(chat_result.get("nirvana_runtime") or {
+            "agent_name": "Nirvana",
+            "engine": "nirvana-webui",
+            "model_file": ((status or {}).get("summary") or {}).get("current_model") or preferred_model or "upstream-managed",
+            "model_loaded": bool((status or {}).get("webui_running")),
+            "uses_mock_responses": False,
+            "via": "nirvana-webui-sync-chat",
+            "runtime_mode": runtime_mode,
+            "requested_model": preferred_model or None,
+            "profile_id": req.profile_id,
+            "profile_name": profile.get("name") if profile else None,
+            "nirvana_session_id": upstream_session_id,
+            "webui_url": (status or {}).get("webui_url"),
+            "provider": (((status or {}).get("summary") or {}).get("current_provider")),
+            "chat_ready": bool((((status or {}).get("summary") or {}).get("chat_ready"))),
+            "onboarding_completed": bool((((status or {}).get("summary") or {}).get("completed"))),
+        }),
+        "runtime_mode": (chat_result.get("nirvana_runtime") or {}).get("runtime_mode") or runtime_mode,
         "profile_id": req.profile_id,
         "profile_name": profile.get("name") if profile else None,
-        "nirvana_session_id": upstream_session_id,
-        "webui_url": status.get("webui_url"),
-        "provider": (status.get("summary") or {}).get("current_provider"),
-        "chat_ready": bool((status.get("summary") or {}).get("chat_ready")),
-        "onboarding_completed": bool((status.get("summary") or {}).get("completed")),
+        "nirvana_session_id": upstream_session_id or (chat_result.get("nirvana_runtime") or {}).get("nirvana_session_id"),
+        "webui_url": (chat_result.get("nirvana_runtime") or {}).get("webui_url") or ((status or {}).get("webui_url")),
         "fleet_action_job_id": fleet_action.get("job_id") if fleet_action else None,
         "fleet_action_intent": fleet_action.get("intent") if fleet_action else None,
+        "fallback_errors": fallback_errors or None,
     }
 
     persisted_session = _persist_session_turn(
@@ -723,8 +900,8 @@ def agent_chat(req: ChatRequest):
         "nirvana_runtime": runtime_meta,
         "fleet_action": fleet_action,
         "upstream": {
-            "session_id": upstream_session_id,
-            "status": chat_result.get("status"),
+            "session_id": upstream_session_id or None,
+            "status": chat_result.get("status") or chat_result.get("raw", {}).get("status"),
         },
     }
     if persisted_session:

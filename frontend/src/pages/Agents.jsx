@@ -187,6 +187,7 @@ export default function Agents() {
   const [fleetCommandInput, setFleetCommandInput] = useState('');
   const [fleetActionRunning, setFleetActionRunning] = useState(false);
   const [fleetActionResult, setFleetActionResult] = useState(null);
+  const [autoSendFleetQuickActions, setAutoSendFleetQuickActions] = useState(false);
 
   const [input, setInput] = useState('');
   const transcriptRef = useRef(null);
@@ -397,13 +398,28 @@ export default function Agents() {
     loadFleetTelemetry(selectedFleetDeviceId, { refresh: false, quiet: true });
   }, [selectedFleetDeviceId]);
 
-  const injectPrompt = (prompt) => {
-    setInput(prompt);
-    setNotice('Prompt injected into the Nirvana console. Press Send to execute through agent chat.');
+  const injectPrompt = async (prompt, { immediate = autoSendFleetQuickActions } = {}) => {
+    const normalized = String(prompt || '').trim();
+    if (!normalized) return;
+
+    setInput(normalized);
     setError('');
-    requestAnimationFrame(() => {
-      composerRef.current?.focus();
-    });
+
+    if (!immediate || !activeProfileId || chatting) {
+      setNotice(
+        !activeProfileId
+          ? 'Quick action staged in the composer. Select an active agent profile before sending.'
+          : chatting
+            ? 'Quick action staged in the composer while Nirvana finishes the current turn.'
+            : 'Prompt injected into the Nirvana console. Press Send to execute through agent chat.',
+      );
+      requestAnimationFrame(() => {
+        composerRef.current?.focus();
+      });
+      return;
+    }
+
+    await send(normalized);
   };
 
   const runDirectFleetExec = async () => {
@@ -640,8 +656,8 @@ export default function Agents() {
     setNotice('Session exported as Markdown.');
   };
 
-  const send = async () => {
-    const trimmed = input.trim();
+  const send = async (overrideInput = '') => {
+    const trimmed = String(overrideInput || input).trim();
     if (!trimmed || chatting || !activeProfileId) return;
 
     let sessionId = activeSessionId;
@@ -677,7 +693,9 @@ export default function Agents() {
           : session
       ))));
 
-      setInput('');
+      if (!overrideInput || input.trim() === trimmed) {
+        setInput('');
+      }
       setChatting(true);
 
       const res = await chatWithNirvana({
@@ -1126,19 +1144,28 @@ export default function Agents() {
                 )}
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-                  <button type="button" className="btn btn-secondary" onClick={() => injectPrompt('refresh telemetry for all paired devices')}>
+                  <button type="button" className="btn btn-secondary" onClick={() => injectPrompt('refresh telemetry for all paired devices')} disabled={chatting}>
                     Ask: paired telemetry
                   </button>
-                  <button type="button" className="btn btn-secondary" onClick={() => injectPrompt('show fleet health for all devices')}>
+                  <button type="button" className="btn btn-secondary" onClick={() => injectPrompt('show fleet health for all devices')} disabled={chatting}>
                     Ask: fleet health
                   </button>
-                  <button type="button" className="btn btn-secondary" onClick={() => selectedFleetDevice && injectPrompt(`run "uptime" on ${selectedFleetDevice.id}`)} disabled={!selectedFleetDevice}>
+                  <button type="button" className="btn btn-secondary" onClick={() => selectedFleetDevice && injectPrompt(`run "uptime" on ${selectedFleetDevice.id}`)} disabled={!selectedFleetDevice || chatting}>
                     Ask: uptime on device
                   </button>
-                  <button type="button" className="btn btn-secondary" onClick={() => selectedFleetDevice && injectPrompt(`reboot ${selectedFleetDevice.id}`)} disabled={!selectedFleetDevice}>
+                  <button type="button" className="btn btn-secondary" onClick={() => selectedFleetDevice && injectPrompt(`reboot ${selectedFleetDevice.id}`)} disabled={!selectedFleetDevice || chatting}>
                     Ask: reboot device
                   </button>
                 </div>
+
+                <label className="form-label" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={autoSendFleetQuickActions}
+                    onChange={(e) => setAutoSendFleetQuickActions(e.target.checked)}
+                  />
+                  Auto-send fleet quick actions through Nirvana immediately
+                </label>
 
                 <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                   <input

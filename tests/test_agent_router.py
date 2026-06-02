@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from main import app
 import routers.agent as agent_router
 import routers.orchestration as orchestration_router
+from services.nirvana_service import NirvanaServiceError
 
 
 class AgentRouterTests(unittest.TestCase):
@@ -85,6 +86,57 @@ class AgentRouterTests(unittest.TestCase):
         self.assertEqual(payload["fleet_action"]["intent"], "telemetry")
         self.assertEqual(payload["fleet_action"]["job_id"], "cmd-agent-test")
         self.assertIn("Fleet action executed", payload["response"])
+
+    def test_agent_chat_falls_back_to_local_runtime_when_webui_chat_fails(self):
+        with patch("services.nirvana_service.ensure_webui_running"), patch(
+            "services.nirvana_service.create_webui_session",
+            return_value={"session_id": "nirvana-session-1"},
+        ), patch(
+            "services.nirvana_service.send_sync_chat",
+            side_effect=NirvanaServiceError('Nirvana chat HTTP 500: {"error":"Internal server error"}'),
+        ), patch(
+            "services.nirvana_service.get_bridge_status",
+            return_value={
+                "webui_running": True,
+                "webui_url": "http://127.0.0.1:8789",
+                "summary": {
+                    "current_model": "phi-3-mini",
+                    "current_provider": "auto",
+                    "chat_ready": False,
+                    "completed": True,
+                },
+            },
+        ), patch.object(
+            agent_router,
+            "_local_agent_chat",
+            return_value={
+                "response": "Local fallback handled the request.",
+                "nirvana_runtime": {
+                    "agent_name": "Nirvana",
+                    "engine": "llama-cpp-python",
+                    "model_file": "Phi-3-mini-4k-instruct-q4.gguf",
+                    "model_loaded": True,
+                    "uses_mock_responses": False,
+                    "via": "local-gguf-fallback",
+                    "runtime_mode": "auto",
+                },
+            },
+        ):
+            response = self.client.post(
+                "/api/agent/chat",
+                json={
+                    "messages": [{"role": "user", "content": "run uptime on linux-edge-1"}],
+                    "profile_id": "orchestration-agent",
+                    "session_id": "session-fallback-test",
+                    "use_fleet_tools": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["response"], "Local fallback handled the request.")
+        self.assertEqual(payload["nirvana_runtime"]["engine"], "llama-cpp-python")
+        self.assertIn("Nirvana chat HTTP 500", payload["nirvana_runtime"]["fallback_errors"][0])
 
     def test_record_agent_session_turn_persists_assistant_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
