@@ -145,6 +145,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ---------- Nirvana WebUI proxy middleware ----------
+# Registered BEFORE CORS so CORS headers wrap proxied responses.
+# Only forwards unmatched /api/* paths to the absorbed WebUI at :8789.
+from hermes_proxy import NirvanaProxyMiddleware
+
+app.add_middleware(NirvanaProxyMiddleware)
+
 # CORS — allow frontend origins
 app.add_middleware(
     CORSMiddleware,
