@@ -46,6 +46,7 @@ This is an active development boundary. All UI changes go here.
 | Documentation | `Documentation.jsx` | Embedded documentation browser |
 | WebcamTest | `WebcamTest.jsx` | Webcam/camera testing |
 | ModelHub | `ModelHub.jsx` | Model discovery hub |
+| NirvanaChat | `NirvanaChat.jsx` | **Full Nirvana agent interface** — iframe-embedded WebUI with all features |
 
 ## Work Guidance
 
@@ -90,6 +91,7 @@ No child boundaries yet. Source structure:
 | `src/hooks/` | Custom React hooks |
 | `src/pages/` | 25 route-level page components (see Page Index above) |
 | `src/styles/` | Additional style modules |
+| `src/nirvana-webui/` | Absorbed Hermes WebUI static files — JS modules, CSS, vendor libs, favicons. Phase 1 uses iframe embedding; Phase 2 will mount modules directly. |
 | `src/test/` | Frontend test utilities |
 | `src/__tests__/` | Jest/Vitest test suites |
 | `src/App.jsx` | Root app component with router |

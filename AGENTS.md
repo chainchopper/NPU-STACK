@@ -81,6 +81,7 @@ Default section order:
 - DeepSeek is the preferred provider for Nirvana. Local GGUF/Phi-3 is recovery-only fallback.
 - Never modify the `.env` file locally without explicit approval.
 - Push to GitHub frequently — after every validated slice of work.
+- Nirvana WebUI absorption: Phase 1 complete — proxy middleware (`backend/hermes_proxy.py`) forwards unmatched /api/* paths to absorbed WebUI at :8789. Frontend has /nirvana-chat route with iframe-embedded full WebUI. Agent icon opens Nirvana Chat directly. Phase 2 will mount vanilla JS modules directly.
 
 ## Child DOX Index
 
