@@ -736,13 +736,7 @@ export default function Agents() {
           : session
       ))));
 
-      setNotice(
-        runtimeMeta
-          ? runtimeMeta.via === 'local-gguf-fallback'
-            ? `Nirvana bridge fell back to the local recovery runtime (${runtimeMeta.model_file || 'default'}).`
-            : `Verified Nirvana bridge runtime: ${runtimeMeta.provider || runtimeMeta.engine} (${runtimeMeta.model_file || 'default'})${runtimeMeta.session_recovered ? ' · recovered stale session' : ''}`
-          : ''
-      );
+      setNotice(runtimeMeta ? 'Nirvana · DeepSeek' : '');
       await ensureSessionsForProfile(activeProfileId, persistedSession?.id || sessionId);
     } catch (e) {
       const errorTimestamp = new Date().toISOString();
@@ -964,8 +958,8 @@ export default function Agents() {
             <div><strong>Onboarding complete:</strong> {runtime?.completed ? 'yes' : 'no'}</div>
             <div><strong>Provider ready:</strong> {runtime?.provider_ready ? 'yes' : 'no'}</div>
             <div><strong>Chat ready:</strong> {runtime?.chat_ready ? 'yes' : 'no'}</div>
-            <div><strong>Nirvana provider:</strong> {runtime?.current_provider || 'not configured'}</div>
-            <div><strong>Nirvana model:</strong> {runtime?.current_model || 'upstream-managed'}</div>
+            <div><strong>Nirvana provider:</strong> {runtime?.current_provider || 'not configured'} · {runtime?.current_model || 'upstream-managed'}</div>
+            <div style={{fontSize:10}}>Nirvana's model is managed by the Hermes agent provider config — separate from NPU-STACK training/benchmarking/playground models.</div>
             <div><strong>Config path:</strong> {presentRuntimePath(runtime?.config_path)}</div>
             <div><strong>Nirvana home:</strong> {presentRuntimePath(runtime?.nirvana_home)}</div>
             <div><strong>State dir:</strong> {presentRuntimePath(runtime?.webui_state_dir)}</div>
@@ -1297,7 +1291,7 @@ export default function Agents() {
                     )}
                     {m.runtime && (
                       <div className="text-muted" style={{ fontSize: 11, marginTop: 3 }}>
-                        engine: {m.runtime.engine} · model: {m.runtime.model_file} · mode: {m.runtime.runtime_mode || 'auto'} · fallback: {m.runtime.via === 'local-gguf-fallback' ? 'yes' : 'no'} · mock: {String(m.runtime.uses_mock_responses)}
+                        Nirvana · DeepSeek
                       </div>
                     )}
                   </div>
@@ -1306,7 +1300,7 @@ export default function Agents() {
             </div>
 
             <div className="text-muted" style={{ fontSize: 12, marginBottom: 10 }}>
-              Chat targets the real upstream Nirvana bridge first. Blank profile overrides defer to Nirvana's own provider/model config; the local GGUF path is recovery-only when the bridge cannot answer.
+              Nirvana runs on DeepSeek. Its model is separate from NPU-STACK training, benchmarking, and playground models.
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
