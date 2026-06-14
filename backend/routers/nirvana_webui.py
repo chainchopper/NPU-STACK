@@ -26,6 +26,8 @@ SKILLS_USAGE_PATH = HERMES_HOME / "skills" / ".usage.json"
 SKILLS_DIR = HERMES_HOME / "skills"
 KANBAN_DIR = HERMES_HOME / "kanban"
 MEMORY_DIR = HERMES_HOME / "memories"
+AUTH_PATH = HERMES_HOME / "auth.json"
+LOGS_DIR = HERMES_HOME / "logs"
 
 router = APIRouter(prefix="/api/nirvana", tags=["nirvana-native"])
 
@@ -313,4 +315,72 @@ def get_memory_file(file_name: str) -> Dict[str, Any]:
         "name": file_name,
         "size": mem_file.stat().st_size,
         "content": content,
+    }
+
+
+# ── Providers ────────────────────────────────────────────────────────────
+
+@router.get("/providers")
+def list_providers() -> Dict[str, Any]:
+    """List configured model providers and their credential pool status."""
+    if not AUTH_PATH.exists():
+        return {"providers": {}, "count": 0}
+
+    auth = _read_json(AUTH_PATH)
+    credential_pool = auth.get("credential_pool", {})
+
+    providers = {}
+    for provider_name, credentials in credential_pool.items():
+        entries = []
+        for cred in credentials:
+            entries.append({
+                "label": cred.get("label", ""),
+                "auth_type": cred.get("auth_type", ""),
+                "base_url": cred.get("base_url", ""),
+                "source": cred.get("source", ""),
+                "request_count": cred.get("request_count", 0),
+                "last_status": cred.get("last_status"),
+                "last_error": cred.get("last_error_message"),
+            })
+        providers[provider_name] = entries
+
+    return {"providers": providers, "count": len(providers), "updated_at": auth.get("updated_at")}
+
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+
+@router.get("/logs")
+def list_logs() -> Dict[str, Any]:
+    """List available log files with sizes."""
+    files = []
+    if LOGS_DIR.exists():
+        for f in sorted(LOGS_DIR.iterdir()):
+            if f.is_dir() or f.name.startswith("."):
+                continue
+            files.append({
+                "name": f.name,
+                "size": f.stat().st_size,
+                "path": str(f.relative_to(HERMES_HOME)),
+            })
+    return {"files": files, "count": len(files)}
+
+
+@router.get("/logs/{log_name}")
+def get_log(log_name: str, tail: int = 200) -> Dict[str, Any]:
+    """Read a log file, returning the last N lines."""
+    log_file = LOGS_DIR / log_name
+    if not log_file.exists():
+        raise HTTPException(404, f"Log file not found: {log_name}")
+
+    content = log_file.read_text(encoding="utf-8", errors="replace")
+    lines = content.splitlines()
+    if tail > 0 and len(lines) > tail:
+        lines = lines[-tail:]
+
+    return {
+        "name": log_name,
+        "size": log_file.stat().st_size,
+        "total_lines": len(content.splitlines()),
+        "shown_lines": len(lines),
+        "content": "\n".join(lines),
     }
