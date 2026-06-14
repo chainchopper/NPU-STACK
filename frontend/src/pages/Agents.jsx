@@ -736,7 +736,13 @@ export default function Agents() {
           : session
       ))));
 
-      setNotice(runtimeMeta ? `Verified runtime: ${runtimeMeta.engine} (${runtimeMeta.model_file || 'default'})` : '');
+      setNotice(
+        runtimeMeta
+          ? runtimeMeta.via === 'local-gguf-fallback'
+            ? `Nirvana bridge fell back to the local recovery runtime (${runtimeMeta.model_file || 'default'}).`
+            : `Verified Nirvana bridge runtime: ${runtimeMeta.provider || runtimeMeta.engine} (${runtimeMeta.model_file || 'default'})${runtimeMeta.session_recovered ? ' · recovered stale session' : ''}`
+          : ''
+      );
       await ensureSessionsForProfile(activeProfileId, persistedSession?.id || sessionId);
     } catch (e) {
       const errorTimestamp = new Date().toISOString();
@@ -923,12 +929,12 @@ export default function Agents() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Preferred Runtime Model</label>
+                <label className="form-label">Optional Model Override</label>
                 <input
                   className="form-input"
                   value={profileDraft.preferred_model}
                   onChange={(e) => setProfileDraft((prev) => ({ ...prev, preferred_model: e.target.value }))}
-                  placeholder="Optional external runtime model override"
+                  placeholder="Leave blank to use Nirvana's own configured provider/model"
                 />
               </div>
 
@@ -958,13 +964,14 @@ export default function Agents() {
             <div><strong>Onboarding complete:</strong> {runtime?.completed ? 'yes' : 'no'}</div>
             <div><strong>Provider ready:</strong> {runtime?.provider_ready ? 'yes' : 'no'}</div>
             <div><strong>Chat ready:</strong> {runtime?.chat_ready ? 'yes' : 'no'}</div>
-            <div><strong>Active provider:</strong> {runtime?.current_provider || 'not configured'}</div>
-            <div><strong>Active model:</strong> {runtime?.current_model || profileDraft.preferred_model || 'upstream-managed'}</div>
+            <div><strong>Nirvana provider:</strong> {runtime?.current_provider || 'not configured'}</div>
+            <div><strong>Nirvana model:</strong> {runtime?.current_model || 'upstream-managed'}</div>
             <div><strong>Config path:</strong> {presentRuntimePath(runtime?.config_path)}</div>
             <div><strong>Nirvana home:</strong> {presentRuntimePath(runtime?.nirvana_home)}</div>
             <div><strong>State dir:</strong> {presentRuntimePath(runtime?.webui_state_dir)}</div>
             <div><strong>Active profile runtime hint:</strong> {profileDraft.runtime_mode || 'auto'}</div>
-            <div><strong>Preferred model hint:</strong> {profileDraft.preferred_model || 'none'}</div>
+            <div><strong>Profile model override:</strong> {profileDraft.preferred_model || 'none (defer to Nirvana config)'}</div>
+            <div><strong>Provider/model source:</strong> Nirvana bridge config drives the real provider; the profile field above is only an optional override.</div>
           </div>
 
           {!!runtime?.recommended_commands?.length && (
@@ -1290,7 +1297,7 @@ export default function Agents() {
                     )}
                     {m.runtime && (
                       <div className="text-muted" style={{ fontSize: 11, marginTop: 3 }}>
-                        engine: {m.runtime.engine} · model: {m.runtime.model_file} · mode: {m.runtime.runtime_mode || 'auto'} · mock: {String(m.runtime.uses_mock_responses)}
+                        engine: {m.runtime.engine} · model: {m.runtime.model_file} · mode: {m.runtime.runtime_mode || 'auto'} · fallback: {m.runtime.via === 'local-gguf-fallback' ? 'yes' : 'no'} · mock: {String(m.runtime.uses_mock_responses)}
                       </div>
                     )}
                   </div>
@@ -1299,7 +1306,7 @@ export default function Agents() {
             </div>
 
             <div className="text-muted" style={{ fontSize: 12, marginBottom: 10 }}>
-              Chat executes through the real upstream Nirvana WebUI bridge using the selected profile draft immediately — including unsaved runtime hints and preferred model overrides.
+              Chat targets the real upstream Nirvana bridge first. Blank profile overrides defer to Nirvana's own provider/model config; the local GGUF path is recovery-only when the bridge cannot answer.
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>

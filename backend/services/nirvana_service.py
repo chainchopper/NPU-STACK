@@ -31,8 +31,10 @@ START_SCRIPT = HERMES_WEBUI_DIR / "start.ps1"
 WEBUI_HOST = os.getenv("NIRVANA_WEBUI_HOST", os.getenv("HERMES_WEBUI_HOST", "127.0.0.1"))
 WEBUI_PORT = int(os.getenv("NIRVANA_WEBUI_PORT", os.getenv("HERMES_WEBUI_PORT", "8789")))
 WEBUI_URL = f"http://{WEBUI_HOST}:{WEBUI_PORT}"
-NIRVANA_MODEL_BASE_URL = os.getenv("NIRVANA_MODEL_BASE_URL", "http://127.0.0.1:8010/v1")
-NIRVANA_DEFAULT_MODEL = os.getenv("NIRVANA_DEFAULT_MODEL", "Phi-3-mini-4k-instruct-q4")
+NIRVANA_LOCAL_MODEL_BASE_URL = os.getenv("NIRVANA_MODEL_BASE_URL", "http://127.0.0.1:8010/v1")
+NIRVANA_LOCAL_DEFAULT_MODEL = os.getenv("NIRVANA_DEFAULT_MODEL", "Phi-3-mini-4k-instruct-q4")
+NIRVANA_DEEPSEEK_BASE_URL = os.getenv("NIRVANA_DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+NIRVANA_DEEPSEEK_DEFAULT_MODEL = os.getenv("NIRVANA_DEEPSEEK_DEFAULT_MODEL", "deepseek-v4-flash")
 
 _PROCESS_LOCK = threading.Lock()
 _RUNTIME_LOCK = threading.Lock()
@@ -49,12 +51,63 @@ def _yaml_quote(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def _preferred_model_config() -> Dict[str, str]:
+def _runtime_env_has(name: str) -> bool:
+    value = os.getenv(name)
+    if value and str(value).strip():
+        return True
+    if not ENV_PATH.exists():
+        return False
+    try:
+        for line in ENV_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, raw_value = stripped.split("=", 1)
+            if key.strip() != name:
+                continue
+            if raw_value.strip().strip('"').strip("'"):
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _normalize_deepseek_model_name(model_name: str) -> str:
+    raw = str(model_name or "").strip()
+    if not raw:
+        return raw
+
+    lowered = raw.lower()
+    if lowered.startswith("@deepseek:"):
+        return lowered.split(":", 1)[1].strip()
+
+    for prefix in ("deepseek-ai/", "deepseek/"):
+        if lowered.startswith(prefix):
+            return lowered.split("/", 1)[1].strip()
+
+    return raw
+
+
+def _deepseek_runtime_available() -> bool:
+    return _runtime_env_has("DEEPSEEK_API_KEY")
+
+
+def _local_recovery_model_config() -> Dict[str, str]:
     return {
-        "default": NIRVANA_DEFAULT_MODEL,
+        "default": NIRVANA_LOCAL_DEFAULT_MODEL,
         "provider": "custom",
-        "base_url": NIRVANA_MODEL_BASE_URL,
+        "base_url": NIRVANA_LOCAL_MODEL_BASE_URL,
     }
+
+
+def _preferred_model_config(current_provider: str = "") -> Dict[str, str]:
+    if str(current_provider or "").strip().lower() == "deepseek" or _deepseek_runtime_available():
+        return {
+            "default": NIRVANA_DEEPSEEK_DEFAULT_MODEL,
+            "provider": "deepseek",
+            "base_url": NIRVANA_DEEPSEEK_BASE_URL,
+        }
+    return _local_recovery_model_config()
 
 
 
@@ -249,9 +302,9 @@ def _fallback_prewire_config_text(raw_text: str) -> tuple[str, bool]:
     model_block = "\n".join(
         [
             "model:",
-            f"  default: {_yaml_quote(NIRVANA_DEFAULT_MODEL)}",
+            f"  default: {_yaml_quote(NIRVANA_LOCAL_DEFAULT_MODEL)}",
             "  provider: custom",
-            f"  base_url: {_yaml_quote(NIRVANA_MODEL_BASE_URL)}",
+            f"  base_url: {_yaml_quote(NIRVANA_LOCAL_MODEL_BASE_URL)}",
         ]
     )
     if "model:\n  provider: auto" in raw_text:
@@ -292,22 +345,45 @@ def _prewire_runtime_config() -> bool:
         model_config = {}
 
     updated = False
-    preferred = _preferred_model_config()
+    current_provider = str(model_config.get("provider", "")).strip()
+    preferred = _preferred_model_config(current_provider)
 
     current_default = str(model_config.get("default", "")).strip()
     if not current_default:
         model_config["default"] = preferred["default"]
         updated = True
+    elif current_provider.lower() == "deepseek":
+        normalized_default = _normalize_deepseek_model_name(current_default)
+        if normalized_default != current_default:
+            model_config["default"] = normalized_default
+            current_default = normalized_default
+            updated = True
+        if current_default == NIRVANA_LOCAL_DEFAULT_MODEL:
+            model_config["default"] = preferred["default"]
+            updated = True
 
     current_base_url = str(model_config.get("base_url", "")).strip()
     if not current_base_url:
         model_config["base_url"] = preferred["base_url"]
         updated = True
+    elif current_provider.lower() == "deepseek" and current_base_url.rstrip("/").lower() == NIRVANA_LOCAL_MODEL_BASE_URL.rstrip("/").lower():
+        model_config["base_url"] = preferred["base_url"]
+        updated = True
 
-    current_provider = str(model_config.get("provider", "")).strip()
     if not current_provider or current_provider == "auto":
         model_config["provider"] = preferred["provider"]
         updated = True
+        current_provider = str(model_config.get("provider", "")).strip()
+
+    if current_provider.lower() == "deepseek":
+        normalized_default = _normalize_deepseek_model_name(str(model_config.get("default", "")).strip())
+        if normalized_default and normalized_default != model_config.get("default"):
+            model_config["default"] = normalized_default
+            updated = True
+        current_base_url = str(model_config.get("base_url", "")).strip()
+        if not current_base_url or current_base_url.rstrip("/").lower() == NIRVANA_LOCAL_MODEL_BASE_URL.rstrip("/").lower():
+            model_config["base_url"] = preferred["base_url"]
+            updated = True
 
     if not updated:
         return False
@@ -620,7 +696,7 @@ def create_webui_session(preferred_model: str = "") -> Dict[str, Any]:
         "profile": "npu-stack",
     }
     if preferred_model:
-        payload["model"] = preferred_model
+        payload["model"] = _normalize_deepseek_model_name(preferred_model)
 
     response = _json_request("POST", "/api/session/new", payload=payload, timeout=30.0)
     session = response.get("session") or {}
@@ -641,7 +717,7 @@ def send_sync_chat(session_id: str, message: str, preferred_model: str = "") -> 
         "workspace": str(REPO_ROOT),
     }
     if preferred_model:
-        payload["model"] = preferred_model
+        payload["model"] = _normalize_deepseek_model_name(preferred_model)
 
     try:
         return _json_request("POST", "/api/chat", payload=payload, timeout=300.0)

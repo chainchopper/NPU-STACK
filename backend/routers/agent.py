@@ -522,6 +522,77 @@ def _chat_messages_with_bridge_prompt(
     return prepared
 
 
+def _response_text_from_result(result: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(result, dict):
+        return ""
+    return (
+        str(result.get("response") or "")
+        or str(result.get("answer") or "")
+        or str((result.get("result") or {}).get("final_response") or "")
+    ).strip()
+
+
+def _upstream_result_needs_recovery(result: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(result, dict):
+        return True
+
+    status = str(result.get("status") or result.get("state") or "").strip().lower()
+    response_text = _response_text_from_result(result)
+
+    if status in {"error", "partial", "failed"}:
+        return True
+    if not response_text and status and status != "done":
+        return True
+    return False
+
+
+def _upstream_bridge_chat_with_recovery(
+    *,
+    request_session_id: Optional[str],
+    bridged_prompt: str,
+    preferred_model: str,
+    ensure_webui_running,
+    create_webui_session,
+    send_sync_chat,
+    get_bridge_status,
+) -> tuple[Dict[str, Any], str, Optional[Dict[str, Any]], List[str], bool]:
+    from services.nirvana_service import NirvanaServiceError
+
+    ensure_webui_running()
+    recovery_notes: List[str] = []
+    recovered_session = False
+    upstream_session_id = _linked_nirvana_session_id(request_session_id)
+
+    if upstream_session_id:
+        try:
+            existing_result = send_sync_chat(upstream_session_id, bridged_prompt, preferred_model=preferred_model)
+            if not _upstream_result_needs_recovery(existing_result):
+                return existing_result, upstream_session_id, get_bridge_status(), recovery_notes, recovered_session
+            recovery_notes.append(
+                f"Stale Nirvana session {upstream_session_id} returned incomplete upstream status"
+            )
+        except NirvanaServiceError as exc:
+            recovery_notes.append(
+                f"Stale Nirvana session {upstream_session_id} failed: {exc}"
+            )
+
+    created = create_webui_session(preferred_model=preferred_model)
+    upstream_session_id = str(created.get("session_id") or "").strip()
+    if not upstream_session_id:
+        raise NirvanaServiceError("Nirvana WebUI did not return a replacement session during recovery")
+
+    refreshed_result = send_sync_chat(upstream_session_id, bridged_prompt, preferred_model=preferred_model)
+    status = get_bridge_status()
+    recovered_session = bool(recovery_notes)
+    if _upstream_result_needs_recovery(refreshed_result):
+        detail = "Replacement Nirvana session still returned incomplete upstream status"
+        if recovery_notes:
+            detail = " ; ".join([*recovery_notes, detail])
+        raise NirvanaServiceError(detail)
+
+    return refreshed_result, upstream_session_id, status, recovery_notes, recovered_session
+
+
 def _local_agent_chat(
     req: ChatRequest,
     profile: Dict[str, Any],
@@ -801,6 +872,7 @@ def agent_chat(req: ChatRequest):
     status: Optional[Dict[str, Any]] = None
     chat_result: Optional[Dict[str, Any]] = None
     fallback_errors: List[str] = []
+    recovered_session = False
 
     if runtime_mode == "local":
         try:
@@ -816,13 +888,16 @@ def agent_chat(req: ChatRequest):
             raise HTTPException(502, f"External Nirvana runtime failed: {exc}") from exc
     else:
         try:
-            ensure_webui_running()
-            upstream_session_id = _linked_nirvana_session_id(req.session_id)
-            if not upstream_session_id:
-                created = create_webui_session(preferred_model=preferred_model)
-                upstream_session_id = str(created.get("session_id") or "").strip()
-            chat_result = send_sync_chat(upstream_session_id, bridged_prompt, preferred_model=preferred_model)
-            status = get_bridge_status()
+            chat_result, upstream_session_id, status, recovery_notes, recovered_session = _upstream_bridge_chat_with_recovery(
+                request_session_id=req.session_id,
+                bridged_prompt=bridged_prompt,
+                preferred_model=preferred_model,
+                ensure_webui_running=ensure_webui_running,
+                create_webui_session=create_webui_session,
+                send_sync_chat=send_sync_chat,
+                get_bridge_status=get_bridge_status,
+            )
+            fallback_errors.extend(recovery_notes)
         except NirvanaServiceError as exc:
             fallback_errors.append(str(exc))
             try:
@@ -882,6 +957,7 @@ def agent_chat(req: ChatRequest):
         "webui_url": (chat_result.get("nirvana_runtime") or {}).get("webui_url") or ((status or {}).get("webui_url")),
         "fleet_action_job_id": fleet_action.get("job_id") if fleet_action else None,
         "fleet_action_intent": fleet_action.get("intent") if fleet_action else None,
+        "session_recovered": bool((chat_result.get("nirvana_runtime") or {}).get("session_recovered")) or recovered_session,
         "fallback_errors": fallback_errors or None,
     }
 
