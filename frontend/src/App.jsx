@@ -29,6 +29,7 @@ const HubPublisher = lazy(() => import('./pages/HubPublisher'));
 const FastFlowLM = lazy(() => import('./pages/FastFlowLM'));
 const EdgeFleet = lazy(() => import('./pages/EdgeFleet'));
 const FleetCommand = lazy(() => import('./pages/FleetCommand'));
+const NirvanaChat = lazy(() => import('./pages/NirvanaChat'));
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -68,17 +69,17 @@ function RouteLoadingFallback() {
 function AssistantLauncher() {
     const navigate = useNavigate();
 
-    const openNirvanaControlCenter = () => {
-        navigate('/agents');
+    const openNirvanaChat = () => {
+        navigate('/nirvana-chat');
     };
 
     return (
         <>
             <button
                 className="assistant-launcher assistant-launcher-top"
-                onClick={openNirvanaControlCenter}
-                aria-label="Open Nirvana control center"
-                title="Open Nirvana control center"
+                onClick={openNirvanaChat}
+                aria-label="Open Nirvana chat"
+                title="Open Nirvana chat"
             >
                 <Bot size={18} />
                 <Sparkles size={13} className="assistant-launcher-spark" />
@@ -86,9 +87,9 @@ function AssistantLauncher() {
 
             <button
                 className="assistant-launcher assistant-launcher-bottom"
-                onClick={openNirvanaControlCenter}
-                aria-label="Open Nirvana control center"
-                title="Open Nirvana control center"
+                onClick={openNirvanaChat}
+                aria-label="Open Nirvana chat"
+                title="Open Nirvana chat"
             >
                 <Bot size={18} />
             </button>
@@ -209,6 +210,7 @@ function AppInner() {
                             <Route path="/benchmark" element={<Benchmark />} />
                             <Route path="/edge-fleet" element={<EdgeFleet />} />
                             <Route path="/fleet-command" element={<FleetCommand />} />
+                            <Route path="/nirvana-chat" element={<NirvanaChat />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                     </Suspense>
