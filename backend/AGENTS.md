@@ -33,6 +33,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `finetune_publish_router` | `routers/finetune_publish.py` | Publish fine-tuned models |
 | `agent_router` | `routers/agent.py` | Nirvana bridge — chat, start, status, runtime |
 | `orchestration_router` | `routers/orchestration.py` | Orchestration profiles, sessions, state |
+| `nirvana_webui_router` | `routers/nirvana_webui.py` | Native Nirvana management — settings, sessions, skills, config read directly from shared state files |
 | `fleet_command_router` | `routers/fleet_command.py` | Fleet command dispatch |
 | `fleet_agent_router` | `routers/fleet_agent.py` | Fleet agent polling/registration |
 | `devices_router` | `routers/devices.py` | Device discovery and inventory |
