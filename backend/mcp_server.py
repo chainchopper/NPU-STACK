@@ -1,68 +1,156 @@
 """
 NPU-STACK MCP Server (Model Context Protocol).
-Exposes NPU-STACK functionalities (Hardware detection, Conversion, etc.) to LLMs via FastMCP.
+Exposes NPU-STACK functionalities to Nirvana via FastMCP stdio transport.
+
+Discovered by Nirvana through config.yaml mcp_servers entry.
+Tools: hardware detection, model registry, fleet ops, system health, training.
 """
 
-import sys
+from __future__ import annotations
+
+import json
 import os
-import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
 from mcp.server.fastmcp import FastMCP
 
-# Ensure the backend directory is in the path so we can import services
 sys.path.insert(0, os.path.dirname(__file__))
 
 from services.benchmark_service import get_system_info
 from services.cross_converter import get_conversion_paths
 
-# Create FastMCP server
+NPU_API = os.getenv("NPU_STACK_API_BASE", "http://127.0.0.1:8010")
+
 mcp = FastMCP("NPU-STACK MCP Server", json_response=True)
 
 
+def _api(path: str) -> dict | list | str:
+    """Call the NPU-STACK backend API and return parsed JSON."""
+    url = f"{NPU_API}{path}"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+# ── Hardware & System ────────────────────────────────────────────────────
+
 @mcp.tool()
 def detect_hardware() -> dict:
-    """
-    Detect system hardware capabilities relevant to AI acceleration.
-    Returns info on CPU, NVIDIA GPU, OpenVINO (Intel NPU), and general system stats.
-    """
+    """Detect system hardware: CPU, GPU, NPU, RAM, disk. No API call needed."""
     return get_system_info()
 
 
 @mcp.tool()
-def list_conversion_paths() -> dict:
-    """
-    List all supported neural network model conversion paths.
-    Shows the available source formats and target accelerator formats.
-    """
-    return get_conversion_paths()
+def system_health() -> dict:
+    """Check NPU-STACK backend health and Nirvana bridge status."""
+    return {
+        "backend": _api("/api/health"),
+        "nirvana": _api("/api/agent/runtime"),
+    }
+
+
+# ── Models ───────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_models() -> dict:
+    """List all models in the NPU-STACK registry (name, format, size, status)."""
+    return _api("/api/models")
 
 
 @mcp.tool()
-def start_fastapi_backend() -> str:
-    """
-    Start the main NPU-STACK FastAPI backend process in the background.
-    """
-    try:
-        # Launching the backend process
-        backend_dir = os.path.dirname(__file__)
-        subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"],
-            cwd=backend_dir
-        )
-        return "Successfully launched NPU-STACK FastAPI backend on http://0.0.0.0:8000"
-    except Exception as e:
-        return f"Failed to start backend: {str(e)}"
+def get_model_info(model_id: str) -> dict:
+    """Get detailed info for a specific model by ID or name."""
+    return _api(f"/api/models/{model_id}")
 
-# A dynamic greeting resource (optional, just to show how resources work)
+
+# ── Fleet ────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_devices(include_low_confidence: bool = True) -> dict:
+    """List all discovered fleet devices (edge, USB, network)."""
+    return _api(f"/api/devices?include_low_confidence={str(include_low_confidence).lower()}")
+
+
+@mcp.tool()
+def fleet_status() -> dict:
+    """Get fleet overview: device count, online/offline, last seen."""
+    return _api("/api/devices")
+
+
+@mcp.tool()
+def run_fleet_command(device_id: str, command: str) -> dict:
+    """Dispatch a shell command to a fleet device via the fleet orchestrator."""
+    import urllib.request as _req
+    body = json.dumps({"device_ids": [device_id], "command": command}).encode("utf-8")
+    req = _req.Request(
+        f"{NPU_API}/api/fleet-command/dispatch",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with _req.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+# ── Training & Jobs ──────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_training_jobs() -> dict:
+    """List all training jobs (status, model, progress)."""
+    return _api("/api/training")
+
+
+@mcp.tool()
+def system_status() -> dict:
+    """Get full system status: model count, job count, benchmarks."""
+    return _api("/api/status")
+
+
+# ── Conversion ───────────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_conversion_paths() -> dict:
+    """List all supported model conversion paths (source → target formats)."""
+    return get_conversion_paths()
+
+
+# ── Nirvana Self-Management ──────────────────────────────────────────────
+
+@mcp.tool()
+def nirvana_overview() -> dict:
+    """Get the full Nirvana overview: agent config, sessions, skills."""
+    return _api("/api/nirvana/overview")
+
+
+@mcp.tool()
+def nirvana_settings() -> dict:
+    """Get all Nirvana settings (theme, provider, bot name, preferences)."""
+    return _api("/api/nirvana/settings")
+
+
+@mcp.tool()
+def nirvana_sessions(limit: int = 10) -> dict:
+    """List recent Nirvana sessions."""
+    return _api(f"/api/nirvana/sessions?limit={limit}")
+
+
+# ── Resources ────────────────────────────────────────────────────────────
+
 @mcp.resource("info://welcome")
 def get_welcome_info() -> str:
-    """Get welcome info about NPU-STACK."""
     return (
         "Welcome to NPU-STACK MCP Server! "
-        "You can use this server to detect hardware, "
-        "compile edge models, and launch the NPU-STACK AI Factory."
+        "Nirvana can use these tools to manage models, fleet devices, "
+        "training jobs, conversion pipelines, and system health."
     )
 
 
 if __name__ == "__main__":
-    # Launch the stdio transport by default (standard for Claude Desktop)
     mcp.run(transport="stdio")
