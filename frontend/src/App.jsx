@@ -1,8 +1,9 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText } from 'lucide-react';
+import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
+const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Models = lazy(() => import('./pages/Models'));
@@ -39,6 +40,7 @@ const NirvanaMemory = lazy(() => import('./pages/NirvanaMemory'));
 const NirvanaKanban = lazy(() => import('./pages/NirvanaKanban'));
 const NirvanaProviders = lazy(() => import('./pages/NirvanaProviders'));
 const NirvanaLogs = lazy(() => import('./pages/NirvanaLogs'));
+const NirvanaWorkspace = lazy(() => import('./pages/NirvanaWorkspace'));
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -75,6 +77,7 @@ const navItems = [
     { path: '/nirvana-kanban', icon: Kanban, label: 'Kanban' },
     { path: '/nirvana-providers', icon: Key, label: 'Providers' },
     { path: '/nirvana-logs', icon: ScrollText, label: 'Logs' },
+    { path: '/nirvana-workspace', icon: FolderOpen, label: 'Workspace' },
 ];
 
 function RouteLoadingFallback() {
@@ -87,19 +90,15 @@ function RouteLoadingFallback() {
 }
 
 function AssistantLauncher() {
-    const navigate = useNavigate();
-
-    const openNirvanaChat = () => {
-        navigate('/nirvana-chat');
-    };
+    const [overlayOpen, setOverlayOpen] = useState(false);
 
     return (
         <>
             <button
                 className="assistant-launcher assistant-launcher-top"
-                onClick={openNirvanaChat}
-                aria-label="Open Nirvana chat"
-                title="Open Nirvana chat"
+                onClick={() => setOverlayOpen(v => !v)}
+                aria-label="Toggle Nirvana overlay"
+                title="Toggle Nirvana overlay"
             >
                 <Bot size={18} />
                 <Sparkles size={13} className="assistant-launcher-spark" />
@@ -107,12 +106,18 @@ function AssistantLauncher() {
 
             <button
                 className="assistant-launcher assistant-launcher-bottom"
-                onClick={openNirvanaChat}
-                aria-label="Open Nirvana chat"
-                title="Open Nirvana chat"
+                onClick={() => setOverlayOpen(v => !v)}
+                aria-label="Toggle Nirvana overlay"
+                title="Toggle Nirvana overlay"
             >
                 <Bot size={18} />
             </button>
+
+            {overlayOpen && (
+                <Suspense fallback={null}>
+                    <CompactAgentOverlay onClose={() => setOverlayOpen(false)} />
+                </Suspense>
+            )}
         </>
     );
 }
@@ -240,6 +245,7 @@ function AppInner() {
                             <Route path="/nirvana-kanban" element={<NirvanaKanban />} />
                             <Route path="/nirvana-providers" element={<NirvanaProviders />} />
                             <Route path="/nirvana-logs" element={<NirvanaLogs />} />
+                            <Route path="/nirvana-workspace" element={<NirvanaWorkspace />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                     </Suspense>

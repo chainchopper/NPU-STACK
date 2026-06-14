@@ -28,6 +28,7 @@ KANBAN_DIR = HERMES_HOME / "kanban"
 MEMORY_DIR = HERMES_HOME / "memories"
 AUTH_PATH = HERMES_HOME / "auth.json"
 LOGS_DIR = HERMES_HOME / "logs"
+WORKSPACE_ROOT = REPO_ROOT
 
 router = APIRouter(prefix="/api/nirvana", tags=["nirvana-native"])
 
@@ -383,4 +384,43 @@ def get_log(log_name: str, tail: int = 200) -> Dict[str, Any]:
         "total_lines": len(content.splitlines()),
         "shown_lines": len(lines),
         "content": "\n".join(lines),
+    }
+
+
+# ── Workspace ────────────────────────────────────────────────────────────
+
+@router.get("/workspace")
+def browse_workspace(path: str = "") -> Dict[str, Any]:
+    """List files and folders at a path relative to the NPU-STACK workspace root."""
+    target = WORKSPACE_ROOT
+    if path:
+        # Prevent directory traversal
+        safe = os.path.normpath(path).lstrip(os.sep).lstrip("\\")
+        if ".." in safe.split(os.sep):
+            raise HTTPException(400, "Path traversal not allowed")
+        target = WORKSPACE_ROOT / safe
+
+    if not target.exists():
+        raise HTTPException(404, f"Path not found: {path}")
+    if not target.is_dir():
+        raise HTTPException(400, f"Not a directory: {path}")
+
+    entries = []
+    try:
+        for item in sorted(target.iterdir()):
+            if item.name.startswith(".") and item.name not in (".env", ".env.example", ".gitignore"):
+                continue
+            entries.append({
+                "name": item.name,
+                "is_dir": item.is_dir(),
+                "size": item.stat().st_size if item.is_file() else 0,
+                "path": str(item.relative_to(WORKSPACE_ROOT)).replace("\\", "/"),
+            })
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+
+    return {
+        "path": str(target.relative_to(WORKSPACE_ROOT)).replace("\\", "/") or "/",
+        "entries": entries,
+        "count": len(entries),
     }
