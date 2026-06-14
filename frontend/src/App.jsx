@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 
@@ -30,6 +30,9 @@ const FastFlowLM = lazy(() => import('./pages/FastFlowLM'));
 const EdgeFleet = lazy(() => import('./pages/EdgeFleet'));
 const FleetCommand = lazy(() => import('./pages/FleetCommand'));
 const NirvanaChat = lazy(() => import('./pages/NirvanaChat'));
+const NirvanaSettings = lazy(() => import('./pages/NirvanaSettings'));
+const NirvanaSessions = lazy(() => import('./pages/NirvanaSessions'));
+const NirvanaSkills = lazy(() => import('./pages/NirvanaSkills'));
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -55,6 +58,11 @@ const navItems = [
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
     { path: '/edge-fleet', icon: MonitorSmartphone, label: 'Edge Fleet' },
     { path: '/fleet-command', icon: Radio, label: 'Fleet Command' },
+    // ── Nirvana native panels ──
+    { path: '/nirvana-chat', icon: MessageSquare, label: 'Nirvana Chat' },
+    { path: '/nirvana-settings', icon: Settings, label: 'Settings' },
+    { path: '/nirvana-sessions', icon: BookOpen, label: 'Sessions' },
+    { path: '/nirvana-skills', icon: Puzzle, label: 'Skills' },
 ];
 
 function RouteLoadingFallback() {
@@ -211,6 +219,9 @@ function AppInner() {
                             <Route path="/edge-fleet" element={<EdgeFleet />} />
                             <Route path="/fleet-command" element={<FleetCommand />} />
                             <Route path="/nirvana-chat" element={<NirvanaChat />} />
+                            <Route path="/nirvana-settings" element={<NirvanaSettings />} />
+                            <Route path="/nirvana-sessions" element={<NirvanaSessions />} />
+                            <Route path="/nirvana-skills" element={<NirvanaSkills />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                     </Suspense>
