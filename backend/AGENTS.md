@@ -92,6 +92,39 @@ This is an active development boundary. All changes to API routes, services, or 
 - Backend health: `curl http://127.0.0.1:8010/api/health` → `{"status":"healthy"}`
 - Nirvana bridge: `curl http://127.0.0.1:8010/api/agent/runtime` → check `engine`, `current_provider`, `chat_ready`
 - Import check: `.venv\Scripts\python.exe -c "from backend.main import app; print('ok')"`
+- Nirvana native health: `curl http://127.0.0.1:8010/api/nirvana/health`
+- MCP tools: `.venv\Scripts\python.exe -c "from backend.mcp_server import mcp; print(f'Tools: {len(mcp._tool_manager._tools)}')"` → 13
+
+## Nirvana Native Endpoints (`/api/nirvana/*`)
+
+| Method | Path | Reads from |
+| --- | --- | --- |
+| GET | `/health` | Multiple state files |
+| GET | `/overview` | Aggregated: settings, sessions, skills, config |
+| GET | `/settings` | `settings.json` |
+| PATCH | `/settings` | `settings.json` (write) |
+| GET | `/sessions` | `sessions/_index.json` |
+| GET | `/sessions/{id}` | `sessions/{id}.json` |
+| GET | `/skills` | `skills/**/SKILL.md` + `.usage.json` |
+| GET | `/skills/{name}` | `skills/**/SKILL.md` |
+| GET | `/config` | `config.yaml` |
+| GET | `/cron` | `cron/output/` |
+| GET | `/kanban` | `kanban/boards/` |
+| GET | `/kanban/{slug}` | `kanban/boards/{slug}/board.json` |
+| GET | `/memory` | `memories/` |
+| GET | `/memory/{file}` | `memories/{file}` |
+| GET | `/providers` | `auth.json` |
+| GET | `/logs` | `logs/` |
+| GET | `/logs/{name}?tail=N` | `logs/{name}` |
+| GET | `/workspace?path=` | File system (J:\NPU-STACK) |
+
+### MCP Tools (13 via stdio)
+
+`backend/mcp_server.py` — discovered by Nirvana via `config.yaml` `mcp_servers.npu-stack`.
+
+detect_hardware, system_health, system_status, list_models, get_model_info,
+list_devices, fleet_status, run_fleet_command, list_training_jobs,
+list_conversion_paths, nirvana_overview, nirvana_settings, nirvana_sessions
 
 ## Child DOX Index
 
