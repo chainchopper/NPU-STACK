@@ -24,8 +24,8 @@ SETTINGS_PATH = WEBUI_STATE_DIR / "settings.json"
 SESSIONS_INDEX = WEBUI_STATE_DIR / "sessions" / "_index.json"
 SKILLS_USAGE_PATH = HERMES_HOME / "skills" / ".usage.json"
 SKILLS_DIR = HERMES_HOME / "skills"
-CRON_DIR = HERMES_HOME / "cron"
-CONFIG_PATH = HERMES_HOME / "config.yaml"
+KANBAN_DIR = HERMES_HOME / "kanban"
+MEMORY_DIR = HERMES_HOME / "memories"
 
 router = APIRouter(prefix="/api/nirvana", tags=["nirvana-native"])
 
@@ -243,4 +243,74 @@ def nirvana_overview() -> Dict[str, Any]:
             "count": skills["count"],
             "names": [s["name"] for s in skills["skills"]],
         },
+    }
+
+
+# ── Kanban ───────────────────────────────────────────────────────────────
+
+@router.get("/kanban")
+def list_kanban_boards() -> Dict[str, Any]:
+    """List all Kanban boards and the active board."""
+    active_name = None
+    current_file = KANBAN_DIR / "current"
+    if current_file.exists():
+        active_name = current_file.read_text(encoding="utf-8", errors="replace").strip()
+
+    boards = []
+    boards_dir = KANBAN_DIR / "boards"
+    if boards_dir.exists():
+        for board_dir in sorted(boards_dir.iterdir()):
+            if not board_dir.is_dir() or board_dir.name.startswith("."):
+                continue
+            board_json = board_dir / "board.json"
+            if not board_json.exists():
+                continue
+            try:
+                board = json.loads(board_json.read_text(encoding="utf-8", errors="replace"))
+                board["_active"] = (board.get("slug") == active_name)
+                boards.append(board)
+            except json.JSONDecodeError:
+                boards.append({"slug": board_dir.name, "error": "unreadable", "_active": False})
+
+    return {"boards": boards, "count": len(boards), "active": active_name}
+
+
+@router.get("/kanban/{board_slug}")
+def get_kanban_board(board_slug: str) -> Dict[str, Any]:
+    """Get a single Kanban board by slug."""
+    board_json = KANBAN_DIR / "boards" / board_slug / "board.json"
+    if not board_json.exists():
+        raise HTTPException(404, f"Kanban board not found: {board_slug}")
+    return _read_json(board_json)
+
+
+# ── Memory ───────────────────────────────────────────────────────────────
+
+@router.get("/memory")
+def list_memory_files() -> Dict[str, Any]:
+    """List all Nirvana memory files."""
+    files = []
+    if MEMORY_DIR.exists():
+        for f in sorted(MEMORY_DIR.iterdir()):
+            if f.name.startswith(".") or f.suffix == ".lock":
+                continue
+            files.append({
+                "name": f.name,
+                "size": f.stat().st_size,
+                "path": str(f.relative_to(HERMES_HOME)),
+            })
+    return {"files": files, "count": len(files)}
+
+
+@router.get("/memory/{file_name}")
+def get_memory_file(file_name: str) -> Dict[str, Any]:
+    """Read a single memory file."""
+    mem_file = MEMORY_DIR / file_name
+    if not mem_file.exists():
+        raise HTTPException(404, f"Memory file not found: {file_name}")
+    content = mem_file.read_text(encoding="utf-8", errors="replace")
+    return {
+        "name": file_name,
+        "size": mem_file.stat().st_size,
+        "content": content,
     }

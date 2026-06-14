@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 
@@ -35,6 +35,8 @@ const NirvanaSessions = lazy(() => import('./pages/NirvanaSessions'));
 const NirvanaSkills = lazy(() => import('./pages/NirvanaSkills'));
 const NirvanaDashboard = lazy(() => import('./pages/NirvanaDashboard'));
 const NirvanaCron = lazy(() => import('./pages/NirvanaCron'));
+const NirvanaMemory = lazy(() => import('./pages/NirvanaMemory'));
+const NirvanaKanban = lazy(() => import('./pages/NirvanaKanban'));
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -67,6 +69,8 @@ const navItems = [
     { path: '/nirvana-skills', icon: Puzzle, label: 'Skills' },
     { path: '/nirvana-dashboard', icon: Home, label: 'Nirvana Home' },
     { path: '/nirvana-cron', icon: Clock, label: 'Cron' },
+    { path: '/nirvana-memory', icon: Brain, label: 'Memory' },
+    { path: '/nirvana-kanban', icon: Kanban, label: 'Kanban' },
 ];
 
 function RouteLoadingFallback() {
@@ -228,6 +232,8 @@ function AppInner() {
                             <Route path="/nirvana-skills" element={<NirvanaSkills />} />
                             <Route path="/nirvana-dashboard" element={<NirvanaDashboard />} />
                             <Route path="/nirvana-cron" element={<NirvanaCron />} />
+                            <Route path="/nirvana-memory" element={<NirvanaMemory />} />
+                            <Route path="/nirvana-kanban" element={<NirvanaKanban />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                     </Suspense>
