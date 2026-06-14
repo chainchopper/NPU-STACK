@@ -47,6 +47,9 @@ This is an active development boundary. All UI changes go here.
 | WebcamTest | `WebcamTest.jsx` | Webcam/camera testing |
 | ModelHub | `ModelHub.jsx` | Model discovery hub |
 | NirvanaChat | `NirvanaChat.jsx` | **Full Nirvana agent interface** — iframe-embedded WebUI with all features |
+| NirvanaSettings | `NirvanaSettings.jsx` | **Native settings panel** — reads/writes /api/nirvana/settings directly |
+| NirvanaSessions | `NirvanaSessions.jsx` | **Native session browser** — lists and inspects Nirvana sessions |
+| NirvanaSkills | `NirvanaSkills.jsx` | **Native skills manager** — card grid + markdown content viewer |
 
 ## Work Guidance
 

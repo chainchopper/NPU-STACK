@@ -81,7 +81,9 @@ This is an active development boundary. All changes to API routes, services, or 
 ## Work Guidance
 
 - Follow FastAPI conventions: Pydantic models for request/response, async handlers
-- The Nirvana bridge is the critical path — test against pinned session `session-0c9b513294` for regressions
+- Native Nirvana management endpoints at `/api/nirvana/*` read directly from shared state — no proxy, no WebUI process needed
+- `GET /api/nirvana/settings`, `GET /api/nirvana/sessions`, `GET /api/nirvana/skills` all return data from `.hermes/webui/` state files
+- The proxy middleware protects `/api/nirvana/*` from being forwarded to `:8789`
 - When adding a new router, register it in `main.py` before any catch-all proxy routes
 - The OpenAI-compatible endpoint at `/v1` must remain ABI-compatible with the OpenAI client SDK
 
