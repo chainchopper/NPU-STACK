@@ -92,12 +92,14 @@ class NirvanaProxyMiddleware:
             elif message["type"] == "http.disconnect":
                 return
 
-        # Read request headers (skip host/content-length)
+        # Read request headers (skip host/content-length, rewrite origin for CSRF)
         request_headers: dict[str, str] = {}
         for key, value in scope.get("headers", []):
             decoded_key = key.decode("latin-1").lower()
             if decoded_key not in ("host", "content-length"):
                 request_headers[key.decode("latin-1")] = value.decode("latin-1")
+        # Rewrite origin to the WebUI's own origin so CSRF checks pass
+        request_headers["origin"] = NIRVANA_WEBUI_BASE
 
         # Forward to Nirvana WebUI
         try:
