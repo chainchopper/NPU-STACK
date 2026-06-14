@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, Package } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, Package, ChevronDown, ChevronRight } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
@@ -44,7 +44,7 @@ const NirvanaWorkspace = lazy(() => import('./pages/NirvanaWorkspace'));
 const NirvanaAppearance = lazy(() => import('./pages/NirvanaAppearance'));
 const NirvanaPlugins = lazy(() => import('./pages/NirvanaPlugins'));
 
-const navItems = [
+const managementItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/chat-playground', icon: FlaskConical, label: 'Chat & Playground' },
     { path: '/orchestration', icon: Microscope, label: 'Orchestration' },
@@ -68,15 +68,17 @@ const navItems = [
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
     { path: '/edge-fleet', icon: MonitorSmartphone, label: 'Edge Fleet' },
     { path: '/fleet-command', icon: Radio, label: 'Fleet Command' },
-    // ── Nirvana native panels ──
-    { path: '/nirvana-chat', icon: MessageSquare, label: 'Nirvana Chat' },
+];
+
+const nirvanaItems = [
+    { path: '/nirvana-chat', icon: MessageSquare, label: 'Chat' },
+    { path: '/nirvana-dashboard', icon: Home, label: 'Home' },
     { path: '/nirvana-settings', icon: Settings, label: 'Settings' },
     { path: '/nirvana-sessions', icon: BookOpen, label: 'Sessions' },
     { path: '/nirvana-skills', icon: Puzzle, label: 'Skills' },
-    { path: '/nirvana-dashboard', icon: Home, label: 'Nirvana Home' },
-    { path: '/nirvana-cron', icon: Clock, label: 'Cron' },
     { path: '/nirvana-memory', icon: Brain, label: 'Memory' },
     { path: '/nirvana-kanban', icon: Kanban, label: 'Kanban' },
+    { path: '/nirvana-cron', icon: Clock, label: 'Cron' },
     { path: '/nirvana-providers', icon: Key, label: 'Providers' },
     { path: '/nirvana-logs', icon: ScrollText, label: 'Logs' },
     { path: '/nirvana-workspace', icon: FolderOpen, label: 'Workspace' },
@@ -128,6 +130,7 @@ function AssistantLauncher() {
 
 function AppInner() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [nirvanaExpanded, setNirvanaExpanded] = useState(false);
     const { theme, toggleTheme } = useTheme();
 
     return (
@@ -176,7 +179,7 @@ function AppInner() {
                     </div>
 
                     <nav className="sidebar-nav">
-                        {navItems.map(({ path, icon: Icon, label }) => (
+                        {managementItems.map(({ path, icon: Icon, label }) => (
                             <NavLink
                                 key={path}
                                 to={path}
@@ -188,6 +191,45 @@ function AppInner() {
                                 {label}
                             </NavLink>
                         ))}
+
+                        {/* ── Nirvana ────────────────────────────── */}
+                        <div style={{ marginTop: 12, borderTop: '1px solid var(--border-color)', paddingTop: 8 }}>
+                            <button
+                                onClick={() => setNirvanaExpanded(v => !v)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: 10,
+                                    width: '100%', padding: '8px 12px',
+                                    background: 'none', border: 'none',
+                                    color: 'var(--text-secondary)', cursor: 'pointer',
+                                    fontSize: 12, fontWeight: 600,
+                                    textTransform: 'uppercase', letterSpacing: 1,
+                                    borderRadius: 8, marginBottom: 4,
+                                }}>
+                                <Bot size={16} color="#4ade80" />
+                                Nirvana
+                                <span style={{ marginLeft: 'auto' }}>
+                                    {nirvanaExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                </span>
+                            </button>
+
+                            <div style={{
+                                overflow: 'hidden',
+                                maxHeight: nirvanaExpanded ? '600px' : '0',
+                                transition: 'max-height 0.25s ease',
+                            }}>
+                                {nirvanaItems.map(({ path, icon: Icon, label }) => (
+                                    <NavLink
+                                        key={path}
+                                        to={path}
+                                        className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                                        onClick={() => setSidebarOpen(false)}
+                                    >
+                                        <Icon size={18} />
+                                        {label}
+                                    </NavLink>
+                                ))}
+                            </div>
+                        </div>
                     </nav>
 
                     <div className="sidebar-footer">
