@@ -54,6 +54,23 @@ This is an active development boundary. All UI changes go here.
 - Namespace all absorbed Hermes CSS under a `.nirvana-ui` class to avoid conflicts
 - Keep NPU-STACK React conventions: functional components, hooks, nanostores for shared state
 
+## Shared Components
+
+| Component | File | Purpose |
+| --- | --- | --- |
+| `ChatInterface` | `components/ChatInterface.jsx` | Shared chat UI used across chat/playground/agents |
+| `SystemAgent` | `components/SystemAgent.jsx` | System agent status display |
+| `AgentVisual` | `components/AgentVisual.jsx` | Agent visualization/animation |
+| `ModelSelector` | `components/ModelSelector.jsx` | Reusable model picker dropdown |
+| `DatasetSelector` | `components/DatasetSelector.jsx` | Reusable dataset picker |
+| `LoRASelector` | `components/LoRASelector.jsx` | LoRA adapter picker |
+| `FolderBrowser` | `components/FolderBrowser.jsx` | File/folder tree browser |
+| `ContextWizard` | `components/ContextWizard.jsx` | Multi-step configuration wizard |
+| `EnhancedTrainingSetup` | `components/EnhancedTrainingSetup.jsx` | Training configuration form |
+| `ActivityLogCard` | `components/ActivityLogCard.jsx` | Activity log card display |
+| `CapabilityPill` | `components/CapabilityPill.jsx` | Capability tag/badge |
+| `OperationNotice` | `components/OperationNotice.jsx` | Operation status notice banner |
+
 ## Verification
 
 - Dev server: `npm run dev` from `frontend/`
@@ -63,4 +80,18 @@ This is an active development boundary. All UI changes go here.
 
 ## Child DOX Index
 
-No child boundaries yet. Components live under `src/components/`, pages under `src/pages/`.
+No child boundaries yet. Source structure:
+
+| Path | Purpose |
+| --- | --- |
+| `src/api/` | API client utilities and request helpers |
+| `src/components/` | 12 shared React components (see Shared Components above) |
+| `src/context/` | React context providers (theme, auth, state) |
+| `src/hooks/` | Custom React hooks |
+| `src/pages/` | 25 route-level page components (see Page Index above) |
+| `src/styles/` | Additional style modules |
+| `src/test/` | Frontend test utilities |
+| `src/__tests__/` | Jest/Vitest test suites |
+| `src/App.jsx` | Root app component with router |
+| `src/main.jsx` | React entry point |
+| `src/index.css` | Global stylesheet (NPU-STACK theme) |

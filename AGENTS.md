@@ -88,8 +88,8 @@ Default section order:
 
 | Path | AGENTS.md | Purpose |
 |------|-----------|---------|
-| `backend/` | ✅ (create) | FastAPI server — all API routes, Nirvana bridge, model registry, training, fleet ops, inference |
-| `frontend/` | ✅ (create) | React/Vite SPA — management shell, agent interface, dashboard, 25+ tool pages |
+| `backend/` | ✅ exists | FastAPI server — all API routes, Nirvana bridge, model registry, training, fleet ops, inference |
+| `frontend/` | ✅ exists | React/Vite SPA — management shell, agent interface, dashboard, 25+ tool pages |
 | `mcp_temp_assets/servers/src/everything/` | ✅ exists | MCP "Everything" server — tools, resources, prompts, transports |
 
 ### Absorbed Upstream Repos (read-only reference, DO NOT EDIT)
