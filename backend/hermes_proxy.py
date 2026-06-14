@@ -69,12 +69,7 @@ class NirvanaProxyMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Only proxy /api/* and /health paths
-        if not (path.startswith("/api/") or path == "/health" or path.startswith("/health")):
-            await self.app(scope, receive, send)
-            return
-
-        # Native app doesn't claim this path — proxy to Nirvana WebUI
+        # Forward everything else to the Nirvana WebUI
         await self._proxy_to_webui(scope, receive, send)
 
     async def _proxy_to_webui(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -114,11 +109,16 @@ class NirvanaProxyMiddleware:
                     content=body or None,
                 )
 
-            # Send response status + headers (strip content-length since we stream chunks)
+            # Send response status + headers
+            # Strip headers that break proxying or iframe embedding
             response_headers = [
                 (k.encode("latin-1"), v.encode("latin-1"))
                 for k, v in upstream_resp.headers.items()
-                if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")
+                if k.lower() not in (
+                    "transfer-encoding", "content-encoding", "content-length",
+                    "content-security-policy", "content-security-policy-report-only",
+                    "x-frame-options",
+                )
             ]
             await send({
                 "type": "http.response.start",

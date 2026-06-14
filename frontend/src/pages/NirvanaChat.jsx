@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const NIRVANA_WEBUI_URL = 'http://127.0.0.1:8789';
+const NIRVANA_WEBUI_URL = 'http://127.0.0.1:8010';
 
 /**
  * NirvanaChat — Full Nirvana agent interface baked into NPU-STACK.
