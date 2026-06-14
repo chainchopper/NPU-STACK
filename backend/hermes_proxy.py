@@ -114,11 +114,11 @@ class NirvanaProxyMiddleware:
                     content=body or None,
                 )
 
-            # Send response status + headers
+            # Send response status + headers (strip content-length since we stream chunks)
             response_headers = [
                 (k.encode("latin-1"), v.encode("latin-1"))
                 for k, v in upstream_resp.headers.items()
-                if k.lower() not in ("transfer-encoding", "content-encoding")
+                if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")
             ]
             await send({
                 "type": "http.response.start",
