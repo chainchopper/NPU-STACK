@@ -190,3 +190,57 @@ def nirvana_health() -> Dict[str, Any]:
         "bot_name": _read_json(SETTINGS_PATH).get("bot_name", "unknown"),
         "theme": _read_json(SETTINGS_PATH).get("theme", "unknown"),
     }
+
+
+# ── Cron ─────────────────────────────────────────────────────────────────
+
+@router.get("/cron")
+def list_cron_jobs() -> Dict[str, Any]:
+    """List Nirvana cron jobs and recent output files."""
+    jobs = []
+    output_dir = CRON_DIR / "output"
+    for f in sorted(output_dir.glob("*.json"), reverse=True) if output_dir.exists() else []:
+        try:
+            data = _read_json(f)
+            data["_file"] = f.name
+            jobs.append(data)
+        except Exception:
+            jobs.append({"_file": f.name, "error": "unreadable"})
+
+    return {"jobs": jobs, "count": len(jobs), "output_dir": str(output_dir)}
+
+
+# ── Overview ─────────────────────────────────────────────────────────────
+
+@router.get("/overview")
+def nirvana_overview() -> Dict[str, Any]:
+    """Aggregated Nirvana summary for the dashboard."""
+    settings = _read_json(SETTINGS_PATH) if SETTINGS_PATH.exists() else {}
+    sessions: list = json.loads(
+        SESSIONS_INDEX.read_text(encoding="utf-8", errors="replace")
+    ) if SESSIONS_INDEX.exists() else []
+    skills = list_skills()
+
+    return {
+        "agent": {
+            "name": settings.get("bot_name", "Nirvana"),
+            "provider": settings.get("default_model_provider", "unknown"),
+            "theme": settings.get("theme", "dark"),
+            "onboarding_completed": settings.get("onboarding_completed", False),
+        },
+        "config": get_config() if CONFIG_PATH.exists() else {},
+        "sessions": {
+            "total": len(sessions),
+            "pinned": sum(1 for s in sessions if s.get("pinned")),
+            "recent": [{
+                "id": s.get("session_id"),
+                "title": (s.get("title") or "Untitled").split("\n")[0][:60],
+                "model": s.get("model"),
+                "message_count": s.get("message_count", 0),
+            } for s in sessions[:5]],
+        },
+        "skills": {
+            "count": skills["count"],
+            "names": [s["name"] for s in skills["skills"]],
+        },
+    }
