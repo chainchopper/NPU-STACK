@@ -67,6 +67,7 @@ from routers.orchestration import router as orchestration_router
 from routers.orchestration import initialize_nirvana_runtime_on_startup
 from routers.orchestration import start_nirvana_runtime_warmup_retry
 from routers.docs_index import router as docs_index_router
+from routers.nirvana_webui import router as nirvana_webui_router
 from services.docs_index_service import ensure_docs_index
 from services.docs_index_service import sync_project_docs_to_gitbook
 
@@ -208,6 +209,7 @@ app.include_router(fleet_command_router)
 app.include_router(fleet_agent_router)
 app.include_router(orchestration_router)
 app.include_router(docs_index_router)
+app.include_router(nirvana_webui_router)
 
 
 @app.get("/api/health")
