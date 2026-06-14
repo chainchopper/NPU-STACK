@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, Package } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
@@ -41,6 +41,8 @@ const NirvanaKanban = lazy(() => import('./pages/NirvanaKanban'));
 const NirvanaProviders = lazy(() => import('./pages/NirvanaProviders'));
 const NirvanaLogs = lazy(() => import('./pages/NirvanaLogs'));
 const NirvanaWorkspace = lazy(() => import('./pages/NirvanaWorkspace'));
+const NirvanaAppearance = lazy(() => import('./pages/NirvanaAppearance'));
+const NirvanaPlugins = lazy(() => import('./pages/NirvanaPlugins'));
 
 const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -78,6 +80,8 @@ const navItems = [
     { path: '/nirvana-providers', icon: Key, label: 'Providers' },
     { path: '/nirvana-logs', icon: ScrollText, label: 'Logs' },
     { path: '/nirvana-workspace', icon: FolderOpen, label: 'Workspace' },
+    { path: '/nirvana-appearance', icon: Palette, label: 'Appearance' },
+    { path: '/nirvana-plugins', icon: Package, label: 'Plugins' },
 ];
 
 function RouteLoadingFallback() {
@@ -246,6 +250,8 @@ function AppInner() {
                             <Route path="/nirvana-providers" element={<NirvanaProviders />} />
                             <Route path="/nirvana-logs" element={<NirvanaLogs />} />
                             <Route path="/nirvana-workspace" element={<NirvanaWorkspace />} />
+                            <Route path="/nirvana-appearance" element={<NirvanaAppearance />} />
+                            <Route path="/nirvana-plugins" element={<NirvanaPlugins />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                     </Suspense>
