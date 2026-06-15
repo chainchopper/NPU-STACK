@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from backend.services import flash_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -547,6 +549,16 @@ def list_firmware_profiles(device: Optional[dict] = None) -> list[dict]:
     return profiles
 
 
+def _family_supports_flash(family: str, status: str, connection: str) -> bool:
+    """Determine if a device can be flashed via USB tools."""
+    if family.startswith("esp32") or status == "bootsel":
+        return True
+    if family == "rockchip" and connection == "usb":
+        tools = flash_service.flash_tools_available()
+        return tools.get("rkdeveloptool", False) or tools.get("upgrade_tool", False)
+    return False
+
+
 def _build_capabilities(device: dict) -> dict:
     family = device.get("family", "unknown")
     connection = device.get("connection", "unknown")
@@ -564,7 +576,7 @@ def _build_capabilities(device: dict) -> dict:
         "install": live_install and recommended_profile == "circuitpython-control",
         "backup": family.startswith("esp32"),
         "chip_detect": family.startswith("esp32") or family == "uart-bridge",
-        "flash": family.startswith("esp32") or status == "bootsel",
+        "flash": _family_supports_flash(family, status, connection),
         "ota": recommended_profile in {"esp32-micropython-agent", "linux-agent"},
         "console": can_open_console,
         "telemetry": telemetry_present or can_run_remote,

@@ -61,6 +61,7 @@ from routers.agent import router as agent_router
 from routers.civitai import router as civitai_router
 from routers.flm import router as flm_router
 from routers.devices import router as devices_router
+from routers.flash_router import router as flash_router
 from routers.fleet_command import router as fleet_command_router
 from routers.fleet_agent import router as fleet_agent_router
 from routers.orchestration import router as orchestration_router
@@ -202,6 +203,7 @@ app.include_router(nim_router)
 app.include_router(cvedia_router)
 app.include_router(vitis_compiler_router)
 app.include_router(devices_router)
+app.include_router(flash_router)
 app.include_router(agent_router)
 app.include_router(civitai_router)
 app.include_router(flm_router)

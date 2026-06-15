@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Box, GraduationCap, Gauge, Cpu, HardDrive, Monitor, Zap, Database, Activity, ArrowRight, Server, Cloud, Layers, Sparkles, Rocket, ChevronRight, CheckCircle2 } from 'lucide-react';
-import { getStatus, getSystemInfo } from '../api/client';
+import { Box, GraduationCap, Gauge, Cpu, HardDrive, Monitor, Zap, Database, Activity, ArrowRight, Server, Cloud, Layers, Sparkles, Rocket, ChevronRight, CheckCircle2, Bot, MessageSquare, Puzzle, ExternalLink } from 'lucide-react';
+import { getStatus, getSystemInfo, apiUrl } from '../api/client';
 import SystemAgent from '../components/SystemAgent';
 
 export default function Dashboard() {
     const [status, setStatus] = useState(null);
     const [sysInfo, setSysInfo] = useState(null);
+    const [nirvana, setNirvana] = useState(null);
     const [loading, setLoading] = useState(true);
     const [wizardDismissed, setWizardDismissed] = useState(() => localStorage.getItem('npu-wizard-dismissed') === 'true');
 
@@ -27,6 +28,11 @@ export default function Dashboard() {
                 if (cancelled) return;
                 setSysInfo(nextSysInfo);
             });
+
+        fetch(apiUrl('/nirvana/overview'))
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null)
+            .then(d => { if (!cancelled && d) setNirvana(d); });
 
         const unblockTimer = setTimeout(() => {
             if (!cancelled) {
