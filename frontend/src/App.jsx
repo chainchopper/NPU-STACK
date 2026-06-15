@@ -46,11 +46,6 @@ const NirvanaPlugins = lazy(() => import('./pages/NirvanaPlugins'));
 
 const managementItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/chat-playground', icon: FlaskConical, label: 'Chat & Playground' },
-    { path: '/orchestration', icon: Microscope, label: 'Orchestration' },
-    { path: '/agents', icon: Bot, label: 'Agents' },
-    { path: '/autoresearch', icon: SearchCheck, label: 'AutoResearch' },
-    { path: '/documentation', icon: BookOpen, label: 'Documentation' },
     { path: '/models', icon: Box, label: 'Models' },
     { path: '/hub', icon: Globe, label: 'Model Hub' },
     { path: '/hf-publisher', icon: CloudUpload, label: 'HF Publisher' },
@@ -72,6 +67,11 @@ const managementItems = [
 
 const nirvanaItems = [
     { path: '/nirvana-chat', icon: MessageSquare, label: 'Chat' },
+    { path: '/chat-playground', icon: FlaskConical, label: 'Chat Playground' },
+    { path: '/agents', icon: Bot, label: 'Agents' },
+    { path: '/orchestration', icon: Microscope, label: 'Orchestration' },
+    { path: '/autoresearch', icon: SearchCheck, label: 'AutoResearch' },
+    { path: '/documentation', icon: BookOpen, label: 'Documentation' },
     { path: '/nirvana-dashboard', icon: Home, label: 'Home' },
     { path: '/nirvana-settings', icon: Settings, label: 'Settings' },
     { path: '/nirvana-sessions', icon: BookOpen, label: 'Sessions' },
@@ -130,7 +130,7 @@ function AssistantLauncher() {
 
 function AppInner() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [nirvanaExpanded, setNirvanaExpanded] = useState(false);
+    const [nirvanaExpanded, setNirvanaExpanded] = useState(true);
     const { theme, toggleTheme } = useTheme();
 
     return (
