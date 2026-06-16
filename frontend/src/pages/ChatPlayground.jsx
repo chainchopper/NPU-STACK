@@ -137,6 +137,79 @@ function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }
   );
 }
 
+// ── Quick HuggingFace Model Downloader ──────────────────────────────────────
+function QuickModelDownloader({ onDone }) {
+  const [repoId, setRepoId] = useState('');
+  const [filename, setFilename] = useState('');
+  const [status, setStatus] = useState(null);
+  const [message, setMessage] = useState('');
+
+  const handleDownload = async () => {
+    const repo = repoId.trim();
+    if (!repo) return;
+    setStatus('downloading');
+    setMessage(`Downloading ${repo}...`);
+    try {
+      const fd = new FormData();
+      fd.append('repo_id', repo);
+      if (filename.trim()) fd.append('filename', filename.trim());
+      fd.append('revision', 'main');
+      const res = await fetch(`${API_BASE}/models/huggingface/download`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Download failed');
+      setStatus('done');
+      setMessage(`✅ Downloaded: ${repo}`);
+      setRepoId('');
+      setFilename('');
+      if (onDone) setTimeout(onDone, 500);
+    } catch (e) {
+      setStatus('error');
+      setMessage(`❌ ${e.message}`);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <input
+        value={repoId} onChange={e => setRepoId(e.target.value)}
+        placeholder="user/model-name"
+        onKeyDown={e => e.key === 'Enter' && handleDownload()}
+        style={{
+          width: '100%', boxSizing: 'border-box', padding: '5px 8px', borderRadius: 6,
+          background: '#1a2035', border: '1px solid #2d3748', color: '#e2e8f0',
+          fontSize: 10, fontFamily: 'monospace', outline: 'none',
+        }}
+      />
+      <input
+        value={filename} onChange={e => setFilename(e.target.value)}
+        placeholder="filename.gguf (optional)"
+        style={{
+          width: '100%', boxSizing: 'border-box', padding: '5px 8px', borderRadius: 6,
+          background: '#1a2035', border: '1px solid #2d3748', color: '#e2e8f0',
+          fontSize: 10, fontFamily: 'monospace', outline: 'none',
+        }}
+      />
+      <button
+        onClick={handleDownload}
+        disabled={!repoId.trim() || status === 'downloading'}
+        style={{
+          padding: '5px 10px', borderRadius: 6, border: 'none', cursor: repoId.trim() ? 'pointer' : 'default',
+          background: repoId.trim() && status !== 'downloading' ? '#667eea' : '#2d3748',
+          color: repoId.trim() ? '#fff' : '#718096', fontSize: 11, fontWeight: 600,
+        }}>
+        {status === 'downloading' ? 'Downloading...' : 'Download from HF'}
+      </button>
+      {message && (
+        <div style={{
+          fontSize: 10, color: status === 'error' ? '#fc8181' : status === 'done' ? '#68d391' : '#a0aec0',
+        }}>
+          {message}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ChatPlayground({
   defaultView = 'chat',
@@ -328,8 +401,8 @@ export default function ChatPlayground({
   const refreshModels = () => {
     fetch(`${API_BASE}/models`)
       .then(r => r.json())
-      .then(setModels)
-      .catch(() => {});
+      .then(data => setModels(Array.isArray(data) ? data : (Array.isArray(data?.models) ? data.models : [])))
+      .catch(() => setModels([]));
   };
 
   const stopFastFlowRuntime = async () => {
@@ -1226,7 +1299,29 @@ export default function ChatPlayground({
                   <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </select>
+              {compatibleModels.length === 0 && !selectedModel && (
+                <div style={{ fontSize: 10, color: '#718096', marginTop: 4 }}>
+                  No compatible models found for {effectiveDevice.toUpperCase()}.
+                </div>
+              )}
+              {selectedModel && (
+                <div style={{
+                  fontSize: 10, marginTop: 4, padding: '4px 8px', borderRadius: 4,
+                  background: 'rgba(74,222,128,0.08)', color: '#4ade80',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                }}>
+                  <CheckCircle size={10} />
+                  {models.find(m => m.id === selectedModel)?.name || selectedModel} selected
+                </div>
+              )}
             </div>
+          )}
+
+          {/* Quick HuggingFace Model Download */}
+          {(activeView === 'playground' || mode === 'direct') && (
+            <CollapsibleSection title="Download Model" icon={Download} defaultOpen={false}>
+              <QuickModelDownloader onDone={refreshModels} />
+            </CollapsibleSection>
           )}
 
           {/* Inference Presets */}

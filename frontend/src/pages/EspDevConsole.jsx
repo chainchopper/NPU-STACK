@@ -3,7 +3,7 @@ import { apiUrl, API_BASE } from '../api/client';
 import {
   Cpu, Terminal, Zap, Radio, FolderOpen, MonitorSmartphone,
   RefreshCw, Play, Square, Wifi, WifiOff, CheckCircle,
-  XCircle, Download, Upload, FolderPlus, Trash2,
+  XCircle, Download, Upload, FolderPlus, Trash2, Send, AlertCircle, Link2,
 } from 'lucide-react';
 
 // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -246,10 +246,10 @@ function SerialTerminal() {
 }
 
 // ── Devices Tab ────────────────────────────────────────────────────────────
-function DevicesPanel() {
+function DevicesPanel({ selectedDevice, onSelectDevice, fleetDevices, setFleetDevices }) {
   const [ports, setPorts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [fleetDevices, setFleetDevices] = useState([]);
+  const [pairingId, setPairingId] = useState(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -266,6 +266,29 @@ function DevicesPanel() {
 
   useEffect(() => { refresh(); }, []);
 
+  const pairSerialDevice = async (portInfo) => {
+    if (pairingId) return;
+    setPairingId(portInfo.device);
+    try {
+      // Scan with serial method — this registers the device
+      const scanResp = await fetch(API_BASE + `/api/devices/scan?serial=${encodeURIComponent(portInfo.device)}`, { method: 'POST' });
+      if (!scanResp.ok) throw new Error('Scan failed');
+      const scanData = await scanResp.json();
+      // Find the registered device
+      const found = (scanData.devices || []).find(d => d.connection === 'serial' || d.port === portInfo.device);
+      if (found) {
+        // Pair it
+        await fetch(API_BASE + `/api/devices/${encodeURIComponent(found.id)}/pair`, { method: 'POST' });
+      }
+      // Refresh fleet list
+      const fRes = await fetch(API_BASE + '/api/fleet/devices').then(r => r.json());
+      setFleetDevices(fRes.devices || []);
+    } catch (e) {
+      console.warn('Pair failed:', e);
+    }
+    setPairingId(null);
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -275,6 +298,11 @@ function DevicesPanel() {
           background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
           borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--text-secondary)',
         }}><RefreshCw size={14} /></button>
+        {selectedDevice && (
+          <span style={{ marginLeft: 12, fontSize: 11, color: '#4ade80', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <CheckCircle size={12} /> Target: {selectedDevice}
+          </span>
+        )}
       </div>
 
       {loading && <div className="spinner" style={{margin:'20px auto'}} />}
@@ -292,15 +320,31 @@ function DevicesPanel() {
         {ports.map(p => (
           <div key={p.device} style={{
             display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
-            marginBottom: 4, borderRadius: 8, fontSize: 12,
-            background: p.is_esp ? 'rgba(74,222,128,0.05)' : 'var(--bg-card)',
-            border: p.is_esp ? '1px solid rgba(74,222,128,0.2)' : '1px solid var(--border-color)',
-          }}>
+            marginBottom: 4, borderRadius: 8, fontSize: 12, cursor: p.is_esp ? 'pointer' : 'default',
+            background: selectedDevice === p.device ? 'rgba(74,222,128,0.1)' : (p.is_esp ? 'rgba(74,222,128,0.05)' : 'var(--bg-card)'),
+            border: selectedDevice === p.device ? '1px solid #4ade80' : (p.is_esp ? '1px solid rgba(74,222,128,0.2)' : '1px solid var(--border-color)'),
+          }}
+          onClick={() => p.is_esp && onSelectDevice(selectedDevice === p.device ? null : p.device)}>
             {p.is_esp ? <Cpu size={14} color="#4ade80" /> : <MonitorSmartphone size={14} color="var(--text-muted)" />}
             <code style={{ color: 'var(--text-primary)', fontSize: 11 }}>{p.device}</code>
             <span style={{ color: 'var(--text-muted)', flex: 1 }}>{p.description}</span>
             {p.chip && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#1a3a2a', color: '#4ade80' }}>{p.chip}</span>}
             {p.vid && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.vid}:{p.pid}</span>}
+            {p.is_esp && !fleetDevices.some(d => d.port === p.device || d.id === p.serial_number) && (
+              <button
+                onClick={(e) => { e.stopPropagation(); pairSerialDevice(p); }}
+                disabled={pairingId === p.device}
+                title="Pair with fleet registry"
+                style={{
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                  borderRadius: 6, padding: '2px 8px', cursor: 'pointer',
+                  color: 'var(--text-secondary)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3,
+                }}>
+                <Link2 size={10} />
+                {pairingId === p.device ? 'Pairing...' : 'Pair'}
+              </button>
+            )}
+            {selectedDevice === p.device && <CheckCircle size={14} color="#4ade80" />}
           </div>
         ))}
       </div>
@@ -318,15 +362,18 @@ function DevicesPanel() {
         {fleetDevices.slice(0, 10).map(d => (
           <div key={d.id} style={{
             display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
-            marginBottom: 4, borderRadius: 8, fontSize: 12,
-            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-          }}>
+            marginBottom: 4, borderRadius: 8, fontSize: 12, cursor: 'pointer',
+            background: selectedDevice === d.id ? 'rgba(74,222,128,0.1)' : 'var(--bg-card)',
+            border: selectedDevice === d.id ? '1px solid #4ade80' : '1px solid var(--border-color)',
+          }}
+          onClick={() => onSelectDevice(selectedDevice === d.id ? null : d.id)}>
             {d.family?.startsWith('esp') ? <Cpu size={14} color="#4ade80" /> : <MonitorSmartphone size={14} color="var(--text-muted)" />}
             <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{d.id}</span>
             <span style={{ color: 'var(--text-muted)' }}>{d.chip || d.family}</span>
             <span style={{ color: 'var(--text-muted)', marginLeft: 'auto', fontSize: 10 }}>
               {d.transport || '?'} · {d.status || 'unknown'}
             </span>
+            {selectedDevice === d.id && <CheckCircle size={14} color="#4ade80" />}
           </div>
         ))}
       </div>
@@ -334,13 +381,15 @@ function DevicesPanel() {
   );
 }
 
-// ── ESP-NOW Tab (existing functionality) ───────────────────────────────────
-function EspNowPanel() {
+// ── ESP-NOW Tab ─────────────────────────────────────────────────────────────
+function EspNowPanel({ selectedDevice }) {
   const [examples, setExamples] = useState([]);
   const [selected, setSelected] = useState(null);
   const [buildInfo, setBuildInfo] = useState(null);
   const [binaries, setBinaries] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [flashing, setFlashing] = useState(false);
+  const [flashResult, setFlashResult] = useState(null);
 
   useEffect(() => {
     fetch(apiUrl('/espnow/examples'))
@@ -351,7 +400,7 @@ function EspNowPanel() {
   }, []);
 
   const loadExample = async (name) => {
-    setSelected(name); setBuildInfo(null); setBinaries(null);
+    setSelected(name); setBuildInfo(null); setBinaries(null); setFlashResult(null);
     try {
       const [bResp, fResp] = await Promise.all([
         fetch(apiUrl(`/espnow/examples/${name}/build`)).then(r => r.json()),
@@ -359,6 +408,67 @@ function EspNowPanel() {
       ]);
       setBuildInfo(bResp); setBinaries(fResp);
     } catch { /* ignore */ }
+  };
+
+  const handleFlash = async () => {
+    if (!selected || !selectedDevice || flashing) return;
+    setFlashing(true);
+    setFlashResult({ status: 'parsing', message: 'Parsing fleet command...' });
+
+    try {
+      const nlCommand = `deploy ${selected} espnow firmware to device ${selectedDevice} using target ${buildInfo?.target || 'esp32'}`;
+
+      // 1. Parse
+      const parseResp = await fetch(API_BASE + '/api/fleet/command/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: nlCommand, use_agent: false }),
+      });
+      if (!parseResp.ok) throw new Error('Fleet parse failed');
+      const parsedCmd = await parseResp.json();
+
+      // 2. Execute
+      setFlashResult({ status: 'executing', message: 'Dispatching to fleet...', parsed: parsedCmd });
+      const execResp = await fetch(API_BASE + '/api/fleet/command/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parsed_command: parsedCmd, dry_run: false }),
+      });
+      if (!execResp.ok) throw new Error('Fleet execute failed');
+      const result = await execResp.json();
+
+      setFlashResult({
+        status: 'queued',
+        job_id: result.job_id,
+        intent: result.intent,
+        target_count: result.target_count,
+        message: `Job ${result.job_id} queued. Polling for completion...`,
+      });
+
+      // 3. Poll for completion (up to 30s)
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        try {
+          const jobResp = await fetch(API_BASE + `/api/fleet/command/jobs/${result.job_id}`);
+          const job = await jobResp.json();
+          setFlashResult(prev => ({
+            ...prev,
+            job_status: job.status,
+            results: job.results_by_device,
+            completed: job.completed_at,
+            message: `Status: ${job.status}${job.completed_at ? ' (completed)' : ''}`,
+          }));
+          if (job.status === 'complete' || job.status === 'failed' || attempts > 30) {
+            clearInterval(poll);
+            setFlashing(false);
+          }
+        } catch { clearInterval(poll); setFlashing(false); }
+      }, 1000);
+    } catch (e) {
+      setFlashResult({ status: 'error', message: e.message });
+      setFlashing(false);
+    }
   };
 
   return (
@@ -391,6 +501,60 @@ function EspNowPanel() {
         {!selected && <div style={{ color: 'var(--text-muted)', padding: 30, textAlign: 'center', fontSize: 13 }}>
           Select an ESP-NOW example
         </div>}
+
+        {/* Device selector & deploy bar */}
+        {selected && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            padding: '10px 12px', borderRadius: 8, marginBottom: 10,
+            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+          }}>
+            <Radio size={14} color="#4ade80" />
+            <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>
+              {selected.replace(/_/g, ' ')}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', flex: 1 }}>
+              {selectedDevice ? `→ ${selectedDevice}` : 'No device selected'}
+            </span>
+            <button
+              onClick={handleFlash}
+              disabled={!selectedDevice || flashing}
+              style={{
+                background: selectedDevice ? (flashing ? '#d29922' : '#4ade80') : 'var(--bg-tertiary)',
+                border: 'none', borderRadius: 6, padding: '6px 14px',
+                cursor: selectedDevice && !flashing ? 'pointer' : 'default',
+                color: selectedDevice ? '#000' : 'var(--text-muted)',
+                fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+              {flashing ? <AlertCircle size={14} /> : <Send size={14} />}
+              {flashing ? 'Flashing...' : 'Flash to Device'}
+            </button>
+          </div>
+        )}
+
+        {/* Flash result */}
+        {flashResult && (
+          <div style={{
+            padding: 10, borderRadius: 8, marginBottom: 10, fontSize: 12,
+            background: flashResult.status === 'error' ? 'rgba(248,81,73,0.1)' :
+              flashResult.job_status === 'complete' ? 'rgba(74,222,128,0.08)' : 'rgba(210,153,34,0.08)',
+            border: `1px solid ${flashResult.status === 'error' ? '#f8514966' :
+              flashResult.job_status === 'complete' ? '#4ade8066' : '#d2992266'}`,
+            color: 'var(--text-primary)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: flashResult.job_id ? 6 : 0 }}>
+              {flashResult.status === 'error' ? <XCircle size={14} color="#f85149" /> :
+               flashResult.job_status === 'complete' ? <CheckCircle size={14} color="#4ade80" /> :
+               <AlertCircle size={14} color="#d29922" />}
+              <span>{flashResult.message}</span>
+            </div>
+            {flashResult.job_id && (
+              <code style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                Job: {flashResult.job_id} · Intent: {flashResult.intent} · Targets: {flashResult.target_count}
+              </code>
+            )}
+          </div>
+        )}
 
         {buildInfo && !buildInfo.error && (
           <div style={{ padding: 14, borderRadius: 10, marginBottom: 10, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
@@ -550,6 +714,8 @@ function ProjectsPanel() {
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function EspDevConsole() {
   const [activeTab, setActiveTab] = useState('devices');
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [fleetDevices, setFleetDevices] = useState([]);
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, display: 'flex', flexDirection: 'column', gap: 16, height: 'calc(100vh - 80px)' }}>
@@ -560,6 +726,7 @@ export default function EspDevConsole() {
         </h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: 12, margin: 0 }}>
           Devices · Serial Terminal · ESP-NOW · IDF Projects
+          {selectedDevice && <span style={{ color: '#4ade80' }}> — Target: {selectedDevice}</span>}
         </p>
       </div>
 
@@ -586,9 +753,16 @@ export default function EspDevConsole() {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        {activeTab === 'devices' && <DevicesPanel />}
+        {activeTab === 'devices' && (
+          <DevicesPanel
+            selectedDevice={selectedDevice}
+            onSelectDevice={setSelectedDevice}
+            fleetDevices={fleetDevices}
+            setFleetDevices={setFleetDevices}
+          />
+        )}
         {activeTab === 'terminal' && <SerialTerminal />}
-        {activeTab === 'espnow' && <EspNowPanel />}
+        {activeTab === 'espnow' && <EspNowPanel selectedDevice={selectedDevice} />}
         {activeTab === 'projects' && <ProjectsPanel />}
       </div>
     </div>
