@@ -48,6 +48,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `nim_router` | `routers/nim.py` | NVIDIA NIM integration |
 | `scanner_router` | `routers/scanner.py` | Hardware/GPU scanner |
 | `vitis_compiler_router` | `routers/vitis_compiler.py` | Vitis AI compiler |
+| `espnow_router` | `routers/espnow_router.py` | ESP-NOW firmware discovery, build commands, binary listing |
 | `webcam_router` | `routers/webcam.py` | Webcam testing |
 
 ## Key Services
@@ -76,6 +77,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `opencv_service` | `services/opencv_service.py` | OpenCV/computer vision utilities |
 | `rknn_service` | `services/rknn_service.py` | Rockchip RKNN integration |
 | `unsloth_service` | `services/unsloth_service.py` | Unsloth fine-tuning integration |
+| `espnow_service` | `services/espnow_service.py` | ESP-NOW library discovery, examples, IDF commands, binaries |
 | `vitis_compiler` | `services/vitis_compiler.py` | Vitis AI compiler integration |
 
 ## Work Guidance
