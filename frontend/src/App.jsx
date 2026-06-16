@@ -44,6 +44,7 @@ const NirvanaWorkspace = lazy(() => import('./pages/NirvanaWorkspace'));
 const NirvanaAppearance = lazy(() => import('./pages/NirvanaAppearance'));
 const NirvanaPlugins = lazy(() => import('./pages/NirvanaPlugins'));
 const EspNowDeploy = lazy(() => import('./pages/EspNowDeploy'));
+const EspDevConsole = lazy(() => import('./pages/EspDevConsole'));
 
 const managementItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -64,7 +65,7 @@ const managementItems = [
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
     { path: '/edge-fleet', icon: MonitorSmartphone, label: 'Edge Fleet' },
     { path: '/fleet-command', icon: Radio, label: 'Fleet Command' },
-    { path: '/espnow-deploy', icon: Antenna, label: 'ESP-NOW' },
+    { path: '/esp-dev', icon: Cpu, label: 'ESP Dev' },
 ];
 
 const nirvanaItems = [
@@ -283,7 +284,8 @@ function AppInner() {
                             <Route path="/benchmark" element={<Benchmark />} />
                             <Route path="/edge-fleet" element={<EdgeFleet />} />
                             <Route path="/fleet-command" element={<FleetCommand />} />
-                            <Route path="/espnow-deploy" element={<EspNowDeploy />} />
+                            <Route path="/espnow-deploy" element={<Navigate to="/esp-dev" replace />} />
+                            <Route path="/esp-dev" element={<EspDevConsole />} />
                             <Route path="/nirvana-chat" element={<NirvanaChat />} />
                             <Route path="/nirvana-settings" element={<NirvanaSettings />} />
                             <Route path="/nirvana-sessions" element={<NirvanaSessions />} />
