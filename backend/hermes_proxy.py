@@ -17,6 +17,7 @@ NIRVANA_WEBUI_BASE = "http://127.0.0.1:8789"
 NATIVE_PREFIXES: tuple[str, ...] = (
     "/api/nirvana",
     "/api/espnow",
+    "/api/esp",
     "/api/flash",
     "/api/training",
     "/api/conversion",
@@ -39,6 +40,7 @@ NATIVE_PREFIXES: tuple[str, ...] = (
     "/api/agent",
     "/api/orchestration",
     "/api/devices",
+    "/api/fleet",
     "/api/fleet-command",
     "/api/fleet-agent",
     "/api/civitai",

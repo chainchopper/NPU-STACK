@@ -33,10 +33,20 @@ except ImportError:
 ESP_VIDS = {0x303A, 0x10C4, 0x1A86, 0x0403}  # Espressif, CP210x, CH340, FTDI
 ESP_PID_PREFIXES = {
     0x303A: None,  # All Espressif native USB
-    0x10C4: {0xEA60},  # CP2102
-    0x1A86: {0x7523, 0x55D4},  # CH340/CH343
-    0x0403: {0x6001, 0x6015},  # FT232/FT231
+    0x10C4: {0xEA60, 0xEA70, 0xEA71, 0xEA80, 0xEA61, 0x8470, 0x8471, 0x8472, 0x8477},  # CP210x family
+    0x1A86: {0x7523, 0x55D4, 0x7522, 0x55D3, 0x55D2},  # CH340/CH343/CH9102
+    0x0403: {0x6001, 0x6015, 0x6010, 0x6011, 0x6014},  # FT232/FT231/FT230X
 }
+
+# VID-only heuristics: if description contains these, it's likely an ESP bridge
+ESP_DESCRIPTION_KEYWORDS = [
+    "cp210", "ch340", "ch343", "ch9102", "ft232", "ft231",
+    "esp", "esp32", "esp8266", "espressif", "wemos", "nodemcu",
+    "d32", "d1 mini", "lolin", "heltec", "ttgo", "m5stack",
+]
+
+# Full VID range for common ESP bridge chips (any PID, keyword-based)
+ESP_BRIDGE_VIDS = {0x10C4, 0x1A86, 0x0403, 0x239A}  # CP210x, CH34x, FTDI, Adafruit
 
 
 def list_serial_ports() -> Dict[str, Any]:
@@ -50,7 +60,9 @@ def list_serial_ports() -> Dict[str, Any]:
     for p in serial.tools.list_ports.comports():
         is_esp = False
         chip_guess = None
+        desc_lower = (p.description or "").lower()
 
+        # Method 1: Exact VID:PID match
         if p.vid is not None and p.pid is not None:
             if p.vid in ESP_VIDS:
                 allowed = ESP_PID_PREFIXES.get(p.vid)
@@ -60,6 +72,19 @@ def list_serial_ports() -> Dict[str, Any]:
             # Chip family guess
             if p.vid == 0x303A:
                 chip_guess = _esp32_chip_from_pid(p.pid)
+
+        # Method 2: Bridge chip + description keyword match (CP210x, CH340, FTDI on ESP boards)
+        if not is_esp and p.vid is not None and p.vid in ESP_BRIDGE_VIDS:
+            if any(kw in desc_lower for kw in ESP_DESCRIPTION_KEYWORDS):
+                is_esp = True
+            # Also check if hwid string mentions ESP-like descriptors
+            hwid_lower = (p.hwid or "").lower()
+            if any(kw in hwid_lower for kw in ESP_DESCRIPTION_KEYWORDS):
+                is_esp = True
+
+        # Method 3: Pure description heuristic (for odd USB chips that name themselves)
+        if not is_esp and any(kw in desc_lower for kw in ["esp32", "esp8266", "espressif", "wemos d1", "nodemcu"]):
+            is_esp = True
 
         port_info = {
             "device": p.device,

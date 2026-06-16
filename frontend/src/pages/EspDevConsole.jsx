@@ -54,7 +54,7 @@ function SerialTerminal() {
   const refreshPorts = useCallback(async () => {
     setLoadingPorts(true);
     try {
-      const r = await fetch(API_BASE + '/api/esp/serial-ports');
+      const r = await fetch(API_BASE + '/esp/serial-ports');
       const data = await r.json();
       setPorts(data.ports || []);
       setEspPorts(data.esp_ports || []);
@@ -109,8 +109,8 @@ function SerialTerminal() {
 
     term.write('\x1b[2J\x1b[H'); // Clear
     term.writeln('\x1b[1;36m╔══════════════════════════════════════════╗');
-    term.writeln('\x1b[1;36m║     NPU-STACK ESP Serial Terminal        ║');
-    term.writeln('\x1b[1;36m║     Select a device and click Connect    ║');
+    term.writeln('\x1b[1;36m║     NPU-STACK Serial Terminal            ║');
+    term.writeln('\x1b[1;36m║     Select a port and click Connect      ║');
     term.writeln('\x1b[1;36m╚══════════════════════════════════════════╝\x1b[0m\r\n');
 
     const handleResize = () => { try { fitAddon.fit(); } catch {} };
@@ -122,7 +122,7 @@ function SerialTerminal() {
     if (!selectedPort || !termInstance.current) return;
     const term = termInstance.current;
 
-    const wsUrl = (API_BASE.replace('http', 'ws')) + `/api/esp/terminal/${encodeURIComponent(selectedPort)}?baud=115200`;
+    const wsUrl = (API_BASE.replace('http', 'ws')) + `/esp/terminal/${encodeURIComponent(selectedPort)}?baud=115200`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -254,12 +254,12 @@ function DevicesPanel({ selectedDevice, onSelectDevice, fleetDevices, setFleetDe
   const refresh = async () => {
     setLoading(true);
     try {
-      const [pRes, fRes] = await Promise.all([
-        fetch(API_BASE + '/api/esp/serial-ports').then(r => r.json()),
-        fetch(API_BASE + '/api/fleet/devices').then(r => r.ok ? r.json() : { devices: [] }),
+      const [pRes, dRes] = await Promise.all([
+        fetch(API_BASE + '/esp/serial-ports').then(r => r.json()),
+        fetch(API_BASE + '/devices').then(r => r.ok ? r.json() : { devices: [] }),
       ]);
       setPorts(pRes.ports || []);
-      setFleetDevices(fRes.devices || []);
+      setFleetDevices(Array.isArray(dRes?.devices) ? dRes.devices : []);
     } catch { /* ignore */ }
     setLoading(false);
   };
@@ -271,18 +271,18 @@ function DevicesPanel({ selectedDevice, onSelectDevice, fleetDevices, setFleetDe
     setPairingId(portInfo.device);
     try {
       // Scan with serial method — this registers the device
-      const scanResp = await fetch(API_BASE + `/api/devices/scan?serial=${encodeURIComponent(portInfo.device)}`, { method: 'POST' });
+      const scanResp = await fetch(API_BASE + `/devices/scan?serial=${encodeURIComponent(portInfo.device)}`, { method: 'POST' });
       if (!scanResp.ok) throw new Error('Scan failed');
       const scanData = await scanResp.json();
       // Find the registered device
       const found = (scanData.devices || []).find(d => d.connection === 'serial' || d.port === portInfo.device);
       if (found) {
         // Pair it
-        await fetch(API_BASE + `/api/devices/${encodeURIComponent(found.id)}/pair`, { method: 'POST' });
+        await fetch(API_BASE + `/devices/${encodeURIComponent(found.id)}/pair`, { method: 'POST' });
       }
-      // Refresh fleet list
-      const fRes = await fetch(API_BASE + '/api/fleet/devices').then(r => r.json());
-      setFleetDevices(fRes.devices || []);
+      // Refresh fleet list from correct endpoint
+      const dRes = await fetch(API_BASE + '/devices').then(r => r.json());
+      setFleetDevices(Array.isArray(dRes?.devices) ? dRes.devices : []);
     } catch (e) {
       console.warn('Pair failed:', e);
     }
@@ -349,33 +349,38 @@ function DevicesPanel({ selectedDevice, onSelectDevice, fleetDevices, setFleetDe
         ))}
       </div>
 
-      {/* Fleet registry */}
+      {/* Fleet devices — ESP family only */}
       <div>
         <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0 }}>
-          Fleet Registry ({fleetDevices.length} paired)
+          Fleet ESP Devices ({fleetDevices.filter(d => d.family?.startsWith('esp') || d.chip?.toLowerCase().includes('esp')).length} ESP in fleet)
         </h4>
         {fleetDevices.length === 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: 12 }}>
-            No devices in fleet registry. Pair devices via Edge Fleet page.
+            No devices in fleet registry. Pair devices via Edge Fleet or use the Pair button above.
           </div>
         )}
-        {fleetDevices.slice(0, 10).map(d => (
-          <div key={d.id} style={{
-            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
-            marginBottom: 4, borderRadius: 8, fontSize: 12, cursor: 'pointer',
-            background: selectedDevice === d.id ? 'rgba(74,222,128,0.1)' : 'var(--bg-card)',
-            border: selectedDevice === d.id ? '1px solid #4ade80' : '1px solid var(--border-color)',
-          }}
-          onClick={() => onSelectDevice(selectedDevice === d.id ? null : d.id)}>
-            {d.family?.startsWith('esp') ? <Cpu size={14} color="#4ade80" /> : <MonitorSmartphone size={14} color="var(--text-muted)" />}
-            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{d.id}</span>
-            <span style={{ color: 'var(--text-muted)' }}>{d.chip || d.family}</span>
-            <span style={{ color: 'var(--text-muted)', marginLeft: 'auto', fontSize: 10 }}>
-              {d.transport || '?'} · {d.status || 'unknown'}
-            </span>
-            {selectedDevice === d.id && <CheckCircle size={14} color="#4ade80" />}
-          </div>
-        ))}
+        {fleetDevices.slice(0, 20).map(d => {
+          const isEspFamily = d.family?.startsWith('esp') || d.chip?.toLowerCase().includes('esp');
+          return (
+            <div key={d.id} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+              marginBottom: 4, borderRadius: 8, fontSize: 12, cursor: 'pointer',
+              background: selectedDevice === d.id ? 'rgba(74,222,128,0.1)' : (isEspFamily ? 'rgba(74,222,128,0.03)' : 'var(--bg-card)'),
+              border: selectedDevice === d.id ? '1px solid #4ade80' : (isEspFamily ? '1px solid rgba(74,222,128,0.15)' : '1px solid var(--border-color)'),
+            }}
+            onClick={() => onSelectDevice(selectedDevice === d.id ? null : d.id)}>
+              {isEspFamily ? <Cpu size={14} color="#4ade80" /> : <MonitorSmartphone size={14} color="var(--text-muted)" />}
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{d.nickname || d.id}</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{d.chip || d.family}</span>
+              {d.ip && <span style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}>{d.ip}</span>}
+              <span style={{ color: d.paired ? '#4ade80' : 'var(--text-muted)', marginLeft: 'auto', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3 }}>
+                {d.paired && <Link2 size={9} />}
+                {d.paired ? 'paired' : (d.status || 'detected')}
+              </span>
+              {selectedDevice === d.id && <CheckCircle size={14} color="#4ade80" />}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -419,7 +424,7 @@ function EspNowPanel({ selectedDevice }) {
       const nlCommand = `deploy ${selected} espnow firmware to device ${selectedDevice} using target ${buildInfo?.target || 'esp32'}`;
 
       // 1. Parse
-      const parseResp = await fetch(API_BASE + '/api/fleet/command/parse', {
+      const parseResp = await fetch(API_BASE + '/fleet/command/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: nlCommand, use_agent: false }),
@@ -429,7 +434,7 @@ function EspNowPanel({ selectedDevice }) {
 
       // 2. Execute
       setFlashResult({ status: 'executing', message: 'Dispatching to fleet...', parsed: parsedCmd });
-      const execResp = await fetch(API_BASE + '/api/fleet/command/execute', {
+      const execResp = await fetch(API_BASE + '/fleet/command/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parsed_command: parsedCmd, dry_run: false }),
@@ -450,7 +455,7 @@ function EspNowPanel({ selectedDevice }) {
       const poll = setInterval(async () => {
         attempts++;
         try {
-          const jobResp = await fetch(API_BASE + `/api/fleet/command/jobs/${result.job_id}`);
+          const jobResp = await fetch(API_BASE + `/fleet/command/jobs/${result.job_id}`);
           const job = await jobResp.json();
           setFlashResult(prev => ({
             ...prev,
@@ -604,8 +609,8 @@ function ProjectsPanel() {
     setLoading(true);
     try {
       const [pRes, sRes] = await Promise.all([
-        fetch(API_BASE + '/api/esp/idf/projects').then(r => r.json()),
-        fetch(API_BASE + '/api/esp/idf/status').then(r => r.json()),
+        fetch(API_BASE + '/esp/idf/projects').then(r => r.json()),
+        fetch(API_BASE + '/esp/idf/status').then(r => r.json()),
       ]);
       setProjects(pRes.projects || []);
       setIdfStatus(sRes);
@@ -619,7 +624,7 @@ function ProjectsPanel() {
     if (!newName.trim() || creating) return;
     setCreating(true);
     try {
-      const r = await fetch(API_BASE + `/api/esp/idf/projects?name=${encodeURIComponent(newName.trim())}&template=${template}`, { method: 'POST' });
+      const r = await fetch(API_BASE + `/esp/idf/projects?name=${encodeURIComponent(newName.trim())}&template=${template}`, { method: 'POST' });
       if (r.ok) { setNewName(''); refresh(); }
       else { alert('Failed to create project'); }
     } catch { alert('Error creating project'); }
