@@ -21,9 +21,11 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Qu
 
 from services.esp_terminal_service import (
     HAS_PYSERIAL,
+    BUILD_COMMAND_TEMPLATES,
     close_connection,
     get_or_create_connection,
     list_serial_ports,
+    resolve_flash_method,
 )
 from services.espnow_service import (
     build_command,
@@ -46,7 +48,7 @@ IDF_PROJECTS_DIR = REPO_ROOT / "firmware" / "esp-idf-projects"
 
 @router.get("/serial-ports")
 def get_serial_ports():
-    """List all serial ports with ESP device auto-detection."""
+    """List all serial ports with ESP device auto-detection and flash method."""
     return list_serial_ports()
 
 
@@ -59,6 +61,86 @@ def get_port_detail(device: str):
     if info is None:
         raise HTTPException(404, f"Port {device} not found")
     return info
+
+
+# ── Multi-family Build Commands ──────────────────────────────────────────
+
+@router.get("/build-commands")
+def get_build_commands(family: str = "esp32", port: str = "", target: str = ""):
+    """Get build/flash/monitor commands for a device family.
+
+    Supported families: esp32, rp2040, rp2350, rockchip, circuitpython, luckfox, rpi-sbc
+    """
+    flash_method, toolchain = resolve_flash_method(family, None)
+    if flash_method == "unknown":
+        return {
+            "family": family,
+            "flash_method": "unknown",
+            "available": False,
+            "message": f"No build template for family '{family}'.",
+            "commands": {},
+        }
+
+    templates = BUILD_COMMAND_TEMPLATES.get(flash_method, {})
+    port_or_ip = port or "auto-detect"
+    resolved_target = target or ("esp32" if flash_method == "esptool" else family)
+
+    # Render commands with placeholders replaced
+    commands = {}
+    for step, template in templates.items():
+        cmd = template.format(
+            target=resolved_target,
+            port=port_or_ip,
+            firmware=family,
+            ip=port_or_ip,
+        )
+        commands[step] = cmd
+
+    return {
+        "family": family,
+        "flash_method": flash_method,
+        "toolchain": toolchain,
+        "available": True,
+        "target": resolved_target,
+        "port": port or "auto-detect",
+        "commands": commands,
+    }
+
+
+# ── Fleet Devices (for quick-select in Dev Console) ──────────────────────
+
+@router.get("/fleet-devices")
+def get_fleet_devices():
+    """Return fleet devices tagged with flash method for the ESP Dev Console quick-select."""
+    from services.edge_discovery import list_registry_devices
+
+    registry = list_registry_devices(include_low_confidence=False)
+    devices = registry.get("devices", [])
+
+    result = []
+    for d in devices:
+        family = d.get("family", "unknown")
+        flash_method, toolchain = resolve_flash_method(family, d.get("chip"))
+        result.append({
+            "id": d.get("id"),
+            "nickname": d.get("nickname") or d.get("id"),
+            "chip": d.get("chip"),
+            "family": family,
+            "flash_method": flash_method,
+            "toolchain": toolchain,
+            "paired": d.get("paired", False),
+            "ip": d.get("ip"),
+            "port": d.get("port"),
+            "drive": d.get("drive"),
+            "status": d.get("status", "unknown"),
+            "connection": d.get("connection"),
+        })
+
+    return {
+        "devices": result,
+        "count": len(result),
+        "flashable_count": len([d for d in result if d["flash_method"] != "unknown"]),
+    }
 
 
 # ── WebSocket Serial Terminal ─────────────────────────────────────────────

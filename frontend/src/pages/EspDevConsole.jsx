@@ -250,16 +250,21 @@ function DevicesPanel({ selectedDevice, onSelectDevice, fleetDevices, setFleetDe
   const [ports, setPorts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pairingId, setPairingId] = useState(null);
+  const [fleetFlashable, setFleetFlashable] = useState([]);
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const [pRes, dRes] = await Promise.all([
+      const [pRes, dRes, fRes] = await Promise.all([
         fetch(API_BASE + '/esp/serial-ports').then(r => r.json()),
         fetch(API_BASE + '/devices').then(r => r.ok ? r.json() : { devices: [] }),
+        fetch(API_BASE + '/esp/fleet-devices').then(r => r.ok ? r.json() : { devices: [] }),
       ]);
       setPorts(pRes.ports || []);
       setFleetDevices(Array.isArray(dRes?.devices) ? dRes.devices : []);
+      setFleetFlashable(Array.isArray(fRes?.devices)
+        ? fRes.devices.filter(d => d.flash_method !== 'unknown')
+        : []);
     } catch { /* ignore */ }
     setLoading(false);
   };
@@ -270,30 +275,39 @@ function DevicesPanel({ selectedDevice, onSelectDevice, fleetDevices, setFleetDe
     if (pairingId) return;
     setPairingId(portInfo.device);
     try {
-      // Scan with serial method — this registers the device
       const scanResp = await fetch(API_BASE + `/devices/scan?serial=${encodeURIComponent(portInfo.device)}`, { method: 'POST' });
       if (!scanResp.ok) throw new Error('Scan failed');
       const scanData = await scanResp.json();
-      // Find the registered device
       const found = (scanData.devices || []).find(d => d.connection === 'serial' || d.port === portInfo.device);
       if (found) {
-        // Pair it
         await fetch(API_BASE + `/devices/${encodeURIComponent(found.id)}/pair`, { method: 'POST' });
       }
-      // Refresh fleet list from correct endpoint
-      const dRes = await fetch(API_BASE + '/devices').then(r => r.json());
+      // Full refresh
+      const [dRes, fRes] = await Promise.all([
+        fetch(API_BASE + '/devices').then(r => r.json()),
+        fetch(API_BASE + '/esp/fleet-devices').then(r => r.json()),
+      ]);
       setFleetDevices(Array.isArray(dRes?.devices) ? dRes.devices : []);
-    } catch (e) {
-      console.warn('Pair failed:', e);
-    }
+      setFleetFlashable(Array.isArray(fRes?.devices)
+        ? fRes.devices.filter(d => d.flash_method !== 'unknown')
+        : []);
+    } catch (e) { console.warn('Pair failed:', e); }
     setPairingId(null);
   };
 
+  const badgeColors = {
+    esptool: { bg: '#1a3a2a', fg: '#4ade80' },
+    uf2: { bg: '#1a2a3a', fg: '#58a6ff' },
+    rockusb: { bg: '#3a2a1a', fg: '#d29922' },
+    scp: { bg: '#2a1a3a', fg: '#bc8cff' },
+    fel: { bg: '#1a2a2a', fg: '#56d4dd' },
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <MonitorSmartphone size={18} color="#4ade80" />
-        <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>ESP Devices</h3>
+        <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>Edge Devices</h3>
         <button onClick={refresh} style={{
           background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
           borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--text-secondary)',
@@ -307,49 +321,94 @@ function DevicesPanel({ selectedDevice, onSelectDevice, fleetDevices, setFleetDe
 
       {loading && <div className="spinner" style={{margin:'20px auto'}} />}
 
-      {/* Connected via USB */}
+      {/* ── Fleet Quick-Select (paired/flashable) ── */}
+      {fleetFlashable.length > 0 && (
+        <div>
+          <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0 }}>
+            <Link2 size={12} style={{verticalAlign:'middle',marginRight:4}} />
+            Fleet Quick-Select ({fleetFlashable.length} flashable)
+          </h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {fleetFlashable.slice(0, 12).map(d => {
+              const bc = badgeColors[d.flash_method] || { bg: '#1a2035', fg: '#718096' };
+              return (
+                <button key={d.id}
+                  onClick={() => onSelectDevice(selectedDevice === d.id ? null : d.id)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 11,
+                    background: selectedDevice === d.id ? 'rgba(74,222,128,0.12)' : 'var(--bg-card)',
+                    border: selectedDevice === d.id ? '1px solid #4ade80' : '1px solid var(--border-color)',
+                    color: 'var(--text-primary)', textAlign: 'left',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                  <Cpu size={12} color={bc.fg} />
+                  <span>{d.nickname || d.id}</span>
+                  <span style={{ fontSize: 9, padding: '0px 4px', borderRadius: 3, background: bc.bg, color: bc.fg }}>
+                    {d.toolchain}
+                  </span>
+                  {selectedDevice === d.id && <CheckCircle size={12} color="#4ade80" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── USB Serial ── */}
       <div>
         <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0 }}>
-          USB Serial ({ports.filter(p => p.is_esp).length} ESP / {ports.length} total)
+          USB Serial ({ports.filter(p => p.flash_method !== 'unknown').length} flashable / {ports.length} total)
         </h4>
         {ports.length === 0 && !loading && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: 12 }}>
-            No serial ports detected. Connect an ESP device via USB.
+            No serial ports detected. Connect a device via USB.
           </div>
         )}
-        {ports.map(p => (
-          <div key={p.device} style={{
-            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
-            marginBottom: 4, borderRadius: 8, fontSize: 12, cursor: p.is_esp ? 'pointer' : 'default',
-            background: selectedDevice === p.device ? 'rgba(74,222,128,0.1)' : (p.is_esp ? 'rgba(74,222,128,0.05)' : 'var(--bg-card)'),
-            border: selectedDevice === p.device ? '1px solid #4ade80' : (p.is_esp ? '1px solid rgba(74,222,128,0.2)' : '1px solid var(--border-color)'),
-          }}
-          onClick={() => p.is_esp && onSelectDevice(selectedDevice === p.device ? null : p.device)}>
-            {p.is_esp ? <Cpu size={14} color="#4ade80" /> : <MonitorSmartphone size={14} color="var(--text-muted)" />}
-            <code style={{ color: 'var(--text-primary)', fontSize: 11 }}>{p.device}</code>
-            <span style={{ color: 'var(--text-muted)', flex: 1 }}>{p.description}</span>
-            {p.chip && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#1a3a2a', color: '#4ade80' }}>{p.chip}</span>}
-            {p.vid && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.vid}:{p.pid}</span>}
-            {p.is_esp && !fleetDevices.some(d => d.port === p.device || d.id === p.serial_number) && (
-              <button
-                onClick={(e) => { e.stopPropagation(); pairSerialDevice(p); }}
-                disabled={pairingId === p.device}
-                title="Pair with fleet registry"
-                style={{
-                  background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
-                  borderRadius: 6, padding: '2px 8px', cursor: 'pointer',
-                  color: 'var(--text-secondary)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3,
-                }}>
-                <Link2 size={10} />
-                {pairingId === p.device ? 'Pairing...' : 'Pair'}
-              </button>
-            )}
-            {selectedDevice === p.device && <CheckCircle size={14} color="#4ade80" />}
-          </div>
-        ))}
+        {ports.map(p => {
+          const isFlashable = p.flash_method && p.flash_method !== 'unknown';
+          const bc = badgeColors[p.flash_method] || { bg: '#1a2035', fg: '#718096' };
+          const alreadyInFleet = fleetDevices.some(d => d.port === p.device || d.id === p.serial_number);
+          return (
+            <div key={p.device} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+              marginBottom: 4, borderRadius: 8, fontSize: 12,
+              cursor: isFlashable ? 'pointer' : 'default',
+              background: selectedDevice === p.device ? 'rgba(74,222,128,0.1)' : (isFlashable ? 'rgba(74,222,128,0.03)' : 'var(--bg-card)'),
+              border: selectedDevice === p.device ? '1px solid #4ade80' : (isFlashable ? '1px solid rgba(74,222,128,0.15)' : '1px solid var(--border-color)'),
+            }}
+            onClick={() => isFlashable && onSelectDevice(selectedDevice === p.device ? null : p.device)}>
+              {isFlashable ? <Cpu size={14} color={bc.fg} /> : <MonitorSmartphone size={14} color="var(--text-muted)" />}
+              <code style={{ color: 'var(--text-primary)', fontSize: 11 }}>{p.device}</code>
+              <span style={{ color: 'var(--text-muted)', flex: 1 }}>{p.description}</span>
+              {isFlashable && (
+                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: bc.bg, color: bc.fg }}>
+                  {p.toolchain}
+                </span>
+              )}
+              {p.chip && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#1a3a2a', color: '#4ade80' }}>{p.chip}</span>}
+              {p.vid && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.vid}:{p.pid}</span>}
+              {isFlashable && !alreadyInFleet && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); pairSerialDevice(p); }}
+                  disabled={pairingId === p.device}
+                  title="Pair with fleet registry"
+                  style={{
+                    background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                    borderRadius: 6, padding: '2px 8px', cursor: 'pointer',
+                    color: 'var(--text-secondary)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3,
+                  }}>
+                  <Link2 size={10} />
+                  {pairingId === p.device ? 'Pairing...' : 'Pair'}
+                </button>
+              )}
+              {alreadyInFleet && <Link2 size={12} color="#4ade80" title="Already in fleet" />}
+              {selectedDevice === p.device && <CheckCircle size={14} color="#4ade80" />}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Fleet devices — ESP family only */}
+      {/* ── Fleet ESP Devices ── */}
       <div>
         <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0 }}>
           Fleet ESP Devices ({fleetDevices.filter(d => d.family?.startsWith('esp') || d.chip?.toLowerCase().includes('esp')).length} ESP in fleet)

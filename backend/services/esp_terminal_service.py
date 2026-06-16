@@ -48,9 +48,140 @@ ESP_DESCRIPTION_KEYWORDS = [
 # Full VID range for common ESP bridge chips (any PID, keyword-based)
 ESP_BRIDGE_VIDS = {0x10C4, 0x1A86, 0x0403, 0x239A}  # CP210x, CH34x, FTDI, Adafruit
 
+# ── Multi-family flash method detection ──────────────────────────────
+
+# VID:PID → (family, flash_method, toolchain_label)
+FLASH_METHOD_MAP: dict[tuple[int, int], tuple[str, str, str]] = {
+    # ── Espressif (esptool) ──
+    (0x303A, None): ("esp", "esptool", "esptool.py"),
+    # ── RP2040/RP2350 (UF2 mass-storage) ──
+    (0x2E8A, 0x0003): ("rp2040", "uf2", "UF2 Bootloader"),
+    (0x2E8A, 0x0005): ("rp2040", "uf2", "UF2 Bootloader"),
+    (0x2E8A, 0x000A): ("rp2040", "uf2", "UF2 Bootloader (CDC)"),
+    (0x2E8A, 0x000F): ("rp2350", "uf2", "UF2 Bootloader"),
+    (0x2E8A, 0x0004): ("rp2040", "uf2", "UF2 (MicroPython)"),
+    (0x2E8A, 0x0009): ("rp2040", "uf2", "UF2 (CircuitPython)"),
+    # Adafruit RP2040 boards
+    (0x239A, 0x80EB): ("rp2040", "uf2", "UF2 Bootloader"),
+    (0x239A, 0x8018): ("rp2040", "uf2", "UF2 Bootloader"),
+    # Arduino Nano RP2040
+    (0x2341, 0x804E): ("rp2040", "uf2", "UF2 Bootloader"),
+    # ── Rockchip / LuckFox (rockusb / rkdeveloptool) ──
+    (0x2207, 0x0006): ("rockchip", "rockusb", "rkdeveloptool"),
+    (0x2207, 0x320A): ("rockchip", "rockusb", "rkdeveloptool"),
+    (0x2207, 0x330C): ("rockchip", "rockusb", "rkdeveloptool"),
+}
+
+# VID-level fallback for flash method
+FLASH_VID_FALLBACK: dict[int, tuple[str, str, str]] = {
+    0x303A: ("esp", "esptool", "esptool.py"),
+    0x2E8A: ("rp2040", "uf2", "UF2 Bootloader"),
+    0x2207: ("rockchip", "rockusb", "rkdeveloptool"),
+    0x239A: ("rp2040", "uf2", "UF2 Bootloader"),  # Adafruit
+}
+
+# Family-level flash method (for fleet devices that may not have VID/PID)
+FAMILY_FLASH_MAP: dict[str, tuple[str, str]] = {
+    "esp32": ("esptool", "esptool.py"),
+    "esp32-s2": ("esptool", "esptool.py"),
+    "esp32-s3": ("esptool", "esptool.py"),
+    "esp32-c3": ("esptool", "esptool.py"),
+    "esp32-c6": ("esptool", "esptool.py"),
+    "esp32-h2": ("esptool", "esptool.py"),
+    "esp32-p4": ("esptool", "esptool.py"),
+    "esp8266": ("esptool", "esptool.py"),
+    "rp2040": ("uf2", "UF2 Bootloader"),
+    "rp2350": ("uf2", "UF2 Bootloader"),
+    "circuitpython": ("uf2", "UF2 / CircuitPython"),
+    "rockchip": ("rockusb", "rkdeveloptool"),
+    "luckfox": ("rockusb", "rkdeveloptool / scp"),
+    "allwinner": ("fel", "sunxi-fel"),
+    "rpi-sbc": ("scp", "SSH / SCP"),
+    "nvidia": ("scp", "SSH / SCP"),
+}
+
+# ── Build command templates per flash method ─────────────────────────
+
+BUILD_COMMAND_TEMPLATES: dict[str, dict[str, str]] = {
+    "esptool": {
+        "set_target": "idf.py set-target {target}",
+        "build": "idf.py build",
+        "flash": "idf.py -p {port} flash",
+        "monitor": "idf.py -p {port} monitor",
+        "full": "idf.py set-target {target} && idf.py build && idf.py -p {port} flash",
+    },
+    "uf2": {
+        "build": "cmake -B build -G Ninja && cmake --build build",
+        "flash": "Copy {firmware}.uf2 to RPI-RP2 drive or use: picotool load {firmware}.uf2 -f",
+        "monitor": "picocom -b 115200 {port}",
+        "full": "cmake -B build -G Ninja && cmake --build build && picotool load build/{firmware}.uf2 -f",
+    },
+    "rockusb": {
+        "build": "make -j$(nproc) CROSS_COMPILE=aarch64-linux-gnu-",
+        "flash": "rkdeveloptool db MiniLoaderAll.bin && rkdeveloptool wl 0x0 {firmware}.img && rkdeveloptool rd",
+        "monitor": "picocom -b 1500000 {port}",
+        "full": "make -j$(nproc) && rkdeveloptool db MiniLoaderAll.bin && rkdeveloptool wl 0x0 {firmware}.img",
+    },
+    "scp": {
+        "build": "make -j$(nproc) CROSS_COMPILE=aarch64-linux-gnu-",
+        "flash": "scp {firmware}.bin root@{ip}:/tmp/ && ssh root@{ip} 'install-firmware /tmp/{firmware}.bin'",
+        "monitor": "ssh root@{ip} 'journalctl -u edge-agent -f'",
+        "full": "make -j$(nproc) && scp {firmware}.bin root@{ip}:/tmp/ && ssh root@{ip} 'install-firmware /tmp/{firmware}.bin'",
+    },
+    "fel": {
+        "build": "make -j$(nproc) CROSS_COMPILE=arm-linux-gnueabihf-",
+        "flash": "sunxi-fel -p spiflash-write 0 {firmware}.bin",
+        "monitor": "picocom -b 115200 {port}",
+        "full": "make -j$(nproc) && sunxi-fel -p spiflash-write 0 {firmware}.bin",
+    },
+}
+
+
+def _detect_flash_method(vid: int | None, pid: int | None, desc: str = "") -> tuple[str, str, str]:
+    """Resolve (family_label, flash_method, toolchain_label) from VID/PID or description."""
+    desc_lower = desc.lower()
+
+    # Exact VID:PID match
+    if vid is not None and pid is not None:
+        key = (vid, pid)
+        if key in FLASH_METHOD_MAP:
+            return FLASH_METHOD_MAP[key]
+        # VID-wildcard match
+        wild_key = (vid, None)
+        if wild_key in FLASH_METHOD_MAP:
+            return FLASH_METHOD_MAP[wild_key]
+
+    # VID-level fallback
+    if vid is not None and vid in FLASH_VID_FALLBACK:
+        return FLASH_VID_FALLBACK[vid]
+
+    # Description heuristics
+    for kw, method in [
+        (["esp32", "esp8266", "espressif"], ("esp", "esptool", "esptool.py")),
+        (["rp2040", "rp2350", "pico", "circuitpython"], ("rp2040", "uf2", "UF2 Bootloader")),
+        (["rockchip", "luckfox", "rk3588", "rk3566"], ("rockchip", "rockusb", "rkdeveloptool")),
+        (["allwinner", "sunxi"], ("allwinner", "fel", "sunxi-fel")),
+    ]:
+        if any(k in desc_lower for k in kw):
+            return method
+
+    return ("unknown", "unknown", "N/A")
+
+
+def resolve_flash_method(family: str | None, chip: str | None = None) -> tuple[str, str]:
+    """Resolve (flash_method, toolchain_label) from a device family string.
+    Works for fleet devices that may not have USB VID/PID."""
+    if family and family.lower() in FAMILY_FLASH_MAP:
+        return FAMILY_FLASH_MAP[family.lower()]
+    if chip and any(k in (chip or "").lower() for k in ["rp2040", "rp2350"]):
+        return ("uf2", "UF2 Bootloader")
+    if chip and any(k in (chip or "").lower() for k in ["rockchip", "luckfox", "rk"]):
+        return ("rockusb", "rkdeveloptool")
+    return ("unknown", "N/A")
+
 
 def list_serial_ports() -> Dict[str, Any]:
-    """List all serial ports with ESP device detection."""
+    """List all serial ports with ESP device detection and flash method tagging."""
     if not HAS_PYSERIAL:
         return {"ports": [], "count": 0, "error": "pyserial not installed", "esp_ports": []}
 
@@ -61,6 +192,7 @@ def list_serial_ports() -> Dict[str, Any]:
         is_esp = False
         chip_guess = None
         desc_lower = (p.description or "").lower()
+        family_label = "unknown"
 
         # Method 1: Exact VID:PID match
         if p.vid is not None and p.pid is not None:
@@ -77,14 +209,16 @@ def list_serial_ports() -> Dict[str, Any]:
         if not is_esp and p.vid is not None and p.vid in ESP_BRIDGE_VIDS:
             if any(kw in desc_lower for kw in ESP_DESCRIPTION_KEYWORDS):
                 is_esp = True
-            # Also check if hwid string mentions ESP-like descriptors
             hwid_lower = (p.hwid or "").lower()
             if any(kw in hwid_lower for kw in ESP_DESCRIPTION_KEYWORDS):
                 is_esp = True
 
-        # Method 3: Pure description heuristic (for odd USB chips that name themselves)
+        # Method 3: Pure description heuristic
         if not is_esp and any(kw in desc_lower for kw in ["esp32", "esp8266", "espressif", "wemos d1", "nodemcu"]):
             is_esp = True
+
+        # Detect flash method
+        family_label, flash_method, toolchain = _detect_flash_method(p.vid, p.pid, p.description or "")
 
         port_info = {
             "device": p.device,
@@ -97,6 +231,9 @@ def list_serial_ports() -> Dict[str, Any]:
             "manufacturer": p.manufacturer or "",
             "is_esp": is_esp,
             "chip": chip_guess,
+            "family": family_label,
+            "flash_method": flash_method,
+            "toolchain": toolchain,
         }
 
         ports.append(port_info)
