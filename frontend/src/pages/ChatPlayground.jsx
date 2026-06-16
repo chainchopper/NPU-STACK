@@ -240,8 +240,8 @@ export default function ChatPlayground({
     // Fetch models for direct mode
     fetch(`${API_BASE}/models`)
       .then(r => r.json())
-      .then(setModels)
-      .catch(() => {});
+      .then(data => setModels(Array.isArray(data) ? data : (Array.isArray(data?.models) ? data.models : [])))
+      .catch(() => setModels([]));
 
     fetch(`${API_BASE}/models/staff-picks`)
       .then(r => (r.ok ? r.json() : { models: [] }))

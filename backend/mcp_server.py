@@ -36,6 +36,18 @@ def _api(path: str) -> dict | list | str:
         return {"error": str(exc)}
 
 
+def _post(path: str, body: dict) -> dict:
+    """POST JSON to the NPU-STACK backend API."""
+    url = f"{NPU_API}{path}"
+    try:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 # ── Hardware & System ────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -174,9 +186,82 @@ def espnow_binaries(example: str) -> dict:
 
 
 @mcp.tool()
-def espnow_deploy(example: str, device_id: str = "") -> dict:
-    """Queue an ESP-NOW firmware deployment to a fleet device. Returns build/flash status."""
-    return _api(f"/api/espnow/examples/{example}/build?target=esp32")
+def espnow_deploy(example: str, device_id: str = "", target: str = "esp32") -> dict:
+    """Queue ESP-NOW firmware deployment to fleet devices via the fleet command system.
+    
+    Parses a natural-language fleet command and dispatches it to the target device.
+    Use device_id="all" to target all ESP32 devices in the fleet registry.
+    """
+    # Build the natural language command
+    target_desc = f"device {device_id}" if device_id and device_id != "all" else "all esp32 devices"
+    nl_command = f"deploy {example} espnow firmware to {target_desc} using target {target}"
+
+    # Step 1: Parse the command
+    parse_result = _post("/api/fleet/command/parse", {"command": nl_command, "use_agent": False})
+    if "error" in parse_result:
+        return {"status": "parse_failed", "error": parse_result["error"], "command": nl_command}
+
+    # Step 2: Queue execution
+    exec_result = _post("/api/fleet/command/execute", {"parsed_command": parse_result, "dry_run": False})
+    if "error" in exec_result:
+        return {"status": "exec_failed", "error": exec_result["error"], "job_id": exec_result.get("job_id", "unknown")}
+
+    return {
+        "status": "queued",
+        "job_id": exec_result.get("job_id"),
+        "command": nl_command,
+        "intent": exec_result.get("intent", "espnow"),
+        "target_count": exec_result.get("target_count", 0),
+        "poll_job": f"/api/fleet/command/jobs/{exec_result.get('job_id')}",
+        "hint": "Use fleet_command_job_status to poll this job.",
+    }
+
+
+@mcp.tool()
+def fleet_flash(example: str, device_ids: list[str] | None = None, target: str = "esp32") -> dict:
+    """Flash ESP-NOW firmware binaries to fleet devices. Requires pre-built binaries.
+    
+    First check espnow_binaries to confirm binaries exist, then call this tool.
+    device_ids: list of device IDs from the registry, or None for all ESP32 devices.
+    """
+    # Check binaries exist first
+    binaries_info = _api(f"/api/espnow/examples/{example}/binaries")
+    if not isinstance(binaries_info, dict) or not binaries_info.get("built"):
+        return {
+            "status": "no_binaries",
+            "error": f"No pre-built binaries found for '{example}'. Run espnow_build_info first.",
+            "available_binaries": binaries_info,
+        }
+
+    targets = device_ids or ["all"]
+    target_list = ", ".join(targets)
+    nl_command = f"flash {example} firmware to devices {target_list} using target {target}"
+
+    parse_result = _post("/api/fleet/command/parse", {"command": nl_command, "use_agent": False})
+    if "error" in parse_result:
+        return {"status": "parse_failed", "error": parse_result["error"]}
+
+    exec_result = _post("/api/fleet/command/execute", {"parsed_command": parse_result, "dry_run": False})
+    return {
+        "status": "queued",
+        "job_id": exec_result.get("job_id"),
+        "intent": exec_result.get("intent"),
+        "target_count": exec_result.get("target_count", 0),
+        "binaries": binaries_info.get("binaries", []),
+        "poll_job": f"/api/fleet/command/jobs/{exec_result.get('job_id')}",
+    }
+
+
+@mcp.tool()
+def fleet_command_job_status(job_id: str) -> dict:
+    """Poll the status of a fleet command job (deployment, flash, provision, etc.)."""
+    return _api(f"/api/fleet/command/jobs/{job_id}")
+
+
+@mcp.tool()
+def fleet_command_history(limit: int = 20) -> dict:
+    """List recent fleet command execution history."""
+    return _api(f"/api/fleet/command/history?limit={limit}")
 
 
 # ── Resources ────────────────────────────────────────────────────────────
