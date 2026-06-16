@@ -61,6 +61,7 @@ INTENT_KEYWORDS = {
     "firmware": ["firmware", "flash", "upgrade", "update firmware", "backup"],
     "reboot": ["reboot", "restart", "reset", "power cycle"],
     "shell": ["run", "execute", "shell", "ssh", "command", "deploy training"],
+    "espnow": ["espnow", "esp-now", "esp_now", "esp now", "mesh deploy", "coin cell", "esp mesh"],
 }
 
 FLEET_TEMPLATES: dict[str, dict[str, Any]] = {
@@ -106,6 +107,16 @@ FLEET_TEMPLATES: dict[str, dict[str, Any]] = {
         },
         "example": "deploy a training job to all edge devices",
         "keywords": ["deploy training", "training worker", "edge training"],
+    },
+    "espnow-deploy": {
+        "id": "espnow-deploy",
+        "label": "Deploy ESP-NOW Firmware",
+        "description": "Build and flash an ESP-NOW example to a fleet ESP32 device.",
+        "intent": "espnow",
+        "target_selector": "esp32",
+        "action_params": {"example": "get-started", "target": "esp32", "build_before_flash": True},
+        "example": "deploy coin_cell_demo espnow firmware to esp32 devices",
+        "keywords": ["espnow", "esp-now", "esp now", "mesh", "coin cell", "deploy mesh"],
     },
 }
 
@@ -463,7 +474,7 @@ def _agent_parse(command_text: str, context: Optional[dict[str, Any]] = None) ->
         "You are a fleet orchestration planner for NPU-STACK. "
         "Use the provided tool outputs to determine the best intent, targets, and action parameters. "
         "Return JSON only with keys: intent, target_devices, action_params, confidence, reasoning_summary, template_id, alternatives. "
-        "Valid intents: status, telemetry, provision, firmware, reboot, shell. "
+        "Valid intents: status, telemetry, provision, firmware, reboot, shell, espnow. "
         "Only select target device ids that exist in query-fleet-status.devices."
     )
     user_prompt = (
@@ -897,6 +908,44 @@ def _execute_firmware(device: dict[str, Any], action_params: dict[str, Any]) -> 
     return {"status": "success", "steps": steps, "report": {"device_id": device_id, "completed_at": utcnow_iso()}}
 
 
+def _execute_espnow(device: dict[str, Any], action_params: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch ESP-NOW firmware deployment — discover available examples, build if needed, flash."""
+    device_id = device["id"]
+    example = action_params.get("example", "get-started")
+    target = action_params.get("target", "esp32")
+    build_before = action_params.get("build_before_flash", True)
+
+    from services.espnow_service import build_command, get_firmware_binaries
+
+    # Check if binaries already exist
+    binaries = get_firmware_binaries(example)
+    if not binaries.get("built"):
+        if not build_before:
+            return {
+                "status": "failed",
+                "error": f"No pre-built binaries for '{example}' and build_before_flash is disabled. Run build first.",
+            }
+        build_info = build_command(example, target=target, port=device.get("port", ""))
+        return {
+            "status": "queued_for_build",
+            "device_id": device_id,
+            "example": example,
+            "target": target,
+            "build_commands": build_info.get("commands", {}),
+            "note": f"Binaries not found. Run the build command from {build_info.get('directory')} then retry flash.",
+        }
+
+    # Binary exists — ready to flash via the existing firmware pipeline
+    return {
+        "status": "ready_for_flash",
+        "device_id": device_id,
+        "example": example,
+        "binaries": binaries["binaries"],
+        "count": binaries["count"],
+        "next_action": "Use the firmware flash intent with the binary paths listed above.",
+    }
+
+
 def _execute_device_action(device_id: str, intent: str, action_params: dict[str, Any], parent_job: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
     if device_id == "_no_match":
         return {"status": "skipped", "reason": "No matching devices found"}
@@ -920,6 +969,8 @@ def _execute_device_action(device_id: str, intent: str, action_params: dict[str,
         return _execute_provision(device, action_params)
     if intent == "firmware":
         return _execute_firmware(device, action_params)
+    if intent == "espnow":
+        return _execute_espnow(device, action_params)
 
     return {"status": "skipped", "reason": f"Unsupported intent '{intent}'"}
 

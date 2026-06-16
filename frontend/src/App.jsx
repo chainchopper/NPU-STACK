@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, Package, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, Package, ChevronDown, ChevronRight, Antenna } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
@@ -43,6 +43,7 @@ const NirvanaLogs = lazy(() => import('./pages/NirvanaLogs'));
 const NirvanaWorkspace = lazy(() => import('./pages/NirvanaWorkspace'));
 const NirvanaAppearance = lazy(() => import('./pages/NirvanaAppearance'));
 const NirvanaPlugins = lazy(() => import('./pages/NirvanaPlugins'));
+const EspNowDeploy = lazy(() => import('./pages/EspNowDeploy'));
 
 const managementItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -63,6 +64,7 @@ const managementItems = [
     { path: '/benchmark', icon: Gauge, label: 'Benchmark' },
     { path: '/edge-fleet', icon: MonitorSmartphone, label: 'Edge Fleet' },
     { path: '/fleet-command', icon: Radio, label: 'Fleet Command' },
+    { path: '/espnow-deploy', icon: Antenna, label: 'ESP-NOW' },
 ];
 
 const nirvanaItems = [
@@ -281,6 +283,7 @@ function AppInner() {
                             <Route path="/benchmark" element={<Benchmark />} />
                             <Route path="/edge-fleet" element={<EdgeFleet />} />
                             <Route path="/fleet-command" element={<FleetCommand />} />
+                            <Route path="/espnow-deploy" element={<EspNowDeploy />} />
                             <Route path="/nirvana-chat" element={<NirvanaChat />} />
                             <Route path="/nirvana-settings" element={<NirvanaSettings />} />
                             <Route path="/nirvana-sessions" element={<NirvanaSessions />} />

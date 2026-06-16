@@ -173,6 +173,12 @@ def espnow_binaries(example: str) -> dict:
     return _api(f"/api/espnow/examples/{example}/binaries")
 
 
+@mcp.tool()
+def espnow_deploy(example: str, device_id: str = "") -> dict:
+    """Queue an ESP-NOW firmware deployment to a fleet device. Returns build/flash status."""
+    return _api(f"/api/espnow/examples/{example}/build?target=esp32")
+
+
 # ── Resources ────────────────────────────────────────────────────────────
 
 @mcp.resource("info://welcome")
