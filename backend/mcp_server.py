@@ -141,6 +141,38 @@ def nirvana_sessions(limit: int = 10) -> dict:
     return _api(f"/api/nirvana/sessions?limit={limit}")
 
 
+# ── ESP-NOW ──────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def espnow_status() -> dict:
+    """Check ESP-NOW library availability and toolchain. Baked at libraries/esp-now-lib/."""
+    return _api("/api/espnow/status")
+
+
+@mcp.tool()
+def espnow_modules() -> dict:
+    """List ESP-NOW source modules: control, OTA, security, provisioning, debug."""
+    return _api("/api/espnow/modules")
+
+
+@mcp.tool()
+def espnow_examples() -> dict:
+    """List ESP-NOW example projects: get-started, coin_cell_demo, OTA, security, etc."""
+    return _api("/api/espnow/examples")
+
+
+@mcp.tool()
+def espnow_build_info(example: str, target: str = "esp32") -> dict:
+    """Get build commands for an ESP-NOW example (set-target, build, flash, monitor)."""
+    return _api(f"/api/espnow/examples/{example}/build?target={target}")
+
+
+@mcp.tool()
+def espnow_binaries(example: str) -> dict:
+    """List built firmware binaries for an ESP-NOW example."""
+    return _api(f"/api/espnow/examples/{example}/binaries")
+
+
 # ── Resources ────────────────────────────────────────────────────────────
 
 @mcp.resource("info://welcome")
