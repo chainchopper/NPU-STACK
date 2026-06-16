@@ -18,18 +18,18 @@ except ImportError:  # pragma: no cover - fallback path below handles missing Py
     yaml = None
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HERMES_AGENT_DIR = REPO_ROOT / "hermes-agent"
-HERMES_WEBUI_DIR = REPO_ROOT / "hermes-webui"
+NIRVANA_AGENT_DIR = REPO_ROOT / "hermes-agent"          # absorbed upstream — read-only mirror
+NIRVANA_WEBUI_DIR = REPO_ROOT / "hermes-webui"          # absorbed upstream — read-only mirror
 NIRVANA_DATA_DIR = REPO_ROOT / "backend" / "data" / "nirvana-runtime"
-HERMES_HOME = NIRVANA_DATA_DIR / ".hermes"
+NIRVANA_HOME = NIRVANA_DATA_DIR / ".nirvana"            # our config (not upstream .hermes)
 WEBUI_STATE_DIR = NIRVANA_DATA_DIR / "webui"
 RUNTIME_PYTHON_DIR = NIRVANA_DATA_DIR / "python"
-CONFIG_PATH = HERMES_HOME / "config.yaml"
-ENV_PATH = HERMES_HOME / ".env"
+CONFIG_PATH = NIRVANA_HOME / "config.yaml"
+ENV_PATH = NIRVANA_HOME / ".env"
 LOG_PATH = WEBUI_STATE_DIR / "nirvana-webui.log"
-START_SCRIPT = HERMES_WEBUI_DIR / "start.ps1"
-WEBUI_HOST = os.getenv("NIRVANA_WEBUI_HOST", os.getenv("HERMES_WEBUI_HOST", "127.0.0.1"))
-WEBUI_PORT = int(os.getenv("NIRVANA_WEBUI_PORT", os.getenv("HERMES_WEBUI_PORT", "8789")))
+START_SCRIPT = NIRVANA_WEBUI_DIR / "start.ps1"
+WEBUI_HOST = os.getenv("NIRVANA_WEBUI_HOST", "127.0.0.1")
+WEBUI_PORT = int(os.getenv("NIRVANA_WEBUI_PORT", "8789"))
 WEBUI_URL = f"http://{WEBUI_HOST}:{WEBUI_PORT}"
 NIRVANA_LOCAL_MODEL_BASE_URL = os.getenv("NIRVANA_MODEL_BASE_URL", "http://127.0.0.1:8010/v1")
 NIRVANA_LOCAL_DEFAULT_MODEL = os.getenv("NIRVANA_DEFAULT_MODEL", "Phi-3-mini-4k-instruct-q4")
@@ -112,7 +112,7 @@ def _preferred_model_config(current_provider: str = "") -> Dict[str, str]:
 
 
 def _ensure_runtime_dirs() -> None:
-    HERMES_HOME.mkdir(parents=True, exist_ok=True)
+    NIRVANA_HOME.mkdir(parents=True, exist_ok=True)
     WEBUI_STATE_DIR.mkdir(parents=True, exist_ok=True)
     RUNTIME_PYTHON_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -184,9 +184,9 @@ def _runtime_probe_env() -> Dict[str, str]:
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = (
-        str(HERMES_AGENT_DIR)
+        str(NIRVANA_AGENT_DIR)
         if not existing_pythonpath
-        else f"{HERMES_AGENT_DIR}{os.pathsep}{existing_pythonpath}"
+        else f"{NIRVANA_AGENT_DIR}{os.pathsep}{existing_pythonpath}"
     )
     return env
 
@@ -201,7 +201,7 @@ def _python_runtime_ready(python_exe: Path) -> tuple[bool, str]:
             "-c",
             "import yaml, openai; from run_agent import AIAgent; print('ok')",
         ],
-        cwd=str(HERMES_WEBUI_DIR),
+        cwd=str(NIRVANA_WEBUI_DIR),
         env=_runtime_probe_env(),
         capture_output=True,
         text=True,
@@ -255,12 +255,12 @@ def ensure_runtime_python() -> Path:
             _run_runtime_install([uv_exe, "venv", str(RUNTIME_PYTHON_DIR), "--python", _preferred_runtime_base_python()], cwd=REPO_ROOT)
 
         _run_runtime_install(
-            [uv_exe, "pip", "install", "--python", str(python_path), "-r", str(HERMES_WEBUI_DIR / "requirements.txt")],
-            cwd=HERMES_WEBUI_DIR,
+            [uv_exe, "pip", "install", "--python", str(python_path), "-r", str(NIRVANA_WEBUI_DIR / "requirements.txt")],
+            cwd=NIRVANA_WEBUI_DIR,
         )
         _run_runtime_install(
-            [uv_exe, "pip", "install", "--python", str(python_path), "-e", str(HERMES_AGENT_DIR)],
-            cwd=HERMES_AGENT_DIR,
+            [uv_exe, "pip", "install", "--python", str(python_path), "-e", str(NIRVANA_AGENT_DIR)],
+            cwd=NIRVANA_AGENT_DIR,
         )
 
         ready, detail = _python_runtime_ready(python_path)
@@ -420,11 +420,11 @@ def prepare_runtime() -> Dict[str, Any]:
 def _paths_payload() -> Dict[str, str]:
     return {
         "repo_root": str(REPO_ROOT),
-        "agent_dir": str(HERMES_AGENT_DIR),
-        "webui_dir": str(HERMES_WEBUI_DIR),
+        "agent_dir": str(NIRVANA_AGENT_DIR),
+        "webui_dir": str(NIRVANA_WEBUI_DIR),
         "runtime_python_dir": str(RUNTIME_PYTHON_DIR),
         "runtime_python": str(_runtime_python_path()),
-        "hermes_home": str(HERMES_HOME),
+        "nirvana_home": str(NIRVANA_HOME),
         "webui_state_dir": str(WEBUI_STATE_DIR),
         "config_path": str(CONFIG_PATH),
         "env_path": str(ENV_PATH),
@@ -466,10 +466,15 @@ def recommended_commands() -> list[dict[str, str]]:
 
 
 def _webui_env() -> Dict[str, str]:
+    """Build environment for the upstream WebUI process.
+
+    The absorbed hermes-webui reads HERMES_WEBUI_* env vars — we set them here
+    from our NIRVANA_* constants so the absorbed code needs zero modifications.
+    """
     env = os.environ.copy()
-    env["HERMES_WEBUI_AGENT_DIR"] = str(HERMES_AGENT_DIR)
+    env["HERMES_WEBUI_AGENT_DIR"] = str(NIRVANA_AGENT_DIR)
     env["HERMES_WEBUI_PYTHON"] = str(ensure_runtime_python())
-    env["HERMES_HOME"] = str(HERMES_HOME)
+    env["HERMES_HOME"] = str(NIRVANA_HOME)
     env["HERMES_WEBUI_STATE_DIR"] = str(WEBUI_STATE_DIR)
     env["HERMES_WEBUI_HOST"] = WEBUI_HOST
     env["HERMES_WEBUI_PORT"] = str(WEBUI_PORT)
@@ -564,8 +569,8 @@ def get_bridge_status() -> Dict[str, Any]:
     onboarding_system = onboarding_payload.get("system") or {}
 
     return {
-        "agent_repo_present": HERMES_AGENT_DIR.exists(),
-        "webui_repo_present": HERMES_WEBUI_DIR.exists(),
+        "agent_repo_present": NIRVANA_AGENT_DIR.exists(),
+        "webui_repo_present": NIRVANA_WEBUI_DIR.exists(),
         "start_script_present": START_SCRIPT.exists(),
         "prepared": CONFIG_PATH.exists(),
         "webui_running": bool(health.get("ok")),
@@ -625,8 +630,8 @@ def start_webui(timeout_seconds: float = 35.0) -> Dict[str, Any]:
 
     if not START_SCRIPT.exists():
         raise NirvanaServiceError(f"Nirvana WebUI launcher not found at {START_SCRIPT}")
-    if not HERMES_AGENT_DIR.exists():
-        raise NirvanaServiceError(f"Nirvana agent source not found at {HERMES_AGENT_DIR}")
+    if not NIRVANA_AGENT_DIR.exists():
+        raise NirvanaServiceError(f"Nirvana agent source not found at {NIRVANA_AGENT_DIR}")
 
     launcher = shutil.which("powershell") or shutil.which("powershell.exe") or "powershell.exe"
 
@@ -654,7 +659,7 @@ def start_webui(timeout_seconds: float = 35.0) -> Dict[str, Any]:
                     "-BindHost",
                     WEBUI_HOST,
                 ],
-                cwd=str(HERMES_WEBUI_DIR),
+                cwd=str(NIRVANA_WEBUI_DIR),
                 env=_webui_env(),
                 stdout=_WEBUI_LOG_HANDLE,
                 stderr=subprocess.STDOUT,
@@ -724,5 +729,54 @@ def send_sync_chat(session_id: str, message: str, preferred_model: str = "") -> 
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise NirvanaServiceError(f"Nirvana chat HTTP {exc.code}: {detail}") from exc
+
+
+# ── Migration: .hermes → .nirvana ────────────────────────────────────────
+
+def _migrate_hermes_to_nirvana() -> bool:
+    """One-time migration: copy .hermes config dir to .nirvana."""
+    old_home = NIRVANA_DATA_DIR / ".hermes"
+    if not old_home.exists():
+        return False
+    if NIRVANA_HOME.exists():
+        return False  # already migrated
+    try:
+        shutil.copytree(old_home, NIRVANA_HOME, symlinks=False)
+        NIRVANA_HOME.mkdir(parents=True, exist_ok=True)
+        return True
+    except Exception:
+        return False
+
+
+# ── Auto-start hook ──────────────────────────────────────────────────────
+
+def try_auto_start_webui(background: bool = True, timeout: float = 10.0) -> Dict[str, Any]:
+    """Fire-and-forget WebUI start. Safe to call from backend lifespan.
+    Returns immediately — the WebUI launches in a subprocess.
+    """
+    _migrate_hermes_to_nirvana()
+
+    if get_webui_health(timeout=1.0).get("ok"):
+        return {"started": False, "reason": "already running", "url": WEBUI_URL}
+
+    if not START_SCRIPT.exists():
+        return {"started": False, "reason": f"start script missing: {START_SCRIPT}"}
+
+    try:
+        prepare_runtime()
+    except NirvanaServiceError as e:
+        return {"started": False, "reason": f"runtime prep failed: {e}"}
+
+    if background:
+        # Fire-and-forget via thread
+        def _bg_start():
+            try:
+                start_webui(timeout_seconds=timeout)
+            except Exception:
+                pass
+        threading.Thread(target=_bg_start, daemon=True).start()
+        return {"started": True, "mode": "background", "url": WEBUI_URL, "timeout": timeout}
+    else:
+        return start_webui(timeout_seconds=timeout)
     except Exception as exc:  # noqa: BLE001
         raise NirvanaServiceError(f"Nirvana sync chat failed: {exc}") from exc

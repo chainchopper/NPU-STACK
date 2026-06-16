@@ -12,6 +12,7 @@ echo  ============================================
 echo    NPU-STACK  ^|  Neural Processor Toolkit
 echo    Backend:  http://localhost:!BACKEND_PORT!
 echo    Frontend: http://localhost:5173
+echo    Nirvana:  http://localhost:8789
 echo    API Docs: http://localhost:!BACKEND_PORT!/api/docs
 echo    App Docs: http://localhost:5173/documentation
 echo    GitBook:  http://localhost:3001
@@ -54,6 +55,14 @@ timeout /t 2 /nobreak >nul
 :: Start Frontend in new window
 start "NPU-STACK Frontend" cmd /k ^
 cd /d "!ROOT!\frontend" ^& npm run dev
+
+timeout /t 2 /nobreak >nul
+
+:: Start Nirvana WebUI in new window (absorbed hermes-webui)
+if exist "!ROOT!\hermes-webui\start.ps1" (
+    start "Nirvana WebUI" cmd /k ^
+    set HERMES_WEBUI_HOST=127.0.0.1 ^& set HERMES_WEBUI_PORT=8789 ^& set HERMES_WEBUI_AGENT_DIR=!ROOT!\hermes-agent ^& call "!ROOT!\.venv\Scripts\activate.bat" ^& powershell -ExecutionPolicy Bypass -File "!ROOT!\hermes-webui\start.ps1" -Port 8789 -BindHost 127.0.0.1
+)
 
 echo.
 echo   Both services launched in separate windows.

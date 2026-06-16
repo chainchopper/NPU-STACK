@@ -105,6 +105,12 @@ async def lifespan(app: FastAPI):
         sync_project_docs_to_gitbook()
     except Exception:
         pass
+    # ── Auto-start Nirvana WebUI (fire-and-forget) ──
+    try:
+        from services.nirvana_service import try_auto_start_webui
+        webui_status = try_auto_start_webui(background=True, timeout=15.0)
+    except Exception:
+        webui_status = {"started": False, "reason": "auto-start exception"}
     docs_index_boot = ensure_docs_index(max_age_seconds=6 * 3600)
     backend_port = int(os.getenv("NPU_STACK_BACKEND_PORT", str(DEFAULT_BACKEND_PORT)))
     print("=" * 60)
@@ -135,6 +141,16 @@ async def lifespan(app: FastAPI):
                 print(f"  Warmup:      {warmup.get('detail', 'not running')}")
     else:
         print("  Nirvana:     disabled")
+
+    # WebUI auto-start status
+    wui_url = webui_status.get("url", "http://127.0.0.1:8789")
+    if webui_status.get("started"):
+        print(f"  Nirvana WebUI: launching in background → {wui_url}")
+    elif webui_status.get("reason") == "already running":
+        print(f"  Nirvana WebUI: already running @ {wui_url}")
+    else:
+        print(f"  Nirvana WebUI: not started ({webui_status.get('reason', 'unknown')})")
+
     print("=" * 60)
     yield  # App runs here
     print("NPU-STACK Backend shutting down...")
@@ -152,7 +168,7 @@ app = FastAPI(
 # ---------- Nirvana WebUI proxy middleware ----------
 # Registered BEFORE CORS so CORS headers wrap proxied responses.
 # Only forwards unmatched /api/* paths to the absorbed WebUI at :8789.
-from hermes_proxy import NirvanaProxyMiddleware
+from nirvana_proxy import NirvanaProxyMiddleware
 
 app.add_middleware(NirvanaProxyMiddleware)
 
