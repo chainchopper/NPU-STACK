@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CloudUpload, Share2, Tag } from 'lucide-react';
 import ActivityLogCard from '../components/ActivityLogCard';
 import OperationNotice from '../components/OperationNotice';
-import { apiUrl, diagnoseBackendError } from '../api/client';
+import { apiUrl, API_BASE, diagnoseBackendError, safeFetch } from '../api/client';
 
 export default function HubPublisher() {
     const [status, setStatus] = useState(null);
@@ -22,8 +22,8 @@ export default function HubPublisher() {
 
         addLog('Fetching publisher ecosystem status');
         Promise.all([
-            fetch(apiUrl('/finetune/status')).then(res => res.json()),
-            fetch(apiUrl('/finetune/jobs')).then(res => res.json()),
+            safeFetch(apiUrl('/finetune/status'), {}, {}),
+            safeFetch(apiUrl('/finetune/jobs'), {}, { jobs: [] }),
         ])
             .then(([statusData, jobsData]) => {
                 setStatus(statusData);

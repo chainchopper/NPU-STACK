@@ -9,6 +9,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Models = lazy(() => import('./pages/Models'));
 const Training = lazy(() => import('./pages/Training'));
 const AdvancedTraining = lazy(() => import('./pages/AdvancedTraining'));
+const TrainingCenter = lazy(() => import('./pages/TrainingCenter'));
 const Conversion = lazy(() => import('./pages/Conversion'));
 const Benchmark = lazy(() => import('./pages/Benchmark'));
 const Playground = lazy(() => import('./pages/Playground'));
@@ -50,13 +51,10 @@ const managementItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/models', icon: Box, label: 'Models' },
     { path: '/hub', icon: Globe, label: 'Model Hub' },
-    { path: '/hf-publisher', icon: CloudUpload, label: 'HF Publisher' },
     { path: '/datasets', icon: Database, label: 'Datasets' },
     { path: '/ingestion', icon: Upload, label: 'Data Ingestion' },
     { path: '/serving', icon: Server, label: 'Serving' },
     { path: '/training', icon: GraduationCap, label: 'Training' },
-    { path: '/advanced-training', icon: Zap, label: 'Advanced Training' },
-    { path: '/finetuning', icon: Wrench, label: 'Fine-Tuning' },
     { path: '/gguf-studio', icon: Cpu, label: 'GGUF Studio' },
     { path: '/fastflowlm', icon: Zap, label: 'FastFlowLM' },
     { path: '/conversion', icon: ArrowRightLeft, label: 'Conversion' },
@@ -269,13 +267,13 @@ function AppInner() {
                             <Route path="/documentation" element={<Documentation />} />
                             <Route path="/models" element={<Models />} />
                             <Route path="/hub" element={<ModelHub />} />
-                            <Route path="/hf-publisher" element={<HubPublisher />} />
                             <Route path="/datasets" element={<Datasets />} />
                             <Route path="/ingestion" element={<DataIngestion />} />
                             <Route path="/serving" element={<Serving />} />
-                            <Route path="/training" element={<Training />} />
-                            <Route path="/advanced-training" element={<AdvancedTraining />} />
-                            <Route path="/finetuning" element={<FineTuning />} />
+                            <Route path="/training" element={<TrainingCenter />} />
+                            <Route path="/advanced-training" element={<Navigate to="/training" replace />} />
+                            <Route path="/finetuning" element={<Navigate to="/training" replace />} />
+                            <Route path="/hf-publisher" element={<Navigate to="/training" replace />} />
                             <Route path="/gguf-studio" element={<GGUFStudio />} />
                             <Route path="/fastflowlm" element={<FastFlowLM />} />
                             <Route path="/conversion" element={<Conversion />} />

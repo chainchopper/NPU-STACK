@@ -3,7 +3,7 @@ import { Upload, FolderOpen, FileText, Database, Trash2, Eye, Play, Settings, Ch
 import FolderBrowser from '../components/FolderBrowser';
 import ActivityLogCard from '../components/ActivityLogCard';
 import OperationNotice from '../components/OperationNotice';
-import { apiUrl, diagnoseBackendError } from '../api/client';
+import { apiUrl, diagnoseBackendError, safeFetch } from '../api/client';
 
 export default function DataIngestion() {
     const [uploads, setUploads] = useState([]);
@@ -38,13 +38,19 @@ export default function DataIngestion() {
     });
 
     useEffect(() => {
-        fetch(apiUrl('/ingest/dataset-formats')).then(r => r.json()).then(d => setFormats(d.formats || [])).catch(() => { });
-        fetch(apiUrl('/ingest/supported-types')).then(r => r.json()).then(d => setSupportedTypes(d.types || [])).catch(() => { });
+        safeFetch(apiUrl('/ingest/dataset-formats'), {}, { formats: [] })
+            .then(d => setFormats(d.formats || []))
+            .catch(() => {});
+        safeFetch(apiUrl('/ingest/supported-types'), {}, { types: [] })
+            .then(d => setSupportedTypes(d.types || []))
+            .catch(() => {});
         refreshUploads();
     }, []);
 
     const refreshUploads = () => {
-        fetch(apiUrl('/ingest/uploads')).then(r => r.json()).then(d => setUploads(d.files || [])).catch(() => { });
+        safeFetch(apiUrl('/ingest/uploads'), {}, { files: [] })
+            .then(d => setUploads(d.files || []))
+            .catch(() => {});
     };
 
     const handleFileDrop = async (e) => {
@@ -65,10 +71,9 @@ export default function DataIngestion() {
 
         try {
             const res = await fetch(apiUrl('/ingest/upload'), { method: 'POST', body: formData });
+            if (!res.ok) throw new Error(`Upload failed (${res.status})`);
             const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data?.detail || 'Upload failed');
-            }
+            if (!data || typeof data !== 'object') throw new Error('Invalid response from server');
             setExtractionResults(prev => [...prev, ...(data.files || [])]);
             setNotice({ tone: 'success', title: 'Upload complete', message: `${(data.files || []).length} file(s) processed.` });
             addLog(`Upload complete: ${(data.files || []).length} extracted item(s)`);
@@ -91,10 +96,8 @@ export default function DataIngestion() {
         addLog(`Extracting folder ${path}...`);
         try {
             const res = await fetch(apiUrl('/ingest/extract-folder'), { method: 'POST', body: formData });
+            if (!res.ok) throw new Error(`Extraction failed (${res.status})`);
             const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data?.detail || 'Folder extraction failed');
-            }
             setExtractionResults(prev => [...prev, ...(data.files || [])]);
             setNotice({ tone: 'success', title: 'Folder extraction complete', message: `${(data.files || []).length} file(s) extracted from folder.` });
             addLog(`Folder extraction complete: ${(data.files || []).length} item(s)`);
@@ -125,10 +128,8 @@ export default function DataIngestion() {
 
         try {
             const res = await fetch(apiUrl('/ingest/build-dataset'), { method: 'POST', body: formData });
+            if (!res.ok) throw new Error(`Build failed (${res.status})`);
             const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data?.detail || 'Build request failed');
-            }
             setBuildResult(data);
             setNotice({ tone: 'success', title: 'Dataset build complete', message: `${data.record_count || 0} records generated.` });
             addLog(`Dataset build complete: ${data.record_count || 0} records`);

@@ -27,6 +27,7 @@ NATIVE_PREFIXES: tuple[str, ...] = (
     "/api/datasets",
     "/api/serving",
     "/api/finetuning",
+    "/api/finetune",
     "/api/finetune-publish",
     "/api/scanner",
     "/api/webcam",

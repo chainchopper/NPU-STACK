@@ -13,6 +13,20 @@ from services.dataset_builder import build_dataset, get_available_formats
 
 router = APIRouter(prefix="/api/ingest", tags=["ingestion"])
 
+
+def _detect_docling() -> dict:
+    """Check if Docling (IBM document AI toolkit) is available."""
+    try:
+        import docling  # noqa: F401
+        return {"available": True, "message": "Docling is installed — high-quality PDF/DOCX/PPTX/image parsing available."}
+    except ImportError:
+        return {
+            "available": False,
+            "message": "Docling not installed. Run: pip install docling",
+            "install_hint": "pip install docling",
+            "description": "Docling (IBM) provides high-quality PDF, DOCX, PPTX, and image parsing with table extraction, OCR, and structured Markdown/JSON output.",
+        }
+
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 DATASET_DIR = os.path.join(DATA_DIR, "datasets")
@@ -27,13 +41,21 @@ def list_supported_types():
         "types": get_supported_types(),
         "all_extensions": sorted(SUPPORTED_EXTENSIONS),
         "total": len(SUPPORTED_EXTENSIONS),
+        "tools": {
+            "docling": _detect_docling(),
+        },
     }
 
 
 @router.get("/dataset-formats")
 def list_dataset_formats():
     """List available dataset output formats."""
-    return {"formats": get_available_formats()}
+    return {
+        "formats": get_available_formats(),
+        "tools": {
+            "docling": _detect_docling(),
+        },
+    }
 
 
 @router.post("/upload")

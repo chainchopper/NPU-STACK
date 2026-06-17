@@ -81,6 +81,26 @@ function buildApiError(message, details = {}) {
     return error;
 }
 
+/**
+ * Safe JSON fetch — checks response.ok before parsing.
+ * Falls back to empty array/object on non-OK or parse failure.
+ */
+export async function safeFetch(url, options = {}, fallback = null) {
+    try {
+        const res = await fetch(url, options);
+        if (!res.ok) {
+            console.warn(`safeFetch ${res.status} for ${url}`);
+            return fallback;
+        }
+        const text = await res.text();
+        if (!text || !text.trim()) return fallback;
+        return JSON.parse(text);
+    } catch (e) {
+        console.warn(`safeFetch failed for ${url}:`, e.message);
+        return fallback;
+    }
+}
+
 export function diagnoseBackendError(error, feature = 'This feature') {
     const backendOrigin = inferBackendOrigin();
     const target = backendOrigin || (typeof window !== 'undefined' ? window.location.origin : 'the backend');
