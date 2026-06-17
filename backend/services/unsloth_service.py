@@ -11,6 +11,7 @@ Gracefully degrades when dependencies are not installed.
 """
 
 import os
+import subprocess
 import time
 import json
 from typing import Optional, Dict, List
@@ -123,7 +124,34 @@ def detect_unsloth() -> dict:
         missing_libs = [k for k in ["unsloth", "peft", "transformers", "trl"] if not info[f"{k}_available"]]
         info["recommendation"] = f"Missing dependencies: {', '.join(missing_libs)}. Use the install command on this page."
 
+    # Training venv detection
+    info["training_venv"] = _detect_training_venv()
+
     return info
+
+
+def _detect_training_venv() -> dict:
+    """Detect dedicated .venv-train (Python 3.12) for Unsloth training."""
+    repo_root = Path(__file__).resolve().parents[2] if "__file__" in dir() else Path.cwd()
+    train_dir = Path(os.getenv("NPU_TRAIN_VENV", str(repo_root / ".venv-train")))
+    if not train_dir.exists():
+        return {"available": False, "message": ".venv-train not found"}
+    python_exe = train_dir / "Scripts" / "python.exe" if os.name == "nt" else train_dir / "bin" / "python"
+    if not python_exe.exists():
+        return {"available": False, "path": str(train_dir)}
+    try:
+        result = subprocess.run(
+            [str(python_exe), "-c", "import torch; print(torch.__version__); print(torch.cuda.is_available())"],
+            capture_output=True, text=True, timeout=30,
+        )
+        lines = (result.stdout or "").strip().splitlines()
+        return {
+            "available": True, "path": str(train_dir), "python": str(python_exe),
+            "torch_version": lines[0] if lines else "?", "cuda": lines[1] == "True" if len(lines) > 1 else False,
+            "ready": bool(lines and len(lines) > 1 and lines[1] == "True"),
+        }
+    except Exception as e:
+        return {"available": True, "path": str(train_dir), "error": str(e)}
 
 
 # ── Dataset Preparation ─────────────────────────────────

@@ -83,3 +83,5 @@ gitbook-clone/
 gitbook-npu-stack/
 hermes-webui/
 temp_unsloth_studio_inspect/
+.venv-train/
+unsloth_compiled_cache/
