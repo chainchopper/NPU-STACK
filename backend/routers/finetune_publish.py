@@ -105,6 +105,9 @@ async def start_training(
     output_dir = REPO_ROOT / "backend" / "data" / "finetune" / output_name
 
     script = (REPO_ROOT / "backend" / "services" / "run_finetune.py")
+    # Normalize paths — Windows backslashes break Python f-strings in generated code
+    safe_dataset = dataset_source.replace("\\", "/")
+    safe_output = str(output_dir).replace("\\", "/")
     script.write_text(f'''# -*- coding: utf-8 -*-
 """NPU-STACK training script — auto-generated."""
 import sys, json, os
@@ -112,7 +115,7 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 
 print("JOB_ID: {job_id}", flush=True)
 print(f"Model: {model_name}", flush=True)
-print(f"Dataset: {dataset_source}", flush=True)
+print(f"Dataset: {safe_dataset}", flush=True)
 print(f"Epochs: {num_epochs}, LR: {learning_rate}, LoRA r={lora_r}", flush=True)
 print("=" * 60, flush=True)
 
@@ -147,7 +150,7 @@ try:
 
     # Load dataset
     print(f"Loading dataset...", flush=True)
-    dataset = load_dataset("json", data_files="{{dataset_source.replace(chr(92), chr(47))}}", split="train")
+    dataset = load_dataset("json", data_files=r"{safe_dataset}", split="train")
     print(f"Dataset: {{len(dataset)}} samples", flush=True)
 
     tokenizer.pad_token = tokenizer.eos_token
@@ -171,7 +174,7 @@ try:
             weight_decay=0.01,
             lr_scheduler_type="linear",
             seed=42,
-            output_dir=str(Path(r"{output_dir}")),
+            output_dir=str(Path(r"{safe_output}")),
         ),
     )
 
@@ -179,8 +182,8 @@ try:
     trainer.train()
 
     print("Saving model...", flush=True)
-    model.save_pretrained(str(Path(r"{output_dir}")))
-    tokenizer.save_pretrained(str(Path(r"{output_dir}")))
+    model.save_pretrained(str(Path(r"{safe_output}")))
+    tokenizer.save_pretrained(str(Path(r"{safe_output}")))
     print("COMPLETE", flush=True)
 
 except Exception as e:
