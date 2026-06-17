@@ -114,7 +114,7 @@ async def start_training(
         try:
             result = subprocess.run(
                 [str(TRAIN_PYTHON), "-u", str(script)],
-                capture_output=True, text=True, timeout=3600, cwd=str(REPO_ROOT),
+                capture_output=True, encoding="utf-8", timeout=3600, cwd=str(REPO_ROOT),
                 env={
                     **os.environ,
                     "PYTHONUNBUFFERED": "1",
