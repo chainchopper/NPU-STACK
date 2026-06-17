@@ -52,8 +52,19 @@ try:
     )
 
     print(f"Loading dataset from {dataset_path}...", flush=True)
-    dataset = load_dataset("json", data_files=dataset_path, split="train")
-    print(f"Dataset: {len(dataset)} samples", flush=True)
+    # Build formatting function for ShareGPT-style messages datasets
+    def format_sharegpt(examples):
+        texts = []
+        for messages in examples["messages"]:
+            conv = [{"role": m["role"], "content": m["content"]}
+                     for m in messages if m["role"] != "system"]
+            if not conv:
+                conv = [{"role": m["role"], "content": m["content"]} for m in messages]
+            texts.append(tokenizer.apply_chat_template(conv, tokenize=False, add_generation_prompt=False))
+        return {"text": texts}
+
+    dataset = dataset.map(format_sharegpt, batched=True, remove_columns=dataset.column_names)
+    print(f"Dataset: {len(dataset)} formatted samples", flush=True)
 
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -61,7 +72,6 @@ try:
         model=model,
         tokenizer=tokenizer,
         train_dataset=dataset,
-        dataset_text_field="text",
         max_seq_length=2048,
         args=TrainingArguments(
             per_device_train_batch_size=batch_size,
