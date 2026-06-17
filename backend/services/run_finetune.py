@@ -52,18 +52,25 @@ try:
     )
 
     print(f"Loading dataset from {dataset_path}...", flush=True)
-    # Build formatting function for ShareGPT-style messages datasets
+    raw_dataset = load_dataset("json", data_files=dataset_path, split="train")
+    print(f"Dataset: {len(raw_dataset)} raw samples", flush=True)
+
+    # Formatting function for ShareGPT-style messages → plain text
     def format_sharegpt(examples):
         texts = []
         for messages in examples["messages"]:
-            conv = [{"role": m["role"], "content": m["content"]}
-                     for m in messages if m["role"] != "system"]
-            if not conv:
-                conv = [{"role": m["role"], "content": m["content"]} for m in messages]
-            texts.append(tokenizer.apply_chat_template(conv, tokenize=False, add_generation_prompt=False))
+            parts = []
+            for m in messages:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                if role == "user":
+                    parts.append(f"### Human: {content}")
+                elif role == "assistant":
+                    parts.append(f"### Assistant: {content}")
+            texts.append("\n\n".join(parts))
         return {"text": texts}
 
-    dataset = dataset.map(format_sharegpt, batched=True, remove_columns=dataset.column_names)
+    dataset = raw_dataset.map(format_sharegpt, batched=True, remove_columns=raw_dataset.column_names)
     print(f"Dataset: {len(dataset)} formatted samples", flush=True)
 
     tokenizer.pad_token = tokenizer.eos_token
@@ -94,8 +101,14 @@ try:
     trainer.train()
 
     print("Saving model...", flush=True)
-    model.save_pretrained(output_dir)
-    tokenizer.save_pretrained(output_dir)
+    try:
+        model.save_pretrained(output_dir)
+        tokenizer.save_pretrained(output_dir)
+    except Exception as e:
+        print(f"save_pretrained failed ({e}), using merge_and_unload...", flush=True)
+        merged = model.merge_and_unload()
+        merged.save_pretrained(output_dir)
+        tokenizer.save_pretrained(output_dir)
     print("COMPLETE", flush=True)
 
 except Exception:
