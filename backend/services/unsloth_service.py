@@ -13,6 +13,7 @@ Gracefully degrades when dependencies are not installed.
 import os
 import subprocess
 import time
+from pathlib import Path
 import json
 from typing import Optional, Dict, List
 
@@ -54,37 +55,37 @@ def detect_unsloth() -> dict:
     except ImportError:
         pass
 
-    # Unsloth
+    # Unsloth (may crash on Python 3.14 even if installed)
     try:
         import unsloth
         info["unsloth_available"] = True
         info["unsloth_version"] = getattr(unsloth, "__version__", "installed")
-    except ImportError:
+    except Exception:
         pass
 
-    # Supporting libraries
+    # Supporting libraries (each in its own try — transformers may crash on 3.14 too)
     try:
         import peft  # noqa: F401
         info["peft_available"] = True
-    except ImportError:
+    except Exception:
         pass
 
     try:
         import transformers  # noqa: F401
         info["transformers_available"] = True
-    except ImportError:
+    except Exception:
         pass
 
     try:
         import trl  # noqa: F401
         info["trl_available"] = True
-    except ImportError:
+    except Exception:
         pass
 
     try:
         import bitsandbytes  # noqa: F401
         info["bitsandbytes_available"] = True
-    except ImportError:
+    except Exception:
         pass
 
     # Supported model families
@@ -132,7 +133,7 @@ def detect_unsloth() -> dict:
 
 def _detect_training_venv() -> dict:
     """Detect dedicated .venv-train (Python 3.12) for Unsloth training."""
-    repo_root = Path(__file__).resolve().parents[2] if "__file__" in dir() else Path.cwd()
+    repo_root = Path(__file__).resolve().parents[2]
     train_dir = Path(os.getenv("NPU_TRAIN_VENV", str(repo_root / ".venv-train")))
     if not train_dir.exists():
         return {"available": False, "message": ".venv-train not found"}
