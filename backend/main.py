@@ -46,7 +46,7 @@ from routers.inference import router as inference_router
 from routers.huggingface import router as huggingface_router
 from routers.datasets import router as datasets_router
 from routers.serving import router as serving_router
-from routers.finetuning import router as finetuning_router
+from routers.finetuning import router as finetuning_router  # noqa: F811 — kept for backward compat, not registered as router
 from routers.scanner import router as scanner_router
 from routers.webcam import router as webcam_router
 from routers.filebrowser import router as filebrowser_router
@@ -209,7 +209,7 @@ app.include_router(inference_router)
 app.include_router(huggingface_router)
 app.include_router(datasets_router)
 app.include_router(serving_router)
-app.include_router(finetuning_router)
+# finetuning_router uses /api/finetune — replaced by finetune_publish_router (subprocess-based training)
 app.include_router(scanner_router)
 app.include_router(webcam_router)
 app.include_router(filebrowser_router)
