@@ -105,7 +105,8 @@ async def start_training(
     output_dir = REPO_ROOT / "backend" / "data" / "finetune" / output_name
 
     script = (REPO_ROOT / "backend" / "services" / "run_finetune.py")
-    script.write_text(f'''"""NPU-STACK training script — auto-generated."""
+    script.write_text(f'''# -*- coding: utf-8 -*-
+"""NPU-STACK training script — auto-generated."""
 import sys, json, os
 os.environ["PYTHONWARNINGS"] = "ignore"
 
@@ -185,7 +186,7 @@ try:
 except Exception as e:
     print(f"ERROR: {{e}}", flush=True)
     sys.exit(1)
-''')
+''', encoding="utf-8")
 
     with _jobs_lock:
         _jobs[job_id] = {"status": "starting", "model": model_name, "dataset": dataset_source, "epochs": num_epochs, "output": output_name}
