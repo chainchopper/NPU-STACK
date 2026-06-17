@@ -197,16 +197,24 @@ except Exception as e:
     def _run():
         try:
             result = subprocess.run(
-                [str(TRAIN_PYTHON), str(script)],
+                [str(TRAIN_PYTHON), "-u", str(script)],
                 capture_output=True, text=True, timeout=3600, cwd=str(REPO_ROOT),
+                env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
             )
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
             with _jobs_lock:
-                if result.returncode == 0:
+                # Success if stdout contains "COMPLETE" regardless of warnings in stderr
+                if "COMPLETE" in stdout:
                     _jobs[job_id]["status"] = "complete"
-                    _jobs[job_id]["output_lines"] = (result.stdout or "").splitlines()[-10:]
+                    _jobs[job_id]["output_lines"] = stdout.splitlines()[-10:]
                 else:
                     _jobs[job_id]["status"] = "failed"
-                    _jobs[job_id]["error"] = (result.stderr or result.stdout or "Unknown error")[-500:]
+                    _jobs[job_id]["error"] = (
+                        "".join(stderr.splitlines()[-5:]) if stderr else ""
+                    ) + "\n" + (
+                        "".join(stdout.splitlines()[-5:])
+                    )
         except Exception as e:
             with _jobs_lock:
                 _jobs[job_id]["status"] = "failed"
