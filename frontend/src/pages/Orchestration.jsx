@@ -163,7 +163,8 @@ export default function Orchestration() {
       <div className="page-header">
         <h2>Orchestration</h2>
         <p>
-          Runtime control plane for Nirvana identity, agent configuration, and MCP capabilities.
+          Control plane for Nirvana identity, local inference runtime, and MCP capabilities.
+          Nirvana is always-on — this page configures its supporting infrastructure.
         </p>
       </div>
 
@@ -255,7 +256,7 @@ export default function Orchestration() {
           ) : (
             <>
               <div className="text-muted" style={{ fontSize: 12, marginBottom: 10 }}>
-                Brand and agent name are locked at runtime (Nirvana / NPU-STACK).
+                Nirvana is the always-on system orchestrator. Brand name is locked at runtime.
               </div>
               <div className="form-group">
                 <label className="form-label">Identity Statement</label>
@@ -282,14 +283,18 @@ export default function Orchestration() {
 
         <div className="card">
           <div className="card-header">
-            <h3 className="card-title">Nirvana Agent Configuration</h3>
+            <h3 className="card-title">Local Inference Runtime</h3>
+            <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+              Optional local LLM bridge. Nirvana uses DeepSeek by default;
+              enable this for an on-device fallback (Ollama, local GGUF, vLLM).
+            </div>
           </div>
           {loading ? (
             <p className="text-muted">Loading settings…</p>
           ) : (
             <>
               <div className="form-group">
-                <label className="form-label">Enable Nirvana Agent</label>
+                <label className="form-label">Enable Local Fallback Runtime</label>
                 <input
                   type="checkbox"
                   checked={Boolean(nirvanaConfig.enabled)}
@@ -357,7 +362,7 @@ export default function Orchestration() {
                   ))}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={saveNirvanaRuntime}>Save Nirvana Settings</button>
+              <button className="btn btn-primary" onClick={saveNirvanaRuntime}>Save Runtime Settings</button>
 
               {nirvanaRuntime && (
                 <details style={{ marginTop: 14 }} open>
