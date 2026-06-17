@@ -103,93 +103,9 @@ async def start_training(
 
     job_id = f"train-{uuid.uuid4().hex[:8]}"
     output_dir = REPO_ROOT / "backend" / "data" / "finetune" / output_name
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    script = (REPO_ROOT / "backend" / "services" / "run_finetune.py")
-    # Normalize paths — Windows backslashes break Python f-strings in generated code
-    safe_dataset = dataset_source.replace("\\", "/")
-    safe_output = str(output_dir).replace("\\", "/")
-    script.write_text(f'''# -*- coding: utf-8 -*-
-"""NPU-STACK training script — auto-generated."""
-import sys, json, os
-os.environ["PYTHONWARNINGS"] = "ignore"
-
-print("JOB_ID: {job_id}", flush=True)
-print(f"Model: {model_name}", flush=True)
-print(f"Dataset: {safe_dataset}", flush=True)
-print(f"Epochs: {num_epochs}, LR: {learning_rate}, LoRA r={lora_r}", flush=True)
-print("=" * 60, flush=True)
-
-try:
-    from unsloth import FastLanguageModel
-    import torch
-    from datasets import load_dataset
-    from trl import SFTTrainer
-    from transformers import TrainingArguments
-
-    print(f"torch: {{torch.__version__}}, CUDA: {{torch.cuda.is_available()}}", flush=True)
-    print(f"VRAM: {{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}} GB", flush=True)
-
-    # Load model
-    print(f"Loading {{model_name}}...", flush=True)
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name="{model_name}",
-        max_seq_length={max_seq_length},
-        dtype=None,
-        load_in_4bit={"True" if use_4bit else "False"},
-    )
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r={lora_r},
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        lora_alpha={lora_alpha},
-        lora_dropout=0,
-        bias="none",
-        use_gradient_checkpointing="unsloth",
-        random_state=42,
-    )
-
-    # Load dataset
-    print(f"Loading dataset...", flush=True)
-    dataset = load_dataset("json", data_files=r"{safe_dataset}", split="train")
-    print(f"Dataset: {{len(dataset)}} samples", flush=True)
-
-    tokenizer.pad_token = tokenizer.eos_token
-
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=dataset,
-        dataset_text_field="text",
-        max_seq_length={max_seq_length},
-        args=TrainingArguments(
-            per_device_train_batch_size={per_device_batch_size},
-            gradient_accumulation_steps={gradient_accumulation_steps},
-            warmup_steps=5,
-            num_train_epochs={num_epochs},
-            learning_rate={learning_rate},
-            fp16=not torch.cuda.is_bf16_supported(),
-            bf16=torch.cuda.is_bf16_supported(),
-            logging_steps=1,
-            optim="adamw_8bit",
-            weight_decay=0.01,
-            lr_scheduler_type="linear",
-            seed=42,
-            output_dir=str(Path(r"{safe_output}")),
-        ),
-    )
-
-    print("Starting training...", flush=True)
-    trainer.train()
-
-    print("Saving model...", flush=True)
-    model.save_pretrained(str(Path(r"{safe_output}")))
-    tokenizer.save_pretrained(str(Path(r"{safe_output}")))
-    print("COMPLETE", flush=True)
-
-except Exception as e:
-    print(f"ERROR: {{e}}", flush=True)
-    sys.exit(1)
-''', encoding="utf-8")
+    script = REPO_ROOT / "backend" / "services" / "run_finetune.py"
 
     with _jobs_lock:
         _jobs[job_id] = {"status": "starting", "model": model_name, "dataset": dataset_source, "epochs": num_epochs, "output": output_name}
@@ -199,29 +115,35 @@ except Exception as e:
             result = subprocess.run(
                 [str(TRAIN_PYTHON), "-u", str(script)],
                 capture_output=True, text=True, timeout=3600, cwd=str(REPO_ROOT),
-                env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
+                env={
+                    **os.environ,
+                    "PYTHONUNBUFFERED": "1",
+                    "PYTHONIOENCODING": "utf-8",
+                    "NPU_JOB_ID": job_id,
+                    "NPU_MODEL_NAME": model_name,
+                    "NPU_DATASET_PATH": str(dataset_path),
+                    "NPU_OUTPUT_DIR": str(output_dir),
+                    "NPU_EPOCHS": str(num_epochs),
+                    "NPU_LR": str(learning_rate),
+                    "NPU_LORA_R": str(lora_r),
+                    "NPU_LORA_ALPHA": str(lora_alpha),
+                    "NPU_BATCH_SIZE": str(per_device_batch_size),
+                    "NPU_GRAD_ACCUM": str(gradient_accumulation_steps),
+                },
             )
             stdout = result.stdout or ""
             stderr = result.stderr or ""
             with _jobs_lock:
-                # Success if stdout contains "COMPLETE" regardless of warnings in stderr
                 if "COMPLETE" in stdout:
                     _jobs[job_id]["status"] = "complete"
                     _jobs[job_id]["output_lines"] = stdout.splitlines()[-10:]
                 else:
                     _jobs[job_id]["status"] = "failed"
-                    _jobs[job_id]["error"] = (
-                        "".join(stderr.splitlines()[-5:]) if stderr else ""
-                    ) + "\n" + (
-                        "".join(stdout.splitlines()[-5:])
-                    )
+                    _jobs[job_id]["error"] = (stderr[-500:] if stderr else "") + (stdout[-500:] if stdout else "")
         except Exception as e:
             with _jobs_lock:
                 _jobs[job_id]["status"] = "failed"
                 _jobs[job_id]["error"] = str(e)
-        finally:
-            try: script.unlink()
-            except Exception: pass
 
     threading.Thread(target=_run, daemon=True).start()
 
