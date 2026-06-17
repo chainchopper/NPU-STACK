@@ -9,12 +9,40 @@ Endpoints for:
   - Model card generation
 """
 
+import json
 import os
+import subprocess
+import threading
+import uuid
+from pathlib import Path
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, Form
+from fastapi import APIRouter, HTTPException, Form, Body
 
 router = APIRouter(prefix="/api/finetune", tags=["fine-tuning"])
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TRAIN_PYTHON = REPO_ROOT / ".venv-train" / "Scripts" / "python.exe"
+
+_jobs: dict = {}
+_jobs_lock = threading.Lock()
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    """Poll training job status."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job {job_id} not found")
+    return job
+
+
+@router.get("/jobs")
+def list_jobs():
+    """List all training jobs."""
+    with _jobs_lock:
+        return {"jobs": list(_jobs.values()), "count": len(_jobs)}
 
 
 # ── Ecosystem Status ────────────────────────────────────
@@ -51,49 +79,149 @@ def prepare_dataset(
 # ── Fine-Tuning ─────────────────────────────────────────
 
 @router.post("/train")
-def start_training(
-    model_name: str = Form(...),
-    dataset_source: str = Form(...),
-    max_seq_length: int = Form(2048),
+async def start_training(
+    model_name: str = Form("unsloth/tinyllama-bnb-4bit"),
+    dataset_source: str = Form("..."),
+    output_name: str = Form("finetuned-model"),
     num_epochs: int = Form(1),
     learning_rate: float = Form(2e-4),
-    per_device_batch_size: int = Form(2),
-    gradient_accumulation_steps: int = Form(4),
-    warmup_steps: int = Form(5),
     lora_r: int = Form(16),
     lora_alpha: int = Form(16),
-    lora_dropout: float = Form(0.0),
-    dataset_format: str = Form("auto"),
-    text_column: str = Form("text"),
-    prompt_template: Optional[str] = Form(None),
-    max_samples: Optional[int] = Form(None),
+    max_seq_length: int = Form(2048),
+    per_device_batch_size: int = Form(2),
+    gradient_accumulation_steps: int = Form(4),
     use_4bit: bool = Form(True),
 ):
-    """Start a QLoRA fine-tuning job with Unsloth."""
-    from services.unsloth_service import start_finetuning
-    output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "finetune")
-    result = start_finetuning(
-        model_name=model_name,
-        dataset_source=dataset_source,
-        output_dir=output_dir,
-        max_seq_length=max_seq_length,
-        num_epochs=num_epochs,
-        learning_rate=learning_rate,
-        per_device_batch_size=per_device_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        warmup_steps=warmup_steps,
-        lora_r=lora_r,
-        lora_alpha=lora_alpha,
-        lora_dropout=lora_dropout,
-        dataset_format=dataset_format,
-        text_column=text_column,
-        prompt_template=prompt_template,
-        max_samples=max_samples,
-        use_4bit=use_4bit,
+    """Start QLoRA training in .venv-train subprocess. Agent-friendly."""
+    if not TRAIN_PYTHON.exists():
+        raise HTTPException(400, ".venv-train not found. Run: uv venv --python 3.12 .venv-train")
+
+    # Resolve dataset path
+    dataset_path = Path(dataset_source)
+    if not dataset_path.exists():
+        raise HTTPException(400, f"Dataset not found: {dataset_source}")
+
+    job_id = f"train-{uuid.uuid4().hex[:8]}"
+    output_dir = REPO_ROOT / "backend" / "data" / "finetune" / output_name
+
+    script = (REPO_ROOT / "backend" / "services" / "run_finetune.py")
+    script.write_text(f'''"""NPU-STACK training script — auto-generated."""
+import sys, json, os
+os.environ["PYTHONWARNINGS"] = "ignore"
+
+print("JOB_ID: {job_id}", flush=True)
+print(f"Model: {model_name}", flush=True)
+print(f"Dataset: {dataset_source}", flush=True)
+print(f"Epochs: {num_epochs}, LR: {learning_rate}, LoRA r={lora_r}", flush=True)
+print("=" * 60, flush=True)
+
+try:
+    from unsloth import FastLanguageModel
+    import torch
+    from datasets import load_dataset
+    from trl import SFTTrainer
+    from transformers import TrainingArguments
+
+    print(f"torch: {{torch.__version__}}, CUDA: {{torch.cuda.is_available()}}", flush=True)
+    print(f"VRAM: {{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}} GB", flush=True)
+
+    # Load model
+    print(f"Loading {{model_name}}...", flush=True)
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name="{model_name}",
+        max_seq_length={max_seq_length},
+        dtype=None,
+        load_in_4bit={"True" if use_4bit else "False"},
     )
-    if not result.get("success"):
-        raise HTTPException(400, result.get("error", "Training failed"))
-    return result
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r={lora_r},
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        lora_alpha={lora_alpha},
+        lora_dropout=0,
+        bias="none",
+        use_gradient_checkpointing="unsloth",
+        random_state=42,
+    )
+
+    # Load dataset
+    print(f"Loading dataset...", flush=True)
+    dataset = load_dataset("json", data_files="{{dataset_source.replace(chr(92), chr(47))}}", split="train")
+    print(f"Dataset: {{len(dataset)}} samples", flush=True)
+
+    tokenizer.pad_token = tokenizer.eos_token
+
+    trainer = SFTTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        train_dataset=dataset,
+        dataset_text_field="text",
+        max_seq_length={max_seq_length},
+        args=TrainingArguments(
+            per_device_train_batch_size={per_device_batch_size},
+            gradient_accumulation_steps={gradient_accumulation_steps},
+            warmup_steps=5,
+            num_train_epochs={num_epochs},
+            learning_rate={learning_rate},
+            fp16=not torch.cuda.is_bf16_supported(),
+            bf16=torch.cuda.is_bf16_supported(),
+            logging_steps=1,
+            optim="adamw_8bit",
+            weight_decay=0.01,
+            lr_scheduler_type="linear",
+            seed=42,
+            output_dir=str(Path(r"{output_dir}")),
+        ),
+    )
+
+    print("Starting training...", flush=True)
+    trainer.train()
+
+    print("Saving model...", flush=True)
+    model.save_pretrained(str(Path(r"{output_dir}")))
+    tokenizer.save_pretrained(str(Path(r"{output_dir}")))
+    print("COMPLETE", flush=True)
+
+except Exception as e:
+    print(f"ERROR: {{e}}", flush=True)
+    sys.exit(1)
+''')
+
+    with _jobs_lock:
+        _jobs[job_id] = {"status": "starting", "model": model_name, "dataset": dataset_source, "epochs": num_epochs, "output": output_name}
+
+    def _run():
+        try:
+            result = subprocess.run(
+                [str(TRAIN_PYTHON), str(script)],
+                capture_output=True, text=True, timeout=3600, cwd=str(REPO_ROOT),
+            )
+            with _jobs_lock:
+                if result.returncode == 0:
+                    _jobs[job_id]["status"] = "complete"
+                    _jobs[job_id]["output_lines"] = (result.stdout or "").splitlines()[-10:]
+                else:
+                    _jobs[job_id]["status"] = "failed"
+                    _jobs[job_id]["error"] = (result.stderr or result.stdout or "Unknown error")[-500:]
+        except Exception as e:
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "failed"
+                _jobs[job_id]["error"] = str(e)
+        finally:
+            try: script.unlink()
+            except Exception: pass
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return {
+        "job_id": job_id,
+        "status": "starting",
+        "model": model_name,
+        "dataset": dataset_source,
+        "output_name": output_name,
+        "python": str(TRAIN_PYTHON),
+        "action": f"curl http://127.0.0.1:8010/api/finetune/jobs/{job_id} to check status",
+    }
 
 
 # ── Export ──────────────────────────────────────────────
