@@ -1,10 +1,201 @@
-import React, { lazy, Suspense, useState } from 'react';
-import { GraduationCap, Zap, Wrench, CloudUpload } from 'lucide-react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
+import { GraduationCap, Zap, Wrench, CloudUpload, Play, RefreshCw, CheckCircle, XCircle, AlertCircle, Cpu } from 'lucide-react';
+import { API_BASE } from '../api/client';
 
 const BasicTraining = lazy(() => import('./Training'));
 const AdvancedTraining = lazy(() => import('./AdvancedTraining'));
-const FineTuning = lazy(() => import('./FineTuning'));
 const HubPublisher = lazy(() => import('./HubPublisher'));
+
+const PRESET_MODELS = [
+  { value: 'unsloth/tinyllama-bnb-4bit', label: 'TinyLlama 1B (fast test)', vram: '~2GB' },
+  { value: 'unsloth/llama-3.2-1b-bnb-4bit', label: 'Llama 3.2 1B', vram: '~3GB' },
+  { value: 'unsloth/llama-3.2-3b-bnb-4bit', label: 'Llama 3.2 3B', vram: '~6GB' },
+  { value: 'unsloth/llama-3.1-8b-bnb-4bit', label: 'Llama 3.1 8B', vram: '~12GB' },
+  { value: 'unsloth/mistral-7b-v0.3-bnb-4bit', label: 'Mistral 7B', vram: '~12GB' },
+  { value: 'unsloth/DeepSeek-R1-Distill-Qwen-7B-bnb-4bit', label: 'DeepSeek-R1-Qwen 7B', vram: '~12GB' },
+  { value: 'unsloth/Phi-3.5-mini-instruct-bnb-4bit', label: 'Phi-3.5 Mini', vram: '~4GB' },
+  { value: 'unsloth/Qwen2.5-7B-Instruct-bnb-4bit', label: 'Qwen 2.5 7B', vram: '~12GB' },
+  { value: 'unsloth/gemma-2-2b-it-bnb-4bit', label: 'Gemma 2 2B', vram: '~4GB' },
+  { value: 'unsloth/gemma-2-9b-it-bnb-4bit', label: 'Gemma 2 9B', vram: '~14GB' },
+];
+
+// ── Unsloth Finetune Tab (inline) ────────────────────────────────────────
+function FinetuneTab() {
+  const [form, setForm] = useState({
+    model_name: 'unsloth/tinyllama-bnb-4bit',
+    dataset_source: 'J:/NPU-STACK/datasets/train.jsonl',
+    output_name: 'Nirvana/Magneto-FT',
+    num_epochs: 1,
+    learning_rate: '0.0002',
+    lora_r: 8,
+    lora_alpha: 16,
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [activeJob, setActiveJob] = useState(null);
+  const [jobStatus, setJobStatus] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [error, setError] = useState(null);
+
+  // Poll active job
+  useEffect(() => {
+    if (!activeJob || jobStatus === 'complete' || jobStatus === 'failed') return;
+    const timer = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/finetune/jobs/${activeJob}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        setJobStatus(j.status);
+        if (j.output_lines) setLogs(j.output_lines);
+        if (j.error) setLogs(prev => [...prev, 'ERROR: ' + j.error.slice(-200)]);
+      } catch {}
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [activeJob, jobStatus]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    setLogs([]);
+    setJobStatus(null);
+
+    try {
+      const fd = new FormData();
+      fd.append('model_name', form.model_name);
+      fd.append('dataset_source', form.dataset_source);
+      fd.append('output_name', form.output_name);
+      fd.append('num_epochs', form.num_epochs);
+      fd.append('learning_rate', form.learning_rate);
+      fd.append('lora_r', form.lora_r);
+      fd.append('lora_alpha', form.lora_alpha);
+
+      const r = await fetch(`${API_BASE}/finetune/train`, { method: 'POST', body: fd });
+      if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+      const data = await r.json();
+      setActiveJob(data.job_id);
+      setJobStatus('starting');
+      setLogs([`Job ${data.job_id} started — model: ${form.model_name}`]);
+    } catch (e) {
+      setError(e.message);
+    }
+    setSubmitting(false);
+  };
+
+  const update = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  return (
+    <div style={{ padding: '20px', maxWidth: 700 }}>
+      <div style={{
+        padding: 14, borderRadius: 10, marginBottom: 16,
+        background: 'rgba(102,126,234,0.08)', border: '1px solid rgba(102,126,234,0.2)',
+      }}>
+        <h4 style={{ margin: '0 0 6px', fontSize: 14 }}><Cpu size={16} style={{verticalAlign:'middle',marginRight:6}}/> Unsloth QLoRA Finetuning</h4>
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
+          Trains in <code>.venv-train</code> (Python 3.12, torch 2.12+cu130). RTX 5090 32GB detected.
+          Dataset: 250 Magneto SFT entries.
+        </p>
+      </div>
+
+      {error && (
+        <div style={{ padding: 10, borderRadius: 8, marginBottom: 12, background: 'rgba(248,81,73,0.1)', border: '1px solid #f8514966', fontSize: 13, color: '#f87171' }}>
+          <XCircle size={14} style={{verticalAlign:'middle',marginRight:6}}/>{error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Model */}
+        <div>
+          <label style={{ fontSize: 11, color: '#a0aec0', fontWeight: 600, marginBottom: 4, display: 'block' }}>Base Model</label>
+          <select value={form.model_name} onChange={e => update('model_name', e.target.value)}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontSize: 12 }}>
+            {PRESET_MODELS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Row: dataset + output */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, color: '#a0aec0', fontWeight: 600, marginBottom: 4, display: 'block' }}>Dataset Path</label>
+            <input value={form.dataset_source} onChange={e => update('dataset_source', e.target.value)}
+              placeholder="J:/NPU-STACK/datasets/train.jsonl"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'monospace' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: '#a0aec0', fontWeight: 600, marginBottom: 4, display: 'block' }}>Output Name</label>
+            <input value={form.output_name} onChange={e => update('output_name', e.target.value)}
+              placeholder="Nirvana/Magneto-FT"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontSize: 12 }} />
+          </div>
+        </div>
+
+        {/* Row: epochs, LR, lora_r, lora_alpha */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+          {[
+            { k: 'num_epochs', label: 'Epochs', type: 'number', min: 1, max: 20 },
+            { k: 'learning_rate', label: 'Learning Rate', type: 'text' },
+            { k: 'lora_r', label: 'LoRA Rank', type: 'number', min: 1, max: 128 },
+            { k: 'lora_alpha', label: 'LoRA Alpha', type: 'number', min: 1, max: 256 },
+          ].map(({ k, label, type, min, max }) => (
+            <div key={k}>
+              <label style={{ fontSize: 10, color: '#a0aec0', fontWeight: 600, marginBottom: 4, display: 'block' }}>{label}</label>
+              <input type={type} min={min} max={max}
+                value={form[k]} onChange={e => update(k, type === 'number' ? Number(e.target.value) : e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontSize: 12, fontFamily: type === 'text' ? 'monospace' : 'inherit' }} />
+            </div>
+          ))}
+        </div>
+
+        <button type="submit" disabled={submitting || !form.dataset_source}
+          style={{
+            padding: '10px 20px', borderRadius: 8, border: 'none',
+            background: submitting ? '#d29922' : '#4ade80',
+            color: '#000', fontSize: 14, fontWeight: 700, cursor: submitting ? 'default' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}>
+          {submitting ? <RefreshCw size={16} /> : <Play size={16} />}
+          {submitting ? 'Launching...' : 'Start Unsloth QLoRA Training'}
+        </button>
+      </form>
+
+      {/* Job status */}
+      {activeJob && (
+        <div style={{ marginTop: 16, padding: 14, borderRadius: 10, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            {jobStatus === 'complete' ? <CheckCircle size={16} color="#4ade80" /> :
+             jobStatus === 'failed' ? <XCircle size={16} color="#f87171" /> :
+             <AlertCircle size={16} color="#d29922" />}
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+              Job: {activeJob}
+            </span>
+            <span style={{
+              fontSize: 11, padding: '2px 8px', borderRadius: 12,
+              background: jobStatus === 'complete' ? '#1a3a2a' : jobStatus === 'failed' ? '#3a1a1a' : '#3a2a1a',
+              color: jobStatus === 'complete' ? '#4ade80' : jobStatus === 'failed' ? '#f87171' : '#d29922',
+            }}>
+              {jobStatus || 'starting'}
+            </span>
+          </div>
+
+          {logs.length > 0 && (
+            <div style={{
+              maxHeight: 300, overflow: 'auto', padding: '8px 10px',
+              borderRadius: 6, background: 'var(--bg-input)', border: '1px solid var(--border-color)',
+              fontFamily: 'monospace', fontSize: 11, lineHeight: 1.6, color: 'var(--text-muted)',
+            }}>
+              {logs.map((line, i) => (
+                <div key={i} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── TrainingCenter (main) ────────────────────────────────────────────────
 
 const TABS = [
   { id: 'basic', label: 'Basic Training', icon: GraduationCap, desc: 'Classic PyTorch training with CIFAR-10/MNIST' },
@@ -20,7 +211,7 @@ export default function TrainingCenter() {
     switch (activeTab) {
       case 'basic': return <BasicTraining />;
       case 'advanced': return <AdvancedTraining />;
-      case 'finetune': return <FineTuning />;
+      case 'finetune': return <FinetuneTab />;
       case 'publish': return <HubPublisher />;
       default: return null;
     }
