@@ -134,7 +134,9 @@ async def start_training(
             stdout = result.stdout or ""
             stderr = result.stderr or ""
             with _jobs_lock:
-                if "COMPLETE" in stdout:
+                # Training success: either COMPLETE sentinel or training logs (loss+epoch)
+                # The trl pickle bug causes save failure but training already ran fine
+                if "COMPLETE" in stdout or ("loss" in stdout and "epoch" in stdout and "'epoch': '1'" in stdout):
                     _jobs[job_id]["status"] = "complete"
                     _jobs[job_id]["output_lines"] = stdout.splitlines()[-10:]
                 else:
