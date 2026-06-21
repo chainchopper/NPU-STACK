@@ -1,0 +1,82 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-docs/v2/core/tauri-config-schema/schema.json",
+  "productName": "NPU-STACK",
+  "version": "1.0.0",
+  "identifier": "com.fanalogy.npu-stack",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5177",
+    "beforeDevCommand": "cd ../frontend && npm run dev",
+    "beforeBuildCommand": "cd ../frontend && npm run build"
+  },
+  "app": {
+    "title": "NPU-STACK — Neural Processor Toolkit",
+    "windows": [
+      {
+        "title": "NPU-STACK — Neural Processor Toolkit",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "center": true
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "tooltip": "NPU-STACK — Nirvana Orchestrator",
+      "menuOnLeftClick": false
+    },
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8010 ws://127.0.0.1:8010 http://localhost:8010 ws://localhost:8010; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "targets": ["nsis", "msi"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "shortcutName": "NPU-STACK",
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true,
+        "displayLanguageSelector": false,
+        "template": "windows/installer.nsi"
+      },
+      "wix": {
+        "language": "en-US",
+        "template": "windows/installer.wxs",
+        "bannerPath": "icons/banner.bmp",
+        "dialogImagePath": "icons/dialog.bmp"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/chainchopper/NPU-STACK/releases/latest/download/latest.json"
+      ],
+      "pubkey": "CHANGEME",
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "shell": {
+      "open": true,
+      "scope": [
+        { "name": "backend", "cmd": ".venv/Scripts/python.exe", "args": true }
+      ]
+    }
+  }
+}

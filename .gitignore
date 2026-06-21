@@ -85,3 +85,18 @@ hermes-webui/
 temp_unsloth_studio_inspect/
 .venv-train/
 unsloth_compiled_cache/
+
+# Training venv
+.venv-train/
+
+# Unsloth compiled cache (generated at runtime)
+unsloth_compiled_cache/
+
+# Tauri/Rust desktop build
+desktop/src-tauri/target/
+
+# Desktop node modules
+desktop/node_modules/
+
+# ESP32-Bit-Pirate firmware template (absorbed, tracked)
+# libraries/esp-bit-pirate/ - intentionally tracked
