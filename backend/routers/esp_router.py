@@ -348,6 +348,88 @@ def esp_status():
     }
 
 
+# ── Firmware Templates ──────────────────────────────────────────────────
+
+@router.get("/firmware-templates")
+def list_firmware_templates():
+    """List all available firmware templates — ESP-NOW examples + Bit Pirate + baked firmwares."""
+    templates = []
+
+    # ESP-NOW examples
+    if espnow_available():
+        for ex in list_examples().get("examples", []):
+            templates.append({
+                "id": f"espnow/{ex['name']}",
+                "name": ex['name'].replace("_", " ").title(),
+                "category": "espnow",
+                "category_label": "ESP-NOW",
+                "description": f"ESP-NOW mesh example: {ex['name']}",
+                "path": ex.get("path", ""),
+                "icon": "radio",
+                "actions": ["build", "flash"],
+            })
+
+    # ESP32-Bit-Pirate firmware template (submodule)
+    bit_pirate_dir = REPO_ROOT / "libraries" / "esp-bit-pirate"
+    if bit_pirate_dir.exists():
+        bp_src = bit_pirate_dir / "src"
+        bp_webflasher = bit_pirate_dir / "webflasher"
+        templates.append({
+            "id": "bit-pirate/esp32-bit-pirate",
+            "name": "ESP32 Bit Pirate",
+            "category": "firmware",
+            "category_label": "Firmware",
+            "description": "Multi-protocol hardware hacking tool — 23 modes: I2C, SPI, UART, JTAG, CAN, RFID, SubGHz, Bluetooth, Wi-Fi, IR, FM, CELL. Web flasher + web serial terminal.",
+            "path": str(bit_pirate_dir.relative_to(REPO_ROOT)),
+            "icon": "cpu",
+            "platformio_config": "platformio.ini" if (bit_pirate_dir / "platformio.ini").exists() else None,
+            "web_flasher": str(bp_webflasher.relative_to(REPO_ROOT)) if bp_webflasher.exists() else None,
+            "modes": 23,
+            "boards": [
+                "ESP32-S3 Dev Kit", "LILYGO T-Display", "LILYGO T-Embed", "LILYGO T-Embed CC1101",
+                "M5 AtomS3 Lite", "M5 Cardputer", "M5 StampS3", "M5 Stick S3", "Seeed Xiao S3",
+            ],
+            "actions": ["build", "flash", "web-flash"],
+            "license": "MIT",
+            "wiki": "https://github.com/geo-tp/ESP32-Bit-Pirate/wiki",
+        })
+
+    # ESP-NOW library baked templates
+    espnow_lib = REPO_ROOT / "libraries" / "esp-now-lib"
+    if espnow_lib.exists():
+        templates.append({
+            "id": "template/espnow-mesh-node",
+            "name": "ESP-NOW Mesh Node",
+            "category": "template",
+            "category_label": "Template",
+            "description": "Bare ESP-NOW mesh node firmware template — build on top of ESP-NOW control, OTA, and security modules.",
+            "path": "libraries/esp-now-lib/src",
+            "icon": "zap",
+            "actions": ["build"],
+        })
+
+    # CircuitPython template (for RP2040 / Adafruit boards)
+    circuitpython_dir = REPO_ROOT / "firmware" / "circuitpython-agent"
+    if circuitpython_dir.exists():
+        templates.append({
+            "id": "template/circuitpython-agent",
+            "name": "CircuitPython Agent",
+            "category": "template",
+            "category_label": "Template",
+            "description": "CircuitPython edge agent for RP2040/RP2350/Adafruit boards — USB mass-storage flash.",
+            "path": str(circuitpython_dir.relative_to(REPO_ROOT)),
+            "icon": "cpu",
+            "flash_method": "uf2",
+            "actions": ["flash"],
+        })
+
+    return {
+        "templates": templates,
+        "count": len(templates),
+        "categories": list(set(t["category_label"] for t in templates)),
+    }
+
+
 @router.get("/espnow/modules")
 def esp_modules():
     """ESP-NOW source modules."""

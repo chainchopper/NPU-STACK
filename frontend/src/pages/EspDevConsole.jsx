@@ -11,6 +11,7 @@ const TABS = [
   { id: 'devices', label: 'Devices', icon: MonitorSmartphone },
   { id: 'terminal', label: 'Terminal', icon: Terminal },
   { id: 'espnow', label: 'ESP-NOW', icon: Radio },
+  { id: 'firmware', label: 'Firmware', icon: Download },
   { id: 'projects', label: 'IDF Projects', icon: FolderOpen },
 ];
 
@@ -655,6 +656,107 @@ function EspNowPanel({ selectedDevice }) {
   );
 }
 
+// ── Firmware Templates Tab ─────────────────────────────────────────────────
+function FirmwarePanel() {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(API_BASE + '/esp/firmware-templates')
+      .then(r => r.ok ? r.json() : { templates: [] })
+      .then(d => setTemplates(d.templates || []))
+      .catch(() => setTemplates([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const categories = [...new Set(templates.map(t => t.category_label))];
+
+  const catIcons = {
+    'ESP-NOW': <Radio size={14} color="#4ade80" />,
+    'Firmware': <Download size={14} color="#d29922" />,
+    'Template': <Zap size={14} color="#58a6ff" />,
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Download size={18} color="#4ade80" />
+        <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>Firmware Templates</h3>
+      </div>
+
+      {loading && <div className="spinner" style={{margin:'20px auto'}} />}
+
+      {categories.map(cat => (
+        <div key={cat}>
+          <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {catIcons[cat] || <Zap size={14} />}
+            {cat} ({templates.filter(t => t.category_label === cat).length})
+          </h4>
+          {templates.filter(t => t.category_label === cat).map(t => (
+            <div key={t.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+              marginBottom: 6, borderRadius: 8,
+              background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            }}>
+              <Download size={16} color={t.category === 'firmware' ? '#d29922' : '#4ade80'} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {t.name}
+                  {t.category === 'firmware' && (
+                    <span style={{ fontSize: 10, marginLeft: 8, padding: '1px 6px', borderRadius: 4, background: '#3a2a1a', color: '#d29922' }}>
+                      {t.modes} modes
+                    </span>
+                  )}
+                  {t.license && (
+                    <span style={{ fontSize: 10, marginLeft: 4, padding: '1px 6px', borderRadius: 4, background: '#1a2a3a', color: '#58a6ff' }}>
+                      {t.license}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {t.description}
+                </div>
+                {t.boards && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                    {t.boards.slice(0, 5).map(b => (
+                      <span key={b} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                        {b}
+                      </span>
+                    ))}
+                    {t.boards.length > 5 && (
+                      <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>+{t.boards.length - 5} more</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexDirection: 'column', alignItems: 'flex-end' }}>
+                {t.wiki && (
+                  <a href={t.wiki} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#58a6ff', textDecoration: 'none' }}>
+                    Wiki →
+                  </a>
+                )}
+                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                  {t.actions?.map(a => (
+                    <span key={a} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#1a3a2a', color: '#4ade80' }}>
+                      {a}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {!loading && templates.length === 0 && (
+        <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: 20, textAlign: 'center' }}>
+          No firmware templates available. Add firmware sources to libraries/ or use ESP-IDF projects.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── IDF Projects Tab ───────────────────────────────────────────────────────
 function ProjectsPanel() {
   const [projects, setProjects] = useState([]);
@@ -827,6 +929,7 @@ export default function EspDevConsole() {
         )}
         {activeTab === 'terminal' && <SerialTerminal />}
         {activeTab === 'espnow' && <EspNowPanel selectedDevice={selectedDevice} />}
+        {activeTab === 'firmware' && <FirmwarePanel />}
         {activeTab === 'projects' && <ProjectsPanel />}
       </div>
     </div>
