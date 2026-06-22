@@ -53,6 +53,12 @@ hardware_results.json
 
 # Environment config (contains secrets)
 .env
+
+# Trained model outputs (publish to HuggingFace, not git)
+*.gguf
+*.safetensors
+backend/data/finetune/
+backend/data/exports/
 .env.local
 .env.*.local
 !.env.example
