@@ -134,6 +134,8 @@ async def start_training(
                     "NPU_LORA_ALPHA": str(lora_alpha),
                     "NPU_BATCH_SIZE": str(per_device_batch_size),
                     "NPU_GRAD_ACCUM": str(gradient_accumulation_steps),
+                    "HF_HUB_ENABLE_HF_TRANSFER": "0",
+                    "HF_HUB_DISABLE_XET": "1",
                     "NPU_EXPORT_GGUF": "1" if export_gguf else "",
                 },
             )
