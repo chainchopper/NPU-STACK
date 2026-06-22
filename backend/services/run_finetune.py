@@ -109,6 +109,20 @@ try:
         merged = model.merge_and_unload()
         merged.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
+
+    # Export GGUF if requested
+    export_gguf = os.environ.get("NPU_EXPORT_GGUF", "").lower() in ("1", "true", "yes")
+    if export_gguf:
+        print("Exporting to GGUF...", flush=True)
+        quant = os.environ.get("NPU_GGUF_QUANT", "q4_k_m")
+        try:
+            model.save_pretrained_gguf(output_dir, tokenizer, quantization_method=quant)
+            print(f"GGUF exported to {output_dir}", flush=True)
+        except Exception as e:
+            print(f"GGUF export failed: {e}, trying merge path...", flush=True)
+            merged = model.merge_and_unload()
+            merged.save_pretrained_gguf(output_dir, tokenizer, quantization_method=quant)
+            print(f"GGUF exported via merge to {output_dir}", flush=True)
     print("COMPLETE", flush=True)
 
 except Exception:

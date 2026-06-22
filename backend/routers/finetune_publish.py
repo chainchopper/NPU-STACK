@@ -91,8 +91,13 @@ async def start_training(
     per_device_batch_size: int = Form(2),
     gradient_accumulation_steps: int = Form(4),
     use_4bit: bool = Form(True),
+    export_gguf: bool = Form(False),
 ):
-    """Start QLoRA training in .venv-train subprocess. Agent-friendly."""
+    """Start QLoRA training in .venv-train subprocess. Agent-friendly.
+    
+    Set export_gguf=true to auto-export GGUF after training completes.
+    Or use POST /api/finetune/export-gguf on an existing checkpoint.
+    """
     if not TRAIN_PYTHON.exists():
         raise HTTPException(400, ".venv-train not found. Run: uv venv --python 3.12 .venv-train")
 
@@ -129,6 +134,7 @@ async def start_training(
                     "NPU_LORA_ALPHA": str(lora_alpha),
                     "NPU_BATCH_SIZE": str(per_device_batch_size),
                     "NPU_GRAD_ACCUM": str(gradient_accumulation_steps),
+                    "NPU_EXPORT_GGUF": "1" if export_gguf else "",
                 },
             )
             stdout = result.stdout or ""
@@ -178,6 +184,47 @@ def export_model(
     if not result.get("success"):
         raise HTTPException(400, result.get("error", "Export failed"))
     return result
+
+
+@router.post("/export-gguf")
+async def export_gguf(
+    checkpoint_dir: str = Form(...),
+    quant_type: str = Form("q4_k_m"),
+    output_name: str = Form("model.gguf"),
+):
+    """Export a trained LoRA checkpoint to GGUF format using .venv-train subprocess."""
+    ckpt = Path(checkpoint_dir)
+    if not ckpt.exists() or not (ckpt / "adapter_model.safetensors").exists():
+        raise HTTPException(400, f"Checkpoint not found or missing adapter: {checkpoint_dir}")
+
+    out_dir = ckpt / "gguf"
+    out_dir.mkdir(exist_ok=True)
+    script = REPO_ROOT / "backend" / "services" / "export_gguf.py"
+
+    try:
+        result = subprocess.run(
+            [str(TRAIN_PYTHON), "-u", str(script)],
+            capture_output=True, encoding="utf-8", timeout=600, cwd=str(REPO_ROOT),
+            env={
+                **os.environ,
+                "PYTHONUNBUFFERED": "1",
+                "NPU_CHECKPOINT_DIR": str(ckpt),
+                "NPU_GGUF_QUANT": quant_type,
+                "NPU_OUTPUT_DIR": str(out_dir),
+                "NPU_OUTPUT_NAME": output_name,
+            },
+        )
+        gguf_file = out_dir / output_name
+        if result.returncode == 0 and gguf_file.exists():
+            return {
+                "success": True,
+                "gguf_path": str(gguf_file),
+                "size_mb": round(gguf_file.stat().st_size / (1024 * 1024), 1),
+                "quant_type": quant_type,
+            }
+        return {"success": False, "error": result.stderr[-500:] if result.stderr else "Unknown error"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 # ── Model Card ──────────────────────────────────────────

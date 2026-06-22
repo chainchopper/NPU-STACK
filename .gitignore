@@ -73,6 +73,8 @@ Fleet MCP - OTA - REMOTE BOOT - MGMT - SERVICE AND DEVICE DISOVERY.md
 assets/
 compositions/
 libraries/
+!libraries/esp-now-lib/
+!libraries/esp-bit-pirate/
 test_escape.bat
 test_hardware.py
 test_quote.bat
