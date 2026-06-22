@@ -778,5 +778,3 @@ def try_auto_start_webui(background: bool = True, timeout: float = 10.0) -> Dict
         return {"started": True, "mode": "background", "url": WEBUI_URL, "timeout": timeout}
     else:
         return start_webui(timeout_seconds=timeout)
-    except Exception as exc:  # noqa: BLE001
-        raise NirvanaServiceError(f"Nirvana sync chat failed: {exc}") from exc
