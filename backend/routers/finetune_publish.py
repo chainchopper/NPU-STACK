@@ -136,6 +136,7 @@ async def start_training(
                     "NPU_GRAD_ACCUM": str(gradient_accumulation_steps),
                     "HF_HUB_ENABLE_HF_TRANSFER": "0",
                     "HF_HUB_DISABLE_XET": "1",
+                    "HF_HOME": "N:/LLM-MODELS-EXTERNAL/hf-cache",
                     "NPU_EXPORT_GGUF": "1" if export_gguf else "",
                 },
             )
