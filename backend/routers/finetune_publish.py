@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional, List
@@ -107,7 +108,8 @@ async def start_training(
         raise HTTPException(400, f"Dataset not found: {dataset_source}")
 
     job_id = f"train-{uuid.uuid4().hex[:8]}"
-    output_dir = REPO_ROOT / "backend" / "data" / "finetune" / output_name
+    # Use G:\TRAINING-GROUNDS for all training outputs to keep J: lean
+    output_dir = Path("G:/TRAINING-GROUNDS/checkpoints") / output_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     script = REPO_ROOT / "backend" / "services" / "run_finetune.py"
@@ -115,47 +117,77 @@ async def start_training(
     with _jobs_lock:
         _jobs[job_id] = {"status": "starting", "model": model_name, "dataset": dataset_source, "epochs": num_epochs, "output": output_name}
 
+    log_file = output_dir / "training.log"
+
     def _run():
         try:
-            result = subprocess.run(
-                [str(TRAIN_PYTHON), "-u", str(script)],
-                capture_output=True, encoding="utf-8", timeout=3600, cwd=str(REPO_ROOT),
-                env={
-                    **os.environ,
-                    "PYTHONUNBUFFERED": "1",
-                    "PYTHONIOENCODING": "utf-8",
-                    "NPU_JOB_ID": job_id,
-                    "NPU_MODEL_NAME": model_name,
-                    "NPU_DATASET_PATH": str(dataset_path),
-                    "NPU_OUTPUT_DIR": str(output_dir),
-                    "NPU_EPOCHS": str(num_epochs),
-                    "NPU_LR": str(learning_rate),
-                    "NPU_LORA_R": str(lora_r),
-                    "NPU_LORA_ALPHA": str(lora_alpha),
-                    "NPU_BATCH_SIZE": str(per_device_batch_size),
-                    "NPU_GRAD_ACCUM": str(gradient_accumulation_steps),
-                    "HF_HUB_ENABLE_HF_TRANSFER": "0",
-                    "HF_HUB_DISABLE_XET": "1",
-                    "HF_HOME": "N:/LLM-MODELS-EXTERNAL/hf-cache",
-                    "NPU_EXPORT_GGUF": "1" if export_gguf else "",
-                },
-            )
-            stdout = result.stdout or ""
-            stderr = result.stderr or ""
+            with open(log_file, "w", encoding="utf-8") as lf:
+                proc = subprocess.Popen(
+                    [str(TRAIN_PYTHON), "-u", str(script)],
+                    stdout=lf, stderr=subprocess.STDOUT,
+                    cwd=str(REPO_ROOT),
+                    env={
+                        **os.environ,
+                        "PYTHONUNBUFFERED": "1",
+                        "PYTHONIOENCODING": "utf-8",
+                        "NPU_JOB_ID": job_id,
+                        "NPU_MODEL_NAME": model_name,
+                        "NPU_DATASET_PATH": str(dataset_path),
+                        "NPU_OUTPUT_DIR": str(output_dir),
+                        "NPU_EPOCHS": str(num_epochs),
+                        "NPU_LR": str(learning_rate),
+                        "NPU_LORA_R": str(lora_r),
+                        "NPU_LORA_ALPHA": str(lora_alpha),
+                        "NPU_BATCH_SIZE": str(per_device_batch_size),
+                        "NPU_GRAD_ACCUM": str(gradient_accumulation_steps),
+                        "NPU_MAX_SEQ_LENGTH": str(max_seq_length),
+                        "HF_HUB_ENABLE_HF_TRANSFER": "0",
+                        "HF_HUB_DISABLE_XET": "1",
+                        "HF_HOME": "G:/TRAINING-GROUNDS/cache/hf-cache",
+                        "HF_HUB_CACHE": "G:/TRAINING-GROUNDS/cache/hf-cache/hub",
+                        "HUGGINGFACE_HUB_CACHE": "G:/TRAINING-GROUNDS/cache/hf-cache/hub",
+                        "TRANSFORMERS_CACHE": "G:/TRAINING-GROUNDS/cache/transformers",
+                        "UNSLOTH_HOME": "G:/TRAINING-GROUNDS/cache/unsloth",
+                        "UNSLOTH_FUSED_CE_COMPILE_DISABLE": "1",
+                        "UNSLOTH_CE_LOSS_TARGET_GB": "0.5",
+                        "TMPDIR": "G:/TRAINING-GROUNDS/tmp",
+                        "TMP": "G:/TRAINING-GROUNDS/tmp",
+                        "TEMP": "G:/TRAINING-GROUNDS/tmp",
+                        "NPU_EXPORT_GGUF": "1" if export_gguf else "",
+                    },
+                )
+            
+            # Poll until done (no timeout — training takes as long as it takes)
             with _jobs_lock:
-                # Training success: either COMPLETE sentinel or training logs (loss+epoch)
-                # The trl pickle bug causes save failure but training already ran fine
-                if "COMPLETE" in stdout or ("loss" in stdout and "epoch" in stdout and "'epoch': '1'" in stdout):
+                _jobs[job_id]["pid"] = proc.pid
+            
+            while proc.poll() is None:
+                # Check log for progress (scan entire file, warnings may flood tail)
+                if log_file.exists():
+                    full_log = log_file.read_text(encoding="utf-8")
+                    if "loss" in full_log and "epoch" in full_log:
+                        with _jobs_lock:
+                            _jobs[job_id]["status"] = "training"
+                time.sleep(5)
+            
+            # Process finished — read result
+            rc = proc.returncode
+            log_text = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
+            
+            with _jobs_lock:
+                if rc == 0 and ("COMPLETE" in log_text or ("loss" in log_text and "epoch" in log_text)):
                     _jobs[job_id]["status"] = "complete"
-                    _jobs[job_id]["output_lines"] = stdout.splitlines()[-10:]
+                    # Extract last 10 loss lines
+                    loss_lines = [l for l in log_text.splitlines() if "loss" in l and "epoch" in l]
+                    _jobs[job_id]["output_lines"] = loss_lines[-10:] if loss_lines else ["COMPLETE"]
                 else:
                     _jobs[job_id]["status"] = "failed"
-                    _jobs[job_id]["error"] = (stderr[-500:] if stderr else "") + (stdout[-500:] if stdout else "")
+                    _jobs[job_id]["error"] = log_text[-800:]
         except Exception as e:
             with _jobs_lock:
                 _jobs[job_id]["status"] = "failed"
                 _jobs[job_id]["error"] = str(e)
-
+    
     threading.Thread(target=_run, daemon=True).start()
 
     return {

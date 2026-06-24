@@ -59,6 +59,11 @@ hardware_results.json
 *.safetensors
 backend/data/finetune/
 backend/data/exports/
+.hf-cache/
+.venv-train/
+unsloth_compiled_cache/
+desktop/src-tauri/target/
+desktop/node_modules/
 .env.local
 .env.*.local
 !.env.example
