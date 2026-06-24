@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
             setupFiles: './src/test/setup.js',
         },
         server: {
-            port: 5173,
+            port: 5180,  // safe port — avoids conflicts with 5173/5177
             proxy: {
                 '/api': {
                     target: backendOrigin,

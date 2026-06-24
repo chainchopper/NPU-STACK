@@ -48,7 +48,7 @@ function FinetuneTab() {
         if (j.output_lines) setLogs(j.output_lines);
         if (j.error) setLogs(prev => [...prev, 'ERROR: ' + j.error.slice(-200)]);
       } catch {}
-    }, 2000);
+    }, 30000);  // poll every 30s — training jobs take hours
     return () => clearInterval(timer);
   }, [activeJob, jobStatus]);
 
