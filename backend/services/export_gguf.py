@@ -56,17 +56,50 @@ try:
     print("Merging adapter into base...", flush=True)
     model = model.merge_and_unload()
 
-    print(f"Exporting GGUF ({quant})...", flush=True)
-    model.save_pretrained_gguf(out_dir, tokenizer, quantization_method=quant)
+    # ── Save merged model as 16-bit safetensors, then convert via llama.cpp ──
+    merge_dir = os.path.join(str(ckpt.parent), "merged")
+    os.makedirs(merge_dir, exist_ok=True)
+    print(f"Exporting GGUF ({quant}) via llama.cpp convert...", flush=True)
 
+    # Step 1: Save merged model to disk (16-bit safetensors)
+    model.save_pretrained(merge_dir, safe_serialization=True)
+    tokenizer.save_pretrained(merge_dir)
+    print(f"Merged model saved to {merge_dir}", flush=True)
+
+    # Step 2: Convert to GGUF using llama.cpp
+    llama_cpp_dir = os.environ.get("LLAMA_CPP_DIR", "J:/NPU-STACK/llama.cpp")
+    convert_script = os.path.join(llama_cpp_dir, "convert_hf_to_gguf.py")
+    gguf_path = os.path.join(out_dir, out_name.replace(".gguf", f"-{quant}.gguf"))
+
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, convert_script, merge_dir, "--outfile", gguf_path, "--outtype", "q8_0"],
+        capture_output=True, text=True, cwd=llama_cpp_dir, timeout=3600
+    )
+    if result.returncode != 0:
+        print(f"llama.cpp convert failed: {result.stderr[-500:]}", flush=True)
+        # Fallback: try Unsloth native save_pretrained_gguf
+        print("Falling back to Unsloth save_pretrained_gguf...", flush=True)
+        model.save_pretrained_gguf(out_dir, tokenizer, quantization_method=quant)
+    else:
+        print(result.stdout[-500:], flush=True)
+
+    # Check result
     gguf_files = glob.glob(os.path.join(out_dir, "*.gguf"))
     if gguf_files:
-        target = os.path.join(out_dir, out_name)
-        os.rename(gguf_files[0], target)
-        size_mb = os.path.getsize(target) / (1024 * 1024)
-        print(f"OK: {target} ({size_mb:.1f} MB)", flush=True)
+        size_mb = os.path.getsize(gguf_files[0]) / (1024 * 1024)
+        print(f"OK: {gguf_files[0]} ({size_mb:.1f} MB)", flush=True)
     else:
-        print("FAIL: no .gguf produced", flush=True)
+        # Check merge_dir too
+        gguf_files2 = glob.glob(os.path.join(merge_dir, "*.gguf"))
+        if gguf_files2:
+            import shutil
+            out_path = os.path.join(out_dir, out_name)
+            shutil.move(gguf_files2[0], out_path)
+            size_mb = os.path.getsize(out_path) / (1024 * 1024)
+            print(f"OK: {out_path} ({size_mb:.1f} MB)", flush=True)
+        else:
+            print("FAIL: no .gguf produced at all", flush=True)
 
 except Exception as e:
     import traceback

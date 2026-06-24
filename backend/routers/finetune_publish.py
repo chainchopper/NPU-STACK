@@ -232,14 +232,14 @@ async def export_gguf(
     if not ckpt.exists() or not (ckpt / "adapter_model.safetensors").exists():
         raise HTTPException(400, f"Checkpoint not found or missing adapter: {checkpoint_dir}")
 
-    out_dir = ckpt / "gguf"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path("G:/TRAINING-GROUNDS/exports")
+    out_dir.mkdir(parents=True, exist_ok=True)
     script = REPO_ROOT / "backend" / "services" / "export_gguf.py"
 
     try:
         result = subprocess.run(
             [str(TRAIN_PYTHON), "-u", str(script)],
-            capture_output=True, encoding="utf-8", timeout=600, cwd=str(REPO_ROOT),
+            capture_output=True, encoding="utf-8", timeout=7200, cwd=str(REPO_ROOT),
             env={
                 **os.environ,
                 "PYTHONUNBUFFERED": "1",
