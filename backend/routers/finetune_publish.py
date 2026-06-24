@@ -79,6 +79,32 @@ def prepare_dataset(
 
 # ── Fine-Tuning ─────────────────────────────────────────
 
+@router.get("/checkpoints")
+def list_checkpoints():
+    """List trained checkpoints from G:/TRAINING-GROUNDS/checkpoints/Nirvana/."""
+    ckpt_root = Path("G:/TRAINING-GROUNDS/checkpoints/Nirvana")
+    checkpoints = []
+    if ckpt_root.exists():
+        for d in sorted(ckpt_root.iterdir(), key=lambda x: x.name):
+            if not d.is_dir():
+                continue
+            adapter = None
+            gguf_files = []
+            for ckpt_dir in sorted(d.glob("checkpoint-*")):
+                af = ckpt_dir / "adapter_model.safetensors"
+                if af.exists():
+                    adapter = {"dir": str(ckpt_dir), "size_mb": round(af.stat().st_size / (1024*1024), 1)}
+            for gf in d.rglob("*.gguf"):
+                gguf_files.append({"path": str(gf), "size_gb": round(gf.stat().st_size / (1024**3), 2)})
+            if adapter or gguf_files:
+                checkpoints.append({
+                    "name": d.name,
+                    "adapter": adapter,
+                    "gguf_files": gguf_files,
+                })
+    return {"checkpoints_dir": str(ckpt_root), "count": len(checkpoints), "checkpoints": checkpoints}
+
+
 @router.post("/train")
 async def start_training(
     model_name: str = Form("unsloth/tinyllama-bnb-4bit"),

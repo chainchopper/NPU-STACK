@@ -32,6 +32,18 @@ function FinetuneTab() {
   const [jobStatus, setJobStatus] = useState(null);
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
+  const [trainedModels, setTrainedModels] = useState([]);
+
+  // Load trained checkpoints
+  useEffect(() => {
+    fetch(`${API_BASE}/finetune/checkpoints`).then(r => r.json()).then(d => {
+      const ckpts = (d.checkpoints || []).map(c => ({
+        value: c.adapter?.dir || c.name,
+        label: `📦 ${c.name} (${c.adapter?.size_mb || '?'}MB${c.gguf_files?.length ? ', GGUF' : ''})`,
+      }));
+      setTrainedModels(ckpts);
+    }).catch(() => {});
+  }, []);
 
   // Poll active job
   useEffect(() => {
@@ -105,9 +117,24 @@ function FinetuneTab() {
           <label style={{ fontSize: 11, color: '#a0aec0', fontWeight: 600, marginBottom: 4, display: 'block' }}>Base Model</label>
           <select value={form.model_name} onChange={e => update('model_name', e.target.value)}
             style={{ width: '100%', padding: '8px 10px', borderRadius: 8, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontSize: 12 }}>
-            {PRESET_MODELS.map(m => (
+            <optgroup label="Multimodal Vision Models">
+            {PRESET_MODELS.filter(m => m.vision).map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
+            </optgroup>
+            <optgroup label="Fast Test">
+            {PRESET_MODELS.filter(m => !m.vision).map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+            </optgroup>
+            {trainedModels.length > 0 && (
+              <optgroup label="Trained Checkpoints (G:/TRAINING-GROUNDS)">
+                {trainedModels.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
           </select>
         </div>
 
