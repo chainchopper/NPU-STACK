@@ -197,6 +197,16 @@ def nirvana_health() -> Dict[str, Any]:
     }
 
 
+@router.get("/health/agent")
+def agent_health():
+    """Nirvana WebUI polls this — return agent runtime status."""
+    try:
+        from routers.agent import _runtime
+        return {"ok": True, "running": _runtime is not None and getattr(_runtime, 'agent', None) is not None}
+    except Exception:
+        return {"ok": True, "running": False}
+
+
 # ── Cron ─────────────────────────────────────────────────────────────────
 
 @router.get("/cron")

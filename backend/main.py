@@ -244,6 +244,17 @@ def health_check():
     }
 
 
+@app.get("/api/health/agent")
+def agent_health():
+    """Agent health — the Nirvana WebUI polls this."""
+    try:
+        from routers.agent import _runtime
+        running = _runtime is not None and getattr(_runtime, 'agent', None) is not None
+    except Exception:
+        running = False
+    return {"ok": True, "running": running, "service": "nirvana-agent"} 
+
+
 @app.get("/api/status")
 def system_status():
     """Get system status including model and job counts."""
