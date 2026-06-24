@@ -736,7 +736,7 @@ export default function Agents() {
           : session
       ))));
 
-      setNotice(runtimeMeta ? 'Nirvana · DeepSeek' : '');
+      setNotice(runtimeMeta ? 'Nirvana' : '');
       await ensureSessionsForProfile(activeProfileId, persistedSession?.id || sessionId);
     } catch (e) {
       const errorTimestamp = new Date().toISOString();
@@ -1291,7 +1291,7 @@ export default function Agents() {
                     )}
                     {m.runtime && (
                       <div className="text-muted" style={{ fontSize: 11, marginTop: 3 }}>
-                        Nirvana · DeepSeek
+                        Nirvana
                       </div>
                     )}
                   </div>
@@ -1300,7 +1300,7 @@ export default function Agents() {
             </div>
 
             <div className="text-muted" style={{ fontSize: 12, marginBottom: 10 }}>
-              Nirvana runs on DeepSeek. Its model is separate from NPU-STACK training, benchmarking, and playground models.
+              Nirvana agents handle conversation, fleet commands, tool use, and orchestration — separate from the model training pipelines.
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>

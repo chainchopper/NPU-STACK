@@ -285,7 +285,7 @@ export default function Orchestration() {
           <div className="card-header">
             <h3 className="card-title">Local Inference Runtime</h3>
             <div className="text-muted" style={{ fontSize: 11, marginTop: 2 }}>
-              Optional local LLM bridge. Nirvana uses DeepSeek by default;
+              Default provider for Nirvana agent chat. Configure API keys;
               enable this for an on-device fallback (Ollama, local GGUF, vLLM).
             </div>
           </div>

@@ -7,16 +7,13 @@ const AdvancedTraining = lazy(() => import('./AdvancedTraining'));
 const HubPublisher = lazy(() => import('./HubPublisher'));
 
 const PRESET_MODELS = [
+  // ── Multimodal Vision Models (priority — thinking, tool use, audio/visual) ──
+  { value: 'unsloth/Qwen3.6-27B', label: 'Qwen3.6 27B (vision, MTP)', vram: '~18GB 4-bit', vision: true },
+  { value: 'unsloth/Qwen3.5-9B-Base', label: 'Qwen3.5 9B (vision)', vram: '~8GB 4-bit', vision: true },
+  { value: 'unsloth/gemma-4-E4B-it-unsloth-bnb-4bit', label: 'Gemma 4 E4B (vision, MoE)', vram: '~4GB 4-bit', vision: true },
+  { value: 'unsloth/gemma-4-12b-it', label: 'Gemma 4 12B (vision, unified)', vram: '~20GB 4-bit', vision: true },
+  // ── Text-Only (kept for fast testing) ──
   { value: 'unsloth/tinyllama-bnb-4bit', label: 'TinyLlama 1B (fast test)', vram: '~2GB' },
-  { value: 'unsloth/llama-3.2-1b-bnb-4bit', label: 'Llama 3.2 1B', vram: '~3GB' },
-  { value: 'unsloth/llama-3.2-3b-bnb-4bit', label: 'Llama 3.2 3B', vram: '~6GB' },
-  { value: 'unsloth/llama-3.1-8b-bnb-4bit', label: 'Llama 3.1 8B', vram: '~12GB' },
-  { value: 'unsloth/mistral-7b-v0.3-bnb-4bit', label: 'Mistral 7B', vram: '~12GB' },
-  { value: 'unsloth/DeepSeek-R1-Distill-Qwen-7B-bnb-4bit', label: 'DeepSeek-R1-Qwen 7B', vram: '~12GB' },
-  { value: 'unsloth/Phi-3.5-mini-instruct-bnb-4bit', label: 'Phi-3.5 Mini', vram: '~4GB' },
-  { value: 'unsloth/Qwen2.5-7B-Instruct-bnb-4bit', label: 'Qwen 2.5 7B', vram: '~12GB' },
-  { value: 'unsloth/gemma-2-2b-it-bnb-4bit', label: 'Gemma 2 2B', vram: '~4GB' },
-  { value: 'unsloth/gemma-2-9b-it-bnb-4bit', label: 'Gemma 2 9B', vram: '~14GB' },
 ];
 
 // ── Unsloth Finetune Tab (inline) ────────────────────────────────────────

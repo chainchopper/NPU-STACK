@@ -83,7 +83,9 @@ export default function Benchmark() {
             listBenchmarks().catch(() => []),
             getSystemInfo().catch(() => null),
         ]).then(([m, b, info]) => {
-            setModels(m);
+            // Normalize: API may return array directly or { models: [...] }
+            const modelList = Array.isArray(m) ? m : (m?.models || []);
+            setModels(modelList);
             setBenchmarks(b);
             setSystemInfo(info);
             if (!info) {

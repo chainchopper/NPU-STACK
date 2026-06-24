@@ -193,7 +193,7 @@ export default function CompactAgentOverlay({ onClose }) {
           <Bot size={16} color="#4ade80" />
           <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>Nirvana</span>
           <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: '#1a3a2a', color: '#4ade80' }}>
-            DeepSeek
+            Nirvana
           </span>
         </div>
         <button onClick={onClose} style={{

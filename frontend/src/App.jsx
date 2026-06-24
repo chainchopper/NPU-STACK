@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, Package, ChevronDown, ChevronRight, Antenna } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Clock, Home, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, Package, ChevronDown, ChevronRight, Antenna, Layers } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
@@ -44,6 +44,8 @@ const NirvanaLogs = lazy(() => import('./pages/NirvanaLogs'));
 const NirvanaWorkspace = lazy(() => import('./pages/NirvanaWorkspace'));
 const NirvanaAppearance = lazy(() => import('./pages/NirvanaAppearance'));
 const NirvanaPlugins = lazy(() => import('./pages/NirvanaPlugins'));
+const NirvanaTodos = lazy(() => import('./pages/NirvanaTodos'));
+const NirvanaInsights = lazy(() => import('./pages/NirvanaInsights'));
 const EspNowDeploy = lazy(() => import('./pages/EspNowDeploy'));
 const EspDevConsole = lazy(() => import('./pages/EspDevConsole'));
 
@@ -68,21 +70,23 @@ const managementItems = [
 
 const nirvanaItems = [
     { path: '/nirvana-chat', icon: MessageSquare, label: 'Chat' },
-    { path: '/chat-playground', icon: FlaskConical, label: 'Chat Playground' },
     { path: '/agents', icon: Bot, label: 'Agents' },
     { path: '/orchestration', icon: Microscope, label: 'Orchestration' },
     { path: '/autoresearch', icon: SearchCheck, label: 'AutoResearch' },
     { path: '/documentation', icon: BookOpen, label: 'Documentation' },
-    { path: '/nirvana-dashboard', icon: Home, label: 'Home' },
-    { path: '/nirvana-settings', icon: Settings, label: 'Settings' },
-    { path: '/nirvana-sessions', icon: BookOpen, label: 'Sessions' },
+    { path: '/chat-playground', icon: FlaskConical, label: 'Chat Playground' },
+    // ── Mirrored from Nirvana WebUI sidebar ──
+    { path: '/nirvana-dashboard', icon: Home, label: 'Dashboard' },
+    { path: '/nirvana-sessions', icon: Layers, label: 'Sessions' },
     { path: '/nirvana-skills', icon: Puzzle, label: 'Skills' },
     { path: '/nirvana-memory', icon: Brain, label: 'Memory' },
     { path: '/nirvana-kanban', icon: Kanban, label: 'Kanban' },
     { path: '/nirvana-cron', icon: Clock, label: 'Cron' },
-    { path: '/nirvana-providers', icon: Key, label: 'Providers' },
     { path: '/nirvana-logs', icon: ScrollText, label: 'Logs' },
     { path: '/nirvana-workspace', icon: FolderOpen, label: 'Workspace' },
+    // ── System ──
+    { path: '/nirvana-settings', icon: Settings, label: 'Settings' },
+    { path: '/nirvana-providers', icon: Key, label: 'Providers' },
     { path: '/nirvana-appearance', icon: Palette, label: 'Appearance' },
     { path: '/nirvana-plugins', icon: Package, label: 'Plugins' },
 ];
@@ -214,8 +218,8 @@ function AppInner() {
                             </button>
 
                             <div style={{
-                                overflow: 'hidden',
-                                maxHeight: nirvanaExpanded ? '600px' : '0',
+                                overflow: nirvanaExpanded ? 'hidden auto' : 'hidden',
+                                maxHeight: nirvanaExpanded ? '420px' : '0',
                                 transition: 'max-height 0.25s ease',
                             }}>
                                 {nirvanaItems.map(({ path, icon: Icon, label }) => (
@@ -297,6 +301,8 @@ function AppInner() {
                             <Route path="/nirvana-workspace" element={<NirvanaWorkspace />} />
                             <Route path="/nirvana-appearance" element={<NirvanaAppearance />} />
                             <Route path="/nirvana-plugins" element={<NirvanaPlugins />} />
+                            <Route path="/nirvana-todos" element={<NirvanaTodos />} />
+                            <Route path="/nirvana-insights" element={<NirvanaInsights />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                     </Suspense>
