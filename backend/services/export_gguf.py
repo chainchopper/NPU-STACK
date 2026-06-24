@@ -53,23 +53,43 @@ try:
 
     print(f"Loading LoRA from {ckpt}...", flush=True)
     model = PeftModel.from_pretrained(model, str(ckpt))
-    print("Merging adapter into base...", flush=True)
+    
+    # ── Try Unsloth native GGUF first (works on vision + text) ──
+    print(f"Exporting GGUF ({quant}) native...", flush=True)
+    try:
+        model.save_pretrained_gguf(out_dir, tokenizer, quantization_method=quant)
+        gguf_files = glob.glob(os.path.join(out_dir, "*.gguf"))
+        if gguf_files:
+            target = os.path.join(out_dir, out_name)
+            for gf in gguf_files:
+                os.rename(gf, target)
+                break
+            size_mb = os.path.getsize(target) / (1024 * 1024)
+            print(f"OK: {target} ({size_mb:.1f} MB)", flush=True)
+            sys.exit(0)
+    except Exception as e:
+        print(f"Native GGUF failed ({e}), trying merge + convert...", flush=True)
+
+    # ── Fallback: merge to 16-bit, convert via llama.cpp ──
+    print("Merging adapter...", flush=True)
     model = model.merge_and_unload()
 
-    # ── Save merged model as 16-bit safetensors, then convert via llama.cpp ──
     merge_dir = os.path.join(str(ckpt.parent), "merged")
     os.makedirs(merge_dir, exist_ok=True)
-    print(f"Exporting GGUF ({quant}) via llama.cpp convert...", flush=True)
+    print(f"Saving merged to {merge_dir}...", flush=True)
+    try:
+        model.save_pretrained(merge_dir, safe_serialization=True)
+        tokenizer.save_pretrained(merge_dir)
+    except Exception as e:
+        print(f"save_pretrained failed ({e}), trying state_dict...", flush=True)
+        import torch
+        torch.save(model.state_dict(), os.path.join(merge_dir, "pytorch_model.bin"))
+        tokenizer.save_pretrained(merge_dir)
 
-    # Step 1: Save merged model to disk (16-bit safetensors)
-    model.save_pretrained(merge_dir, safe_serialization=True)
-    tokenizer.save_pretrained(merge_dir)
-    print(f"Merged model saved to {merge_dir}", flush=True)
-
-    # Step 2: Convert to GGUF using llama.cpp
+    print("Converting via llama.cpp...", flush=True)
     llama_cpp_dir = os.environ.get("LLAMA_CPP_DIR", "J:/NPU-STACK/llama.cpp")
     convert_script = os.path.join(llama_cpp_dir, "convert_hf_to_gguf.py")
-    gguf_path = os.path.join(out_dir, out_name.replace(".gguf", f"-{quant}.gguf"))
+    gguf_path = os.path.join(out_dir, out_name)
 
     import subprocess
     result = subprocess.run(
@@ -77,29 +97,10 @@ try:
         capture_output=True, text=True, cwd=llama_cpp_dir, timeout=3600
     )
     if result.returncode != 0:
-        print(f"llama.cpp convert failed: {result.stderr[-500:]}", flush=True)
-        # Fallback: try Unsloth native save_pretrained_gguf
-        print("Falling back to Unsloth save_pretrained_gguf...", flush=True)
-        model.save_pretrained_gguf(out_dir, tokenizer, quantization_method=quant)
-    else:
-        print(result.stdout[-500:], flush=True)
+        print(f"llama.cpp convert failed: {result.stderr[-300:]}", flush=True)
+        sys.exit(1)
 
     # Check result
-    gguf_files = glob.glob(os.path.join(out_dir, "*.gguf"))
-    if gguf_files:
-        size_mb = os.path.getsize(gguf_files[0]) / (1024 * 1024)
-        print(f"OK: {gguf_files[0]} ({size_mb:.1f} MB)", flush=True)
-    else:
-        # Check merge_dir too
-        gguf_files2 = glob.glob(os.path.join(merge_dir, "*.gguf"))
-        if gguf_files2:
-            import shutil
-            out_path = os.path.join(out_dir, out_name)
-            shutil.move(gguf_files2[0], out_path)
-            size_mb = os.path.getsize(out_path) / (1024 * 1024)
-            print(f"OK: {out_path} ({size_mb:.1f} MB)", flush=True)
-        else:
-            print("FAIL: no .gguf produced at all", flush=True)
 
 except Exception as e:
     import traceback
