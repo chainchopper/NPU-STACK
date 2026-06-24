@@ -15,14 +15,19 @@ export const ChatInterface = ({
   className = '',
 }) => {
   const draftKey = `npu-chat-draft-${model?.id || 'system'}-${enableFleetContext ? 'fleet' : 'default'}`;
-  const { messages, isLoading, error, sendMessage, clearChat, threadId } = useChat({ selectedModel: model });
+  const { messages, isLoading, error, sendMessage, clearChat, setMaxTokens, threadId } = useChat({ selectedModel: model });
   const [inputValue, setInputValue] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [pendingImages, setPendingImages] = useState([]);
+  const [tokenLimit, setTokenLimit] = useState(() => {
+    try { return parseInt(localStorage.getItem('npu-chat-max-tokens'), 10) || 4096; } catch { return 4096; }
+  });
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => { setMaxTokens(tokenLimit); try { localStorage.setItem('npu-chat-max-tokens', tokenLimit); } catch {} }, [tokenLimit, setMaxTokens]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -196,13 +201,23 @@ export const ChatInterface = ({
       {showSettings && (
         <div className="settings-panel">
           <div className="setting-item">
-            <label>Thread ID: <code>{threadId}</code></label>
+            <label>Thread: <code>{threadId?.slice(0,20)}…</code></label>
+          </div>
+          <div className="setting-item" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ whiteSpace: 'nowrap', fontSize: 12 }}>Max tokens: <strong>{tokenLimit}</strong></label>
+            <input type="range" min={256} max={8192} step={256} value={tokenLimit}
+              onChange={e => setTokenLimit(Number(e.target.value))}
+              style={{ flex: 1, accentColor: 'var(--accent-blue)' }} />
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>8192</span>
           </div>
           <div className="setting-item">
             <label>
               <input type="checkbox" defaultChecked={enableFleetContext} readOnly />
-              Enable Fleet Context
+              Fleet Context
             </label>
+          </div>
+          <div className="setting-item" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            History saved in browser · {messages.length} messages · <button onClick={clearChat} style={{ background: 'none', border: 'none', color: 'var(--accent-red)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline' }}>Clear all</button>
           </div>
         </div>
       )}

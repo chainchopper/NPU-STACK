@@ -1,16 +1,38 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { API_BASE } from '../api/client';
 
+const CHAT_STORAGE_KEY = 'npu-chat-history';
+const MAX_STORED_MESSAGES = 200;
+
+function loadHistory(modelId) {
+  try {
+    const raw = localStorage.getItem(`${CHAT_STORAGE_KEY}-${modelId || 'default'}`);
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data.slice(-MAX_STORED_MESSAGES) : [];
+  } catch { return []; }
+}
+
+function saveHistory(modelId, msgs) {
+  try {
+    const toSave = msgs.slice(-MAX_STORED_MESSAGES);
+    localStorage.setItem(`${CHAT_STORAGE_KEY}-${modelId || 'default'}`, JSON.stringify(toSave));
+  } catch {}
+}
+
 /**
- * Hook for managing chat state and communication with backend.
- * Current /api/agent/chat endpoint is text-only, so image attachments are
- * preserved in UI and summarized in text for backend compatibility.
+ * Hook for managing chat state — with localStorage persistence and non-truncated responses.
  */
 export function useChat({ selectedModel = null } = {}) {
-  const [messages, setMessages] = useState([]);
+  const modelKey = selectedModel?.id || 'default';
+  const [messages, setMessages] = useState(() => loadHistory(modelKey));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const threadIdRef = useRef(`thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const maxTokensRef = useRef(4096);
+
+  // Persist on every messages change
+  useEffect(() => { saveHistory(modelKey, messages); }, [messages, modelKey]);
 
   const sendMessage = useCallback(
     async (userMessage, images = []) => {
@@ -64,7 +86,7 @@ export function useChat({ selectedModel = null } = {}) {
           messages: backendMessages,
           use_fleet_tools: true,
           temperature: 0.7,
-          max_tokens: 512,
+          max_tokens: maxTokensRef.current,  // user-configurable (default 4096)
         };
 
         const response = await fetch(endpoint, {
@@ -125,7 +147,10 @@ export function useChat({ selectedModel = null } = {}) {
     setMessages([]);
     setError(null);
     threadIdRef.current = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }, []);
+    try { localStorage.removeItem(`${CHAT_STORAGE_KEY}-${modelKey}`); } catch {}
+  }, [modelKey]);
+
+  const setMaxTokens = useCallback((n) => { maxTokensRef.current = n; }, []);
 
   return {
     messages,
@@ -133,6 +158,7 @@ export function useChat({ selectedModel = null } = {}) {
     error,
     sendMessage,
     clearChat,
+    setMaxTokens,
     threadId: threadIdRef.current,
   };
 }
