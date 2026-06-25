@@ -24,7 +24,7 @@ export default function Models() {
         setLoading(true);
         listModels()
             .then((data) => {
-                setModels(data);
+                setModels(Array.isArray(data) ? data : (data?.models || []));
                 setNotice(null);
             })
             .catch((error) => {
