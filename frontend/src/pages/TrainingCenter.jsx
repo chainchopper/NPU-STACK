@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { GraduationCap, Zap, Wrench, CloudUpload, Play, RefreshCw, CheckCircle, XCircle, AlertCircle, Cpu } from 'lucide-react';
+import { GraduationCap, Zap, Wrench, CloudUpload, Play, RefreshCw, CheckCircle, XCircle, AlertCircle, Cpu, Activity } from 'lucide-react';
 import { API_BASE } from '../api/client';
 
 const BasicTraining = lazy(() => import('./Training'));
@@ -33,19 +33,32 @@ function FinetuneTab() {
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [trainedModels, setTrainedModels] = useState([]);
+  const [activeJobs, setActiveJobs] = useState({});
 
   // Load trained checkpoints
   useEffect(() => {
     fetch(`${API_BASE}/finetune/checkpoints`).then(r => r.json()).then(d => {
-      const ckpts = (d.checkpoints || []).map(c => ({
+      setTrainedModels((d.checkpoints || []).map(c => ({
         value: c.adapter?.dir || c.name,
         label: `📦 ${c.name} (${c.adapter?.size_mb || '?'}MB${c.gguf_files?.length ? ', GGUF' : ''})`,
-      }));
-      setTrainedModels(ckpts);
+      })));
     }).catch(() => {});
   }, []);
 
-  // Poll active job
+  // Poll ALL active jobs (not just UI-initiated)
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/finetune/jobs`);
+        if (!r.ok) return;
+        const all = await r.json();
+        setActiveJobs(all || {});
+      } catch {}
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Poll active job details
   useEffect(() => {
     if (!activeJob || jobStatus === 'complete' || jobStatus === 'failed') return;
     const timer = setInterval(async () => {
@@ -104,6 +117,28 @@ function FinetuneTab() {
           Dataset: 250 Magneto SFT entries.
         </p>
       </div>
+
+      {/* Running Jobs — shows ALL jobs regardless of how they were started */}
+      {Object.keys(activeJobs).length > 0 && (
+        <div style={{ marginBottom: 16, padding: 14, borderRadius: 10, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-primary)' }}>
+            <Activity size={14} style={{verticalAlign:'middle',marginRight:6}} /> 
+            Running Jobs ({Object.keys(activeJobs).length})
+          </div>
+          {Object.entries(activeJobs).map(([jid, job]) => (
+            <div key={jid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-color)', fontSize: 12 }}>
+              <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{jid}</span>
+              <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10,
+                background: job.status === 'training' ? '#1a3a2a' : job.status === 'complete' ? '#1a2a3a' : job.status === 'failed' ? '#3a1a1a' : '#3a2a1a',
+                color: job.status === 'training' ? '#4ade80' : job.status === 'complete' ? '#60a5fa' : job.status === 'failed' ? '#f87171' : '#d29922',
+              }}>{job.status || 'starting'}</span>
+              <span style={{ color: 'var(--text-muted)', flex: 1 }}>{job.model}</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{job.output}</span>
+            </div>
+          ))}
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>Refreshes every 30s — shows all jobs (UI + console)</div>
+        </div>
+      )}
 
       {error && (
         <div style={{ padding: 10, borderRadius: 8, marginBottom: 12, background: 'rgba(248,81,73,0.1)', border: '1px solid #f8514966', fontSize: 13, color: '#f87171' }}>
