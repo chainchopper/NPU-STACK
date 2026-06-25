@@ -147,6 +147,7 @@ try:
         tokenizer=tokenizer,
         train_dataset=dataset,
         max_seq_length=max_seq_length,
+        group_by_length=True,  # pack short seqs, isolate long ones — critical for 128K context
         args=TrainingArguments(
             per_device_train_batch_size=batch_size,
             gradient_accumulation_steps=grad_accum,
@@ -156,11 +157,12 @@ try:
             fp16=not torch.cuda.is_bf16_supported(),
             bf16=torch.cuda.is_bf16_supported(),
             logging_steps=1,
-            optim="adamw_8bit",
+            optim="adamw_8bit",  # 8-bit optimizer — crucial for long-context VRAM
             weight_decay=0.01,
             lr_scheduler_type="linear",
             seed=42,
             output_dir=output_dir,
+            gradient_checkpointing=True,  # trade compute for VRAM
         ),
     )
 
