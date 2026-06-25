@@ -82,6 +82,9 @@ try:
         use_gradient_checkpointing="unsloth",
         random_state=42,
     )
+    # ── Enable Unsloth training optimizations (2x faster, more GPU power draw) ──
+    model = ModelClass.for_training(model)
+    print("Unsloth training optimizations enabled", flush=True)
 
     print(f"Loading dataset from {dataset_path}...", flush=True)
     raw_dataset = load_dataset("json", data_files=dataset_path, split="train")
@@ -187,21 +190,35 @@ try:
         merged.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
 
-    # Export GGUF if requested
+    # Export GGUF if requested — batch multi-flavor (per HOW TO TRAIN PROPERLY doc)
     export_gguf = os.environ.get("NPU_EXPORT_GGUF", "").lower() in ("1", "true", "yes")
     if export_gguf:
-        print("Exporting to GGUF...", flush=True)
-        quant = os.environ.get("NPU_GGUF_QUANT", "q4_k_m")
+        print("Exporting to GGUF (batch multi-flavor)...", flush=True)
         gguf_dir = "G:/TRAINING-GROUNDS/exports"
         os.makedirs(gguf_dir, exist_ok=True)
-        try:
-            model.save_pretrained_gguf(gguf_dir, tokenizer, quantization_method=quant)
-            print(f"GGUF exported to {gguf_dir}", flush=True)
-        except Exception as e:
-            print(f"GGUF export failed: {e}, trying merge path...", flush=True)
-            merged = model.merge_and_unload()
-            merged.save_pretrained_gguf(gguf_dir, tokenizer, quantization_method=quant)
-            print(f"GGUF exported via merge to {gguf_dir}", flush=True)
+        # Always merge before GGUF export (avoids PeftModel detection issues)
+        print("Merging adapter for GGUF export...", flush=True)
+        merged = model.merge_and_unload()
+        # Batch export all requested quantization flavors
+        quant_flavors = os.environ.get("NPU_GGUF_QUANT", "fp16 q8_0 q4_k_m").split()
+        model_name = os.environ.get("NPU_OUTPUT_NAME", "model")
+        for flavor in quant_flavors:
+            out_name = f"{model_name}-{flavor}.gguf"
+            print(f"  Exporting {flavor} -> {out_name}...", flush=True)
+            try:
+                merged.save_pretrained_gguf(gguf_dir, tokenizer, quantization_method=flavor)
+                # Rename the auto-named output to our desired name
+                import glob as _glob
+                candidates = _glob.glob(os.path.join(gguf_dir, "*.gguf"))
+                for gf in sorted(candidates, key=lambda x: os.path.getmtime(x), reverse=True):
+                    if not os.path.basename(gf).startswith(model_name):
+                        os.rename(gf, os.path.join(gguf_dir, out_name))
+                        size_mb = os.path.getsize(os.path.join(gguf_dir, out_name)) / (1024*1024)
+                        print(f"    -> {out_name} ({size_mb:.1f} MB)", flush=True)
+                        break
+            except Exception as e:
+                print(f"    {flavor} failed: {e}", flush=True)
+        print(f"GGUF batch export complete -> {gguf_dir}", flush=True)
     print("COMPLETE", flush=True)
 
 except Exception:
