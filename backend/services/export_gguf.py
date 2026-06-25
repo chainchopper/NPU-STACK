@@ -91,14 +91,27 @@ try:
     convert_script = os.path.join(llama_cpp_dir, "convert_hf_to_gguf.py")
     gguf_path = os.path.join(out_dir, out_name)
 
+    # Build convert command — include mmproj for vision models
+    convert_cmd = [
+        sys.executable, convert_script, merge_dir,
+        "--outfile", gguf_path,
+        "--outtype", "q8_0",
+    ]
+    if is_vision:
+        mmproj_path = gguf_path.replace(".gguf", "-mmproj.gguf")
+        convert_cmd += ["--mmproj", mmproj_path]
+        print(f"Including vision projector: {mmproj_path}", flush=True)
+    
     import subprocess
     result = subprocess.run(
-        [sys.executable, convert_script, merge_dir, "--outfile", gguf_path, "--outtype", "q8_0"],
+        convert_cmd,
         capture_output=True, text=True, cwd=llama_cpp_dir, timeout=3600
     )
     if result.returncode != 0:
         print(f"llama.cpp convert failed: {result.stderr[-300:]}", flush=True)
         sys.exit(1)
+    else:
+        print(result.stdout[-200:] if result.stdout else "OK", flush=True)
 
     # Check result
 
