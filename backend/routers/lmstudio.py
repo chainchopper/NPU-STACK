@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/lmstudio", tags=["lmstudio"])
 
-LMSTUDIO_BASE = os.environ.get("LMSTUDIO_BASE_URL", "http://100.100.2.93:443/v1")
+LMSTUDIO_BASE = os.environ.get("LMSTUDIO_BASE_URL", "https://100.100.2.93:443/v1")
 LMSTUDIO_KEY = os.environ.get("LMSTUDIO_API_KEY", "")
 
 _client: Optional[httpx.AsyncClient] = None
@@ -16,7 +16,12 @@ def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
         headers = {"Authorization": f"Bearer {LMSTUDIO_KEY}"} if LMSTUDIO_KEY else {}
-        _client = httpx.AsyncClient(base_url=LMSTUDIO_BASE.strip("/"), headers=headers, timeout=30)
+        _client = httpx.AsyncClient(
+            base_url=LMSTUDIO_BASE.strip("/"),
+            headers=headers,
+            timeout=30,
+            verify=False,  # LM Studio uses self-signed certs
+        )
     return _client
 
 
