@@ -113,3 +113,6 @@ desktop/node_modules/
 
 # ESP32-Bit-Pirate firmware template (absorbed, tracked)
 # libraries/esp-bit-pirate/ - intentionally tracked
+fable5_cot_merged.jsonl
+qwen3.7_max_thinking.jsonl
+train_magneto_merged.jsonl

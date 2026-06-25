@@ -31,12 +31,37 @@ _jobs_lock = threading.Lock()
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str):
-    """Poll training job status."""
+    """Poll training job status — includes log tail for live progress."""
     with _jobs_lock:
         job = _jobs.get(job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
+    # Attach log tail if available
+    output_dir = job.get("output_dir") or job.get("output", "")
+    if output_dir:
+        log_path = Path("G:/TRAINING-GROUNDS/checkpoints") / output_dir / "training.log"
+        if log_path.exists():
+            try:
+                tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-30:]
+                job = {**job, "log_tail": tail}
+            except Exception:
+                pass
     return job
+
+
+@router.get("/jobs/{job_id}/logs")
+def get_job_logs(job_id: str, tail: int = 50):
+    """Get training log tail for a job."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job {job_id} not found")
+    output_dir = job.get("output_dir") or job.get("output", "")
+    log_path = Path("G:/TRAINING-GROUNDS/checkpoints") / output_dir / "training.log"
+    if not log_path.exists():
+        return {"lines": [], "note": "Log not available yet"}
+    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return {"lines": lines[-tail:], "total": len(lines)}
 
 
 @router.get("/jobs")
@@ -141,7 +166,7 @@ async def start_training(
     script = REPO_ROOT / "backend" / "services" / "run_finetune.py"
 
     with _jobs_lock:
-        _jobs[job_id] = {"status": "starting", "model": model_name, "dataset": dataset_source, "epochs": num_epochs, "output": output_name}
+        _jobs[job_id] = {"status": "starting", "model": model_name, "dataset": dataset_source, "epochs": num_epochs, "output": output_name, "output_dir": str(output_dir)}
 
     log_file = output_dir / "training.log"
 
