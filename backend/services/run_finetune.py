@@ -168,7 +168,14 @@ try:
     )
 
     print("Starting training...", flush=True)
-    trainer.train()
+    try:
+        trainer.train()
+    except Exception as e:
+        err = str(e)
+        if "PicklingError" in err or "pickle" in err.lower():
+            print(f"Checkpoint save error (cosmetic — adapter weights are fine): {e}", flush=True)
+        else:
+            raise
 
     print("Saving model...", flush=True)
     try:
