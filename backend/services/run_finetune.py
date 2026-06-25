@@ -16,6 +16,8 @@ batch_size = int(os.environ.get("NPU_BATCH_SIZE", "2"))
 grad_accum = int(os.environ.get("NPU_GRAD_ACCUM", "4"))
 max_seq_length = int(os.environ.get("NPU_MAX_SEQ_LENGTH", "2048"))
 
+# Disable torch._dynamo — it conflicts with Unsloth's custom Triton kernels
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
 os.environ["PYTHONWARNINGS"] = "ignore"
 
 print(f"JOB_ID: {job_id}", flush=True)
@@ -162,7 +164,6 @@ try:
             lr_scheduler_type="linear",
             seed=42,
             output_dir=output_dir,
-            gradient_checkpointing=True,  # trade compute for VRAM
         ),
     )
 
