@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, GraduationCap, Gauge, Cpu, HardDrive, Monitor, Zap, Database, Activity, ArrowRight, Server, Cloud, Layers, Sparkles, Rocket, ChevronRight, CheckCircle2, Bot, MessageSquare, Puzzle, ExternalLink } from 'lucide-react';
+import { Box, GraduationCap, Gauge, Cpu, HardDrive, Monitor, Zap, Database, Activity, ArrowRight, Server, Cloud, Layers, Sparkles, Rocket, ChevronRight, CheckCircle2, Bot, MessageSquare, Puzzle, ExternalLink, Play, RefreshCw, Save, AlertCircle } from 'lucide-react';
 import { getStatus, getSystemInfo, apiUrl } from '../api/client';
 import SystemAgent from '../components/SystemAgent';
 
@@ -9,6 +9,9 @@ export default function Dashboard() {
     const [nirvana, setNirvana] = useState(null);
     const [loading, setLoading] = useState(true);
     const [wizardDismissed, setWizardDismissed] = useState(() => localStorage.getItem('npu-wizard-dismissed') === 'true');
+    const [trainingJobs, setTrainingJobs] = useState([]);
+    const [trainingProfiles, setTrainingProfiles] = useState([]);
+    const [trainingCheckpoints, setTrainingCheckpoints] = useState([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -44,6 +47,24 @@ export default function Dashboard() {
             cancelled = true;
             clearTimeout(unblockTimer);
         };
+    }, []);
+
+    // ── Poll training status for dashboard ──
+    useEffect(() => {
+        const fetchTraining = () => {
+            fetch(apiUrl('/finetune/jobs')).then(r => r.json()).then(d => {
+                setTrainingJobs(Object.values(d.jobs || d || {}));
+            }).catch(() => {});
+            fetch(apiUrl('/finetune/profiles')).then(r => r.json()).then(d => {
+                setTrainingProfiles(d.profiles || []);
+            }).catch(() => {});
+            fetch(apiUrl('/finetune/checkpoints')).then(r => r.json()).then(d => {
+                setTrainingCheckpoints(d.checkpoints || []);
+            }).catch(() => {});
+        };
+        fetchTraining();
+        const timer = setInterval(fetchTraining, 30000);
+        return () => clearInterval(timer);
     }, []);
 
     if (loading) {
@@ -221,6 +242,96 @@ export default function Dashboard() {
                         <div className={`device-status-bar ${d.status}`}></div>
                     </div>
                 ))}
+            </div>
+
+            {/* ── Training Overview ────────────────────── */}
+            <h3 style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', marginBottom: '16px', marginTop: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <GraduationCap size={16} /> Training Center
+                <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                    <a href="/training" style={{ color: '#667eea', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Open Training Center <ArrowRight size={12} />
+                    </a>
+                </span>
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '8px' }}>
+                {/* Active Jobs Card */}
+                <div className="card" style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Activity size={16} color={trainingJobs.filter(j => j.status === 'training').length ? '#4ade80' : '#a0aec0'} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                            Active Jobs ({trainingJobs.length})
+                        </span>
+                    </div>
+                    {trainingJobs.length === 0 ? (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>
+                            No training jobs running. <a href="/training" style={{ color: '#667eea' }}>Start one →</a>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+                            {trainingJobs.map((j, i) => (
+                                <div key={j.job_id || i} style={{
+                                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                                    borderRadius: 6, background: 'var(--bg-input)', fontSize: 12,
+                                }}>
+                                    <div style={{
+                                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                                        background: j.status === 'training' ? '#4ade80' : j.status === 'failed' ? '#f87171' : j.status === 'complete' ? '#60a5fa' : '#d29922',
+                                    }} />
+                                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
+                                        {j.job_id || j.id?.slice(-8)}
+                                    </span>
+                                    <span style={{ flex: 1, color: 'var(--text-primary)', fontWeight: 500 }}>
+                                        {j.model?.split('/').pop()}
+                                    </span>
+                                    <span style={{
+                                        fontSize: 10, padding: '2px 6px', borderRadius: 10,
+                                        background: j.status === 'training' ? '#1a3a2a' : j.status === 'failed' ? '#3a1a1a' : '#1a2a3a',
+                                        color: j.status === 'training' ? '#4ade80' : j.status === 'failed' ? '#f87171' : '#60a5fa',
+                                    }}>
+                                        {j.status || 'starting'}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Profiles + Checkpoints Card */}
+                <div className="card" style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Save size={16} color="#667eea" />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                            Profiles ({trainingProfiles.length}) · Checkpoints ({trainingCheckpoints.length})
+                        </span>
+                    </div>
+                    {trainingProfiles.length === 0 && trainingCheckpoints.length === 0 ? (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>
+                            No profiles or checkpoints yet. <a href="/training" style={{ color: '#667eea' }}>Create one →</a>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', fontSize: 12 }}>
+                            {trainingProfiles.slice(0, 4).map(p => (
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                                    <Save size={12} color="#667eea" />
+                                    <span style={{ color: 'var(--text-primary)', fontWeight: 500, flex: 1 }}>{p.name}</span>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}>
+                                        {p.model_name?.split('/').pop()} · {p.num_epochs}ep
+                                    </span>
+                                </div>
+                            ))}
+                            {trainingCheckpoints.slice(0, 4).map(c => (
+                                <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                                    <Box size={12} color="#d29922" />
+                                    <span style={{ color: 'var(--text-primary)', fontWeight: 500, flex: 1 }}>{c.name}</span>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}>
+                                        {c.adapter?.size_mb || '?'}MB{c.gguf_files?.length ? ' +GGUF' : ''}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* System Info Grid */}
