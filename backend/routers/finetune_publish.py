@@ -24,9 +24,27 @@ router = APIRouter(prefix="/api/finetune", tags=["fine-tuning"])
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRAIN_PYTHON = REPO_ROOT / ".venv-train" / "Scripts" / "python.exe"
+PROFILES_FILE = REPO_ROOT / "backend" / "data" / "training_profiles.json"
 
 _jobs: dict = {}
 _jobs_lock = threading.Lock()
+_profiles_lock = threading.Lock()
+
+
+def _load_profiles() -> list:
+    """Load training profiles from JSON file."""
+    try:
+        if PROFILES_FILE.exists():
+            return json.loads(PROFILES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return []
+
+
+def _save_profiles(profiles: list):
+    """Save training profiles to JSON file."""
+    PROFILES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROFILES_FILE.write_text(json.dumps(profiles, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 @router.get("/jobs/{job_id}")
@@ -128,6 +146,73 @@ def list_checkpoints():
                     "gguf_files": gguf_files,
                 })
     return {"checkpoints_dir": str(ckpt_root), "count": len(checkpoints), "checkpoints": checkpoints}
+
+
+# ── Training Profiles (save/load/reuse configs) ──────
+
+@router.get("/profiles")
+def list_profiles():
+    """List all saved training profiles."""
+    with _profiles_lock:
+        profiles = _load_profiles()
+    return {"profiles": profiles, "count": len(profiles)}
+
+
+@router.post("/profiles")
+async def save_profile(payload: dict = Body(...)):
+    """Create or update a training profile.
+    
+    Body: { name, model_name, dataset_source, output_name, num_epochs,
+            learning_rate, lora_r, lora_alpha, max_seq_length,
+            per_device_batch_size, gradient_accumulation_steps, export_gguf }
+    """
+    with _profiles_lock:
+        profiles = _load_profiles()
+    
+    profile_id = payload.get("id") or f"profile-{uuid.uuid4().hex[:8]}"
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    
+    profile = {
+        "id": profile_id,
+        "name": str(payload.get("name") or "Untitled Profile").strip(),
+        "model_name": str(payload.get("model_name") or "unsloth/tinyllama-bnb-4bit"),
+        "dataset_source": str(payload.get("dataset_source") or ""),
+        "output_name": str(payload.get("output_name") or "Nirvana/Magneto-FT"),
+        "num_epochs": int(payload.get("num_epochs", 1)),
+        "learning_rate": float(payload.get("learning_rate", 0.0002)),
+        "lora_r": int(payload.get("lora_r", 16)),
+        "lora_alpha": int(payload.get("lora_alpha", 16)),
+        "max_seq_length": int(payload.get("max_seq_length", 2048)),
+        "per_device_batch_size": int(payload.get("per_device_batch_size", 2)),
+        "gradient_accumulation_steps": int(payload.get("gradient_accumulation_steps", 4)),
+        "export_gguf": bool(payload.get("export_gguf", False)),
+        "created_at": payload.get("created_at") or now,
+        "updated_at": now,
+    }
+    
+    # Upsert: replace existing or append new
+    existing = next((i for i, p in enumerate(profiles) if p.get("id") == profile_id), None)
+    if existing is not None:
+        profile["created_at"] = profiles[existing].get("created_at", now)
+        profiles[existing] = profile
+    else:
+        profiles.append(profile)
+    
+    _save_profiles(profiles)
+    return {"profile": profile, "created": existing is None}
+
+
+@router.delete("/profiles/{profile_id}")
+def delete_profile(profile_id: str):
+    """Delete a training profile by ID."""
+    with _profiles_lock:
+        profiles = _load_profiles()
+    idx = next((i for i, p in enumerate(profiles) if p.get("id") == profile_id), None)
+    if idx is None:
+        raise HTTPException(404, f"Profile {profile_id} not found")
+    deleted = profiles.pop(idx)
+    _save_profiles(profiles)
+    return {"deleted": deleted["id"], "name": deleted.get("name", "")}
 
 
 @router.post("/train")

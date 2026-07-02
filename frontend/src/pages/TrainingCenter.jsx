@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { GraduationCap, Zap, Wrench, CloudUpload, Play, RefreshCw, CheckCircle, XCircle, AlertCircle, Cpu, Activity } from 'lucide-react';
+import { GraduationCap, Zap, Wrench, CloudUpload, Play, RefreshCw, CheckCircle, XCircle, AlertCircle, Cpu, Activity, Save, Trash2, Plus, Copy } from 'lucide-react';
 import { API_BASE } from '../api/client';
 
 const BasicTraining = lazy(() => import('./Training'));
@@ -34,6 +34,17 @@ function FinetuneTab() {
   const [error, setError] = useState(null);
   const [trainedModels, setTrainedModels] = useState([]);
   const [activeJobs, setActiveJobs] = useState({});
+  const [profiles, setProfiles] = useState([]);
+  const [profileName, setProfileName] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // Load training profiles
+  const loadProfiles = () => {
+    fetch(`${API_BASE}/finetune/profiles`).then(r => r.json()).then(d => {
+      setProfiles(d.profiles || []);
+    }).catch(() => {});
+  };
+  useEffect(() => { loadProfiles(); }, []);
 
   // Load trained checkpoints
   useEffect(() => {
@@ -105,6 +116,42 @@ function FinetuneTab() {
 
   const update = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
+  // ── Profile actions ──
+  const saveProfile = async () => {
+    if (!profileName.trim()) return;
+    setSavingProfile(true);
+    try {
+      const r = await fetch(`${API_BASE}/finetune/profiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, name: profileName.trim() }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      await loadProfiles();
+      setProfileName('');
+    } catch (e) { setError(e.message); }
+    setSavingProfile(false);
+  };
+
+  const loadProfile = (p) => {
+    setForm({
+      model_name: p.model_name,
+      dataset_source: p.dataset_source,
+      output_name: p.output_name,
+      num_epochs: p.num_epochs,
+      learning_rate: String(p.learning_rate),
+      lora_r: p.lora_r,
+      lora_alpha: p.lora_alpha,
+    });
+    setProfileName(p.name || '');
+  };
+
+  const deleteProfile = async (id) => {
+    if (!window.confirm('Delete this profile?')) return;
+    await fetch(`${API_BASE}/finetune/profiles/${id}`, { method: 'DELETE' });
+    loadProfiles();
+  };
+
   return (
     <div style={{ padding: '20px', maxWidth: 700 }}>
       <div style={{
@@ -116,6 +163,58 @@ function FinetuneTab() {
           Trains in <code>.venv-train</code> (Python 3.12, torch 2.12+cu130). RTX 5090 32GB detected.
           Dataset: 250 Magneto SFT entries.
         </p>
+      </div>
+
+      {/* ── Training Profile Cards ── */}
+      {profiles.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Save size={14} /> Saved Profiles ({profiles.length})
+          </div>
+          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8 }}>
+            {profiles.map(p => (
+              <div key={p.id}
+                onClick={() => loadProfile(p)}
+                style={{
+                  minWidth: 180, maxWidth: 220, padding: 12, borderRadius: 10, cursor: 'pointer',
+                  background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                  transition: 'border-color 0.15s', flexShrink: 0,
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = '#667eea'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-color)'}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', marginBottom: 6, wordBreak: 'break-word' }}>
+                    {p.name}
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); deleteProfile(p.id); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-muted)' }}
+                    title="Delete profile">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                  <div>{p.model_name?.split('/').pop()}</div>
+                  <div>{p.num_epochs}ep · r={p.lora_r} · α={p.lora_alpha}</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 10, opacity: 0.7 }}>{p.dataset_source?.split('/').pop()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Save Current as Profile ── */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+        <input value={profileName} onChange={e => setProfileName(e.target.value)}
+          placeholder="Profile name (e.g. E4B Vision 3ep)"
+          style={{ flex: 1, padding: '8px 10px', borderRadius: 8, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', fontSize: 12 }}
+          onKeyDown={e => e.key === 'Enter' && saveProfile()} />
+        <button onClick={saveProfile} disabled={savingProfile || !profileName.trim()}
+          style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: profileName.trim() ? '#667eea' : '#333', color: '#fff', fontSize: 12, fontWeight: 600, cursor: profileName.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          {savingProfile ? <RefreshCw size={14} /> : <Plus size={14} />}
+          Save Profile
+        </button>
       </div>
 
       {/* Running Jobs — shows ALL jobs regardless of how they were started */}
@@ -169,7 +268,6 @@ function FinetuneTab() {
                 ))}
               </optgroup>
             )}
-          </select>
           </select>
         </div>
 
