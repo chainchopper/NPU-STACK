@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { ExternalLink, RefreshCw, MessageSquare, AlertCircle } from 'lucide-react';
 
-const WEBUI_URL = '/nirvana/';  // proxied through :8010, CSP/X-Frame headers stripped
+const WEBUI_URL = '/nirvana-webui/';  // WebUI CSP patched to allow localhost:5180
 
 export default function NirvanaChat() {
   const iframeRef = useRef(null);
