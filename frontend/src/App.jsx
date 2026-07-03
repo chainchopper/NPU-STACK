@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, Settings, MessageSquare, Puzzle, Brain, Kanban, Key, ScrollText, FolderOpen, Palette, ChevronDown, ChevronRight, Antenna, Layers } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, MessageSquare, ChevronDown, ChevronRight, Antenna } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
@@ -32,18 +32,9 @@ const FastFlowLM = lazy(() => import('./pages/FastFlowLM'));
 const EdgeFleet = lazy(() => import('./pages/EdgeFleet'));
 const FleetCommand = lazy(() => import('./pages/FleetCommand'));
 const NirvanaChat = lazy(() => import('./pages/NirvanaChat'));
-const NirvanaSettings = lazy(() => import('./pages/NirvanaSettings'));
-const NirvanaSessions = lazy(() => import('./pages/NirvanaSessions'));
-const NirvanaSkills = lazy(() => import('./pages/NirvanaSkills'));
-const NirvanaMemory = lazy(() => import('./pages/NirvanaMemory'));
-const NirvanaKanban = lazy(() => import('./pages/NirvanaKanban'));
-const NirvanaProviders = lazy(() => import('./pages/NirvanaProviders'));
-const NirvanaLogs = lazy(() => import('./pages/NirvanaLogs'));
-const NirvanaWorkspace = lazy(() => import('./pages/NirvanaWorkspace'));
-const NirvanaAppearance = lazy(() => import('./pages/NirvanaAppearance'));
-const BoardExplorer = lazy(() => import('./pages/BoardExplorer'));
 const NirvanaTodos = lazy(() => import('./pages/NirvanaTodos'));
 const NirvanaInsights = lazy(() => import('./pages/NirvanaInsights'));
+const BoardExplorer = lazy(() => import('./pages/BoardExplorer'));
 const EspNowDeploy = lazy(() => import('./pages/EspNowDeploy'));
 const EspDevConsole = lazy(() => import('./pages/EspDevConsole'));
 
@@ -74,17 +65,6 @@ const nirvanaItems = [
     { path: '/autoresearch', icon: SearchCheck, label: 'AutoResearch' },
     { path: '/documentation', icon: BookOpen, label: 'Documentation' },
     { path: '/chat-playground', icon: FlaskConical, label: 'Chat Playground' },
-    // ── Mirrored from Nirvana WebUI sidebar ──
-    { path: '/nirvana-sessions', icon: Layers, label: 'Sessions' },
-    { path: '/nirvana-skills', icon: Puzzle, label: 'Skills' },
-    { path: '/nirvana-memory', icon: Brain, label: 'Memory' },
-    { path: '/nirvana-kanban', icon: Kanban, label: 'Kanban' },
-    { path: '/nirvana-logs', icon: ScrollText, label: 'Logs' },
-    { path: '/nirvana-workspace', icon: FolderOpen, label: 'Workspace' },
-    // ── System ──
-    { path: '/nirvana-settings', icon: Settings, label: 'Settings' },
-    { path: '/nirvana-providers', icon: Key, label: 'Providers' },
-    { path: '/nirvana-appearance', icon: Palette, label: 'Appearance' },
 ];
 
 function RouteLoadingFallback() {
@@ -286,16 +266,6 @@ function AppInner() {
                             <Route path="/esp-dev" element={<EspDevConsole />} />
                             <Route path="/boards" element={<BoardExplorer />} />
                             <Route path="/nirvana-chat" element={<NirvanaChat />} />
-                            <Route path="/nirvana-settings" element={<NirvanaSettings />} />
-                            <Route path="/nirvana-sessions" element={<NirvanaSessions />} />
-                            <Route path="/nirvana-skills" element={<NirvanaSkills />} />
-
-                            <Route path="/nirvana-memory" element={<NirvanaMemory />} />
-                            <Route path="/nirvana-kanban" element={<NirvanaKanban />} />
-                            <Route path="/nirvana-providers" element={<NirvanaProviders />} />
-                            <Route path="/nirvana-logs" element={<NirvanaLogs />} />
-                            <Route path="/nirvana-workspace" element={<NirvanaWorkspace />} />
-                            <Route path="/nirvana-appearance" element={<NirvanaAppearance />} />
                             <Route path="/nirvana-todos" element={<NirvanaTodos />} />
                             <Route path="/nirvana-insights" element={<NirvanaInsights />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
