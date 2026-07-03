@@ -31,7 +31,11 @@ if not os.getenv("XET_TMP_DIR"):
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, Request
+from fastapi.responses import StreamingResponse
+from starlette.responses import Response as StarletteResponse
+from starlette.background import BackgroundTask
+import httpx
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -237,10 +241,10 @@ app.include_router(nirvana_webui_router)
 app.include_router(lmstudio_router)
 app.include_router(boards_router)
 
-# ── Mount Nirvana WebUI static files directly (eliminates separate :8789 process) ──
-_nirvana_static = Path(__file__).resolve().parents[1] / "hermes-webui" / "static"
-if _nirvana_static.exists():
-    app.mount("/nirvana-webui", StaticFiles(directory=str(_nirvana_static), html=True), name="nirvana-webui-static")
+# ── Mount Nirvana WebUI proxy for iframe embedding ──
+# Strips CSP/X-Frame-Options headers so the WebUI can be embedded in NPU-STACK
+from nirvana_frame_proxy import nirvana_frame_proxy
+app.mount("/nirvana", nirvana_frame_proxy, name="nirvana-frame-proxy")
 
 
 @app.get("/api/health")
