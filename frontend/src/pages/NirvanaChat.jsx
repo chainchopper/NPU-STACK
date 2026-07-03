@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { ExternalLink, RefreshCw, MessageSquare, AlertCircle } from 'lucide-react';
 
-const WEBUI_URL = 'http://127.0.0.1:8789';  // Standalone Nirvana WebUI
+const WEBUI_URL = '/nirvana-webui/';  // Vite proxy to :8789 (same-origin, no CSP block)
 
 export default function NirvanaChat() {
   const iframeRef = useRef(null);
