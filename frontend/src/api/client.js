@@ -865,3 +865,24 @@ export async function syncProjectDocsToGitbook(projectId = null) {
         body: JSON.stringify({ project_id: projectId }),
     });
 }
+
+export async function flashFirmwareWorkflow(deviceId, { profileId = 'circuitpython', port = '', wifiSsid = '', wifiPassword = '', backupFirst = true } = {}) {
+    return request(`/fleet/command/device/${deviceId}/firmware/flash`, {
+        method: 'POST',
+        body: JSON.stringify({ profile_id: profileId, port, wifi_ssid: wifiSsid, wifi_password: wifiPassword, backup_first: backupFirst }),
+    });
+}
+
+export async function detectDeviceFirmware(deviceId, port = '') {
+    return request(`/fleet/command/device/${deviceId}/firmware/detect`, {
+        method: 'POST',
+        body: JSON.stringify({ port }),
+    });
+}
+
+export async function backupDeviceFirmware(deviceId, port = '', flashSizeMb = 4) {
+    return request(`/fleet/command/device/${deviceId}/firmware/backup`, {
+        method: 'POST',
+        body: JSON.stringify({ port, flash_size_mb: flashSizeMb }),
+    });
+}

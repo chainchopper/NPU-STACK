@@ -91,3 +91,185 @@ def list_bundles() -> list:
             bundles.append({"id": d.name, "created": d.stat().st_mtime, "has_zip": zf.exists(),
                            "size_kb": round(sum(f.stat().st_size for f in d.rglob("*") if f.is_file())/1024, 1)})
     return bundles
+
+# ── Firmware Detection & Backup ────────────────────────────────────────────
+
+def detect_current_firmware(device_id: str, port: str = "") -> Dict[str, Any]:
+    """Detect what firmware is currently on a device before flashing.
+
+    For ESP32: reads chip info via esptool.
+    For CircuitPython: reads boot_out.txt from drive.
+    For Linux: returns current agent status.
+    """
+    info = {"device_id": device_id, "detected": False, "type": "unknown"}
+
+    # Try ESP32 detection
+    try:
+        import serial.tools.list_ports
+        ports = [p.device for p in serial.tools.list_ports.comports()]
+        target = port or next((p for p in ports if "usb" in p.lower() or "com" in p.lower()), "")
+        if target:
+            result = subprocess.run(
+                ["esptool.py", "--port", target, "chip_id"],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0:
+                info["type"] = "esp32"
+                info["port"] = target
+                info["firmware_size_mb"] = 4  # default
+                info["detected"] = True
+                # Extract chip info
+                for line in result.stdout.split("\n"):
+                    if "Chip is" in line:
+                        info["chip"] = line.split("Chip is")[-1].strip()
+                    if "Features" in line:
+                        info["features"] = line.strip()
+                    if "MAC" in line:
+                        info["mac"] = line.split("MAC:")[-1].strip()
+                return info
+    except Exception:
+        pass
+
+    # Try CircuitPython detection (check CIRCUITPY drive)
+    for drive in ["D:", "E:", "F:", "G:", "H:"]:
+        p = Path(f"{drive}/")
+        boot_out = p / "boot_out.txt"
+        if boot_out.exists():
+            try:
+                boot_text = boot_out.read_text()[:200]
+                info["type"] = "circuitpython"
+                info["drive"] = drive
+                info["boot_out"] = boot_text
+                info["detected"] = True
+                # Check for existing code.py
+                code_py = p / "code.py"
+                if code_py.exists():
+                    info["has_code_py"] = True
+                    info["code_py_size"] = code_py.stat().st_size
+                return info
+            except:
+                pass
+
+    # Try Linux detection (check agent status)
+    try:
+        r = subprocess.run(
+            ["ssh", f"root@{device_id}", "systemctl", "status", "npu-agent", "--no-pager"],
+            capture_output=True, text=True, timeout=10
+        )
+        if r.returncode == 0 or "active" in r.stdout:
+            info["type"] = "linux"
+            info["detected"] = True
+            info["agent_status"] = "active" if "active" in r.stdout else "unknown"
+            return info
+    except:
+        pass
+
+    return info
+
+
+def backup_before_flash(device_id: str, port: str = "", flash_size_mb: int = 4) -> Dict[str, Any]:
+    """Backup current firmware before flashing the NPU-STACK agent.
+
+    Returns the backup path and metadata. Must be called BEFORE writing new firmware.
+    """
+    backup_dir = DATA_DIR / "firmware_backups" / device_id
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    results = []
+
+    # ── ESP32 backup via esptool ──
+    if port:
+        try:
+            out = backup_dir / f"{device_id}_backup_{ts}.bin"
+            size_hex = hex(flash_size_mb * 1024 * 1024)
+            r = subprocess.run(
+                ["esptool.py", "--port", port, "--baud", "460800", "read_flash", "0", size_hex, str(out)],
+                capture_output=True, text=True, timeout=120
+            )
+            if r.returncode == 0 and out.exists():
+                results.append({
+                    "type": "esp32_flash_dump",
+                    "file": str(out),
+                    "size_mb": round(out.stat().st_size / (1024 * 1024), 2),
+                })
+        except Exception as e:
+            results.append({"type": "esp32_flash_dump", "error": str(e)})
+
+    # ── CircuitPython backup (copy existing code.py + boot_out.txt) ──
+    for drive in ["D:", "E:", "F:", "G:", "H:"]:
+        drive_path = Path(f"{drive}/")
+        boot_out = drive_path / "boot_out.txt"
+        if boot_out.exists():
+            cp_dir = backup_dir / f"circuitpython_{ts}"
+            cp_dir.mkdir(parents=True, exist_ok=True)
+            files_backed = []
+            for fname in ["code.py", "boot_out.txt", "boot.py", "npu_config.json"]:
+                src = drive_path / fname
+                if src.exists():
+                    shutil.copy2(src, cp_dir / fname)
+                    files_backed.append(fname)
+            if files_backed:
+                results.append({
+                    "type": "circuitpython_files",
+                    "dir": str(cp_dir),
+                    "files": files_backed,
+                    "drive": drive,
+                })
+            break
+
+    if results:
+        manifest = {"device_id": device_id, "backed_up_at": ts, "results": results}
+        (backup_dir / f"manifest_{ts}.json").write_text(json.dumps(manifest, indent=2))
+        return {"success": True, "backups": results, "backup_dir": str(backup_dir)}
+    else:
+        return {"success": False, "note": "No firmware to backup (empty/new device?)", "backup_dir": str(backup_dir)}
+
+
+def firmware_flash_workflow(device_id: str, port: str = "", profile_id: str = "circuitpython",
+                             wifi_ssid: str = "", wifi_pass: str = "",
+                             backup_first: bool = True) -> Dict[str, Any]:
+    """Complete flash workflow: detect → backup → prepare → flash.
+
+    This is the single endpoint the frontend calls for the full user experience.
+    """
+    steps = []
+
+    # Step 0: Detect current firmware
+    detect = detect_current_firmware(device_id, port)
+    steps.append({"step": "detect", "result": detect})
+
+    # Step 1: Backup if requested and firmware exists
+    if backup_first and detect.get("detected"):
+        backup = backup_before_flash(device_id, port)
+        steps.append({"step": "backup", "result": backup})
+    else:
+        steps.append({"step": "backup", "result": {"skipped": True, "reason": "Not detected or backup disabled"}})
+
+    # Step 2: Prepare bundle
+    bundle = prepare_bundle(device_id, profile_id, wifi_ssid, wifi_pass)
+    steps.append({"step": "prepare", "result": bundle})
+
+    # Step 3: Flash
+    flash_result = None
+    if bundle.get("success"):
+        flash_method = bundle.get("flash_method", "")
+        bundle_dir = Path(bundle["bundle_dir"])
+        if flash_method == "usb-mass-storage":
+            drive = detect.get("drive", "D:")
+            flash_result = flash_uf2(bundle_dir, drive)
+        elif flash_method == "serial":
+            flash_result = flash_esptool(bundle_dir, port or "COM3")
+        else:
+            flash_result = {"success": False, "error": f"Unsupported flash method: {flash_method}"}
+        steps.append({"step": "flash", "result": flash_result})
+    else:
+        steps.append({"step": "flash", "result": {"error": "Bundle preparation failed"}})
+
+    success = flash_result.get("success", False) if flash_result else False
+    return {
+        "device_id": device_id,
+        "success": success,
+        "steps": steps,
+        "next": "Device will reboot with NPU-STACK agent. Check /api/fleet for status." if success else "Check errors above.",
+    }

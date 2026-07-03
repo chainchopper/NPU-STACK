@@ -26,6 +26,7 @@ import {
     scanDevices,
     unpairDevice,
     updateDevice,
+    flashFirmwareWorkflow,
 } from '../api/client';
 
 const familyColor = {
@@ -417,6 +418,32 @@ export default function EdgeFleet() {
         }
     };
 
+    const handleFlashFirmware = async (device) => {
+        const agent = device.recommended_profile?.id || 'circuitpython';
+        const msg = `Flash NPU-STACK ${agent} agent?\n\nThis will:\n1. Backup your current firmware\n2. Flash the NPU-STACK fleet agent\n3. Device will reboot and auto-register\n\nContinue?`;
+        if (!window.confirm(msg)) return;
+
+        addLog(`Starting firmware workflow for ${device.id}...`);
+        setCommandBusyByDevice((prev) => ({ ...prev, [device.id]: true }));
+        try {
+            const result = await flashFirmwareWorkflow(device.id, {
+                profileId: agent,
+                port: device.port || '',
+                wifiSsid: provisioningConfig.wifi_ssid || '',
+                wifiPassword: provisioningConfig.wifi_password || '',
+                backupFirst: true,
+            });
+            addLog(result.success ? `✓ Flash complete — device rebooting with ${agent} agent` : `✗ Flash workflow failed`);
+            if (result.steps) {
+                result.steps.forEach(s => addLog(`  [${s.step}] ${JSON.stringify(s.result).substring(0, 80)}`));
+            }
+            fetchDevices();
+        } catch (error) {
+            addLog(`Flash failed: ${error.message}`);
+        }
+        setCommandBusyByDevice((prev) => ({ ...prev, [device.id]: false }));
+    };
+
     const handleRp2040Detect = async () => {
         addLog('Scanning for RP2040 BOOTSEL drives...');
         try {
@@ -753,6 +780,12 @@ export default function EdgeFleet() {
                             )}
                             {device.capabilities?.backup && device.connection === 'usb' && (
                                 <button className="btn btn-secondary" onClick={() => handleEspBackup(device)}><Download size={14} /> Backup FW</button>
+                            )}
+                            {device.capabilities?.flash && (
+                                <button className="btn btn-primary" onClick={() => handleFlashFirmware(device)}
+                                    disabled={commandBusyByDevice[device.id]}>
+                                    <Zap size={14} /> {commandBusyByDevice[device.id] ? 'Flashing...' : 'Flash NPU Agent'}
+                                </button>
                             )}
                             <button className="btn btn-danger" onClick={() => handleRemove(device.id)}><Trash2 size={14} /> Remove</button>
                         </div>

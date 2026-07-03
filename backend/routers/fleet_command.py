@@ -198,3 +198,48 @@ def _publish_mqtt_command(device_id: str, payload: Dict[str, Any]) -> Dict[str, 
         return {"error": str(e)}
 
 import os, time
+
+# ── Firmware Workflow (detect → backup → flash) ────────────────────────────
+
+class FirmwareWorkflowRequest(BaseModel):
+    profile_id: str = "circuitpython"
+    port: str = ""
+    wifi_ssid: str = ""
+    wifi_password: str = ""
+    backup_first: bool = True
+
+@router.post("/device/{device_id}/firmware/flash")
+async def flash_device_firmware(device_id: str, req: FirmwareWorkflowRequest):
+    """Full firmware workflow: detect current firmware, backup, flash NPU-STACK agent.
+    
+    Steps:
+    1. Detect existing firmware (esptool for ESP32, boot_out.txt for CircuitPython)
+    2. Backup existing firmware if backup_first=True
+    3. Prepare NPU-STACK agent bundle with WiFi config
+    4. Flash via platform-appropriate method (UF2 / esptool / SCP)
+    """
+    from services.flash_service import firmware_flash_workflow
+    
+    result = firmware_flash_workflow(
+        device_id=device_id,
+        port=req.port,
+        profile_id=req.profile_id,
+        wifi_ssid=req.wifi_ssid,
+        wifi_pass=req.wifi_password,
+        backup_first=req.backup_first,
+    )
+    if not result.get("success"):
+        raise HTTPException(502, "Firmware flash workflow failed — see steps for details")
+    return result
+
+@router.post("/device/{device_id}/firmware/detect")
+async def detect_device_firmware(device_id: str, port: str = ""):
+    """Detect current firmware on a device without flashing."""
+    from services.flash_service import detect_current_firmware
+    return detect_current_firmware(device_id, port)
+
+@router.post("/device/{device_id}/firmware/backup")
+async def backup_device_firmware(device_id: str, port: str = "", flash_size_mb: int = 4):
+    """Backup current firmware from a device without flashing."""
+    from services.flash_service import backup_before_flash
+    return backup_before_flash(device_id, port, flash_size_mb)
