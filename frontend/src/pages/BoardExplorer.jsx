@@ -132,9 +132,24 @@ export default function BoardExplorer() {
                     {(board.npu_stack_ops || []).map(op => {
                       const Icon = opIcons[op] || Zap;
                       return (
-                        <button key={op} onClick={() => {
-                          const base = board.id;
-                          window.location.href = `/fleet-command?device=${base}&action=${op}`;
+                        <button key={op} onClick={async (e) => {
+                          const btn = e.target.closest('button');
+                          const origText = btn.textContent;
+                          btn.textContent = '...';
+                          btn.disabled = true;
+                          try {
+                            const r = await fetch(`${API_BASE}/fleet/command/device/${board.id}`, {
+                              method: 'POST',
+                              headers: {'Content-Type': 'application/json'},
+                              body: JSON.stringify({command: op.toUpperCase().replace('-','_'), params: {}}),
+                            });
+                            const d = await r.json();
+                            btn.textContent = d.sent ? '✓' : '✗';
+                            setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 1500);
+                          } catch {
+                            btn.textContent = '✗';
+                            setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 1500);
+                          }
                         }} style={{
                           display: 'flex', alignItems: 'center', gap: 4,
                           padding: '4px 10px', borderRadius: 6, fontSize: 11,
