@@ -30,8 +30,9 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                 },
                 '/nirvana-webui': {
-                    target: backendOrigin,
+                    target: 'http://127.0.0.1:8789',
                     changeOrigin: true,
+                    rewrite: (path) => path.replace('/nirvana-webui', ''),
                 },
             },
         },
