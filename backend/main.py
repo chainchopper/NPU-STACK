@@ -112,6 +112,26 @@ async def lifespan(app: FastAPI):
         sync_project_docs_to_gitbook()
     except Exception:
         pass
+    # ── Auto-start MQTT Broker (mosquitto) for fleet device communication ──
+    mqtt_status = {"started": False, "reason": "not attempted"}
+    try:
+        import subprocess as _sp
+        mqtt_exe = os.environ.get("MOSQUITTO_PATH",
+            os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "mosquitto", "mosquitto.exe"))
+        if os.path.exists(mqtt_exe):
+            # Check if already running
+            probe = _sp.run(["netstat","-ano"], capture_output=True, text=True, timeout=5)
+            if ":1883" not in probe.stdout:
+                _sp.Popen([mqtt_exe, "-v"],
+                    stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                    creationflags=_sp.CREATE_NO_WINDOW if hasattr(_sp, "CREATE_NO_WINDOW") else 0)
+                mqtt_status = {"started": True, "broker": mqtt_exe, "port": 1883}
+            else:
+                mqtt_status = {"started": True, "broker": "already running", "port": 1883}
+        else:
+            mqtt_status = {"started": False, "reason": f"mosquitto not found at {mqtt_exe}"}
+    except Exception as exc:
+        mqtt_status = {"started": False, "reason": str(exc)}
     # ── Auto-start Nirvana WebUI (fire-and-forget) ──
     # NOTE: WebUI static files are now mounted directly on this server at /nirvana-webui/
     # The separate :8789 process is no longer needed for serving static content.
