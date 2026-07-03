@@ -122,3 +122,79 @@ def parse_template(template_id: str, context: Optional[Dict[str, Any]] = None):
             if str(device.get("tier", "")).lower() == "sbc"
         ]
     return ParsedCommand(**parsed)
+
+# ── Direct Device Command (MQTT bridge) ────────────────────────────────────
+
+class DeviceCommand(BaseModel):
+    command: str  # BLINK, READ_SENSORS, GPIO_WRITE, GPIO_READ, EXEC_PYTHON, etc.
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+@router.post("/device/{device_id}")
+async def send_device_command(device_id: str, cmd: DeviceCommand):
+    """Send a command to a specific fleet device via MQTT.
+    
+    Supported commands vary by device type but include:
+    BLINK, READ_SENSORS, GPIO_WRITE, GPIO_READ, EXEC_PYTHON, RESET,
+    SET_CONFIG, GET_CONFIG, SHELL (ESP32), EXEC_CODE (Linux).
+    """
+    payload = {"command": cmd.command, **cmd.params}
+    payload["device_id"] = device_id
+    
+    result = _publish_mqtt_command(device_id, payload)
+    if result.get("error"):
+        raise HTTPException(502, result["error"])
+    return {"device_id": device_id, "command": cmd.command, "sent": True, **result}
+
+def _publish_mqtt_command(device_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Publish a command to a device via MQTT and wait for response."""
+    import json as _json
+    try:
+        import paho.mqtt.client as mqtt
+        import threading
+        
+        response = {"received": False, "data": None}
+        lock = threading.Lock()
+        
+        def on_message(client, userdata, msg):
+            with lock:
+                response["received"] = True
+                try:
+                    response["data"] = _json.loads(msg.payload.decode())
+                except:
+                    response["data"] = {"raw": msg.payload.decode()}
+        
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        client.on_message = on_message
+        
+        # Get MQTT broker from config or use default
+        mqtt_broker = os.getenv("NPU_MQTT_BROKER", "127.0.0.1")
+        mqtt_port = int(os.getenv("NPU_MQTT_PORT", "1883"))
+        
+        client.connect(mqtt_broker, mqtt_port, 5)
+        client.loop_start()
+        
+        cmd_topic = f"fleet/cmd/{device_id}"
+        resp_topic = f"fleet/response/{device_id}"
+        client.subscribe(resp_topic)
+        
+        client.publish(cmd_topic, _json.dumps(payload))
+        
+        # Wait up to 5 seconds for response
+        timeout = time.time() + 5
+        while time.time() < timeout and not response["received"]:
+            time.sleep(0.1)
+        
+        client.loop_stop()
+        client.disconnect()
+        
+        if response["received"]:
+            return {"mqtt_response": True, "data": response["data"]}
+        else:
+            return {"mqtt_response": False, "note": "No response from device (may be offline or processing)"}
+            
+    except ImportError:
+        return {"error": "paho-mqtt not installed. Run: pip install paho-mqtt"}
+    except Exception as e:
+        return {"error": str(e)}
+
+import os, time
