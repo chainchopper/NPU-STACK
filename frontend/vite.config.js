@@ -29,6 +29,10 @@ export default defineConfig(({ mode }) => {
                     target: backendOrigin,
                     changeOrigin: true,
                 },
+                '/nirvana-webui': {
+                    target: backendOrigin,
+                    changeOrigin: true,
+                },
             },
         },
     };
