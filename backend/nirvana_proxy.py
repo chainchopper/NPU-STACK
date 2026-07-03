@@ -16,6 +16,7 @@ NIRVANA_WEBUI_BASE = "http://127.0.0.1:8789"
 # NPU-STACK native path prefixes — NEVER proxy these
 NATIVE_PREFIXES: tuple[str, ...] = (
     "/api/nirvana",
+    "/nirvana-webui",
     "/api/espnow",
     "/api/esp",
     "/api/flash",

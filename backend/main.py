@@ -29,6 +29,7 @@ if not os.getenv("XET_TMP_DIR"):
     os.makedirs(os.environ["XET_TMP_DIR"], exist_ok=True)
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -107,11 +108,10 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     # ── Auto-start Nirvana WebUI (fire-and-forget) ──
-    try:
-        from services.nirvana_service import try_auto_start_webui
-        webui_status = try_auto_start_webui(background=True, timeout=15.0)
-    except Exception:
-        webui_status = {"started": False, "reason": "auto-start exception"}
+    # NOTE: WebUI static files are now mounted directly on this server at /nirvana-webui/
+    # The separate :8789 process is no longer needed for serving static content.
+    # Keeping auto-start disabled unless chat streaming requires the standalone backend.
+    webui_status = {"started": False, "reason": "merged into :8010 — static files mounted at /nirvana-webui/"}
     docs_index_boot = ensure_docs_index(max_age_seconds=6 * 3600)
     backend_port = int(os.getenv("NPU_STACK_BACKEND_PORT", str(DEFAULT_BACKEND_PORT)))
     print("=" * 60)
@@ -234,6 +234,11 @@ app.include_router(orchestration_router)
 app.include_router(docs_index_router)
 app.include_router(nirvana_webui_router)
 app.include_router(lmstudio_router)
+
+# ── Mount Nirvana WebUI static files directly (eliminates separate :8789 process) ──
+_nirvana_static = Path(__file__).resolve().parents[1] / "hermes-webui" / "static"
+if _nirvana_static.exists():
+    app.mount("/nirvana-webui", StaticFiles(directory=str(_nirvana_static), html=True), name="nirvana-webui-static")
 
 
 @app.get("/api/health")
