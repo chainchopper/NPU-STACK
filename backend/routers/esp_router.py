@@ -42,6 +42,18 @@ from services.idf_service import (
     idf_monitor,
     idf_ready,
 )
+from services.rockusb_service import (
+    backup_rockchip_firmware,
+    detect_rockchip_devices,
+    flash_rockchip_firmware,
+)
+from services.fleet_manifest import (
+    PLATFORMS,
+    backup_device,
+    list_backups as list_fleet_backups,
+    list_bundles,
+    prepare_device_bundle,
+)
 from services.esp_terminal_service import (
     HAS_PYSERIAL,
     BUILD_COMMAND_TEMPLATES,
@@ -713,15 +725,28 @@ def delete_backup(name: str):
     return {"deleted": True, "name": name}
 
 
-# ── Fleet Manifest (unified backup + bundle per platform) ──────────────────
+# ── Rockchip / LuckFox Endpoints ──────────────────────────────────────────
 
-from services.fleet_manifest import (
-    PLATFORMS,
-    backup_device,
-    list_backups as list_fleet_backups,
-    list_bundles,
-    prepare_device_bundle,
-)
+@router.get("/rockchip/devices")
+def rockchip_devices():
+    """Detect all Rockchip/LuckFox devices via libusb (no Maskrom mode needed)."""
+    devices = detect_rockchip_devices()
+    return {"devices": devices, "count": len(devices)}
+
+
+@router.post("/rockchip/backup")
+def rockchip_backup(size_mb: int = 256):
+    """Backup firmware from Rockchip/LuckFox device. ENFORCED before flashing."""
+    return backup_rockchip_firmware(size_mb=size_mb)
+
+
+@router.post("/rockchip/flash")
+def rockchip_flash(firmware_path: str):
+    """Flash firmware to Rockchip/LuckFox device."""
+    return flash_rockchip_firmware(firmware_path)
+
+
+# ── Fleet Manifest (unified backup + bundle per platform) ──────────────────
 
 
 class BundleRequest(BaseModel):
