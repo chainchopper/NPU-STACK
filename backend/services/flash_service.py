@@ -273,3 +273,27 @@ def firmware_flash_workflow(device_id: str, port: str = "", profile_id: str = "c
         "steps": steps,
         "next": "Device will reboot with NPU-STACK agent. Check /api/fleet for status." if success else "Check errors above.",
     }
+
+# ── Backward-compat stubs for edge_discovery.py ────────────────────────────
+
+def flash_tools_available() -> dict:
+    """Check which flashing tools are available on this system."""
+    tools = {}
+    for tool in ["esptool.py", "esptool", "mpremote", "ampy", "rkdeveloptool", "upgrade_tool"]:
+        tools[tool] = bool(__import__("shutil").which(tool))
+    return tools
+
+def rk_detect_device() -> dict:
+    return {"detected": False, "note": "rkdeveloptool not configured"}
+
+def rk_read_flash_id() -> dict:
+    return {"error": "rkdeveloptool not configured"}
+
+def rk_read_flash(offset: int = 0, count: int = 1) -> dict:
+    return {"error": "rkdeveloptool not configured"}
+
+def rk_write_flash(offset: int = 0, path: str = "") -> dict:
+    return {"error": "rkdeveloptool not configured"}
+
+def rk_reset_device() -> dict:
+    return {"error": "rkdeveloptool not configured"}

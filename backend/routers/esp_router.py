@@ -4,9 +4,18 @@ Endpoints:
   GET  /api/esp/serial-ports       — list COM ports with ESP detection
   GET  /api/esp/serial-ports/{dev} — port details
   WS   /api/esp/terminal/{dev}     — WebSocket serial terminal
-  GET  /api/esp/idf/status         — ESP-IDF toolchain status
+  GET  /api/esp/idf/status         — ESP-IDF toolchain status (full detection)
   GET  /api/esp/idf/projects       — list IDF projects
   POST /api/esp/idf/projects       — scaffold new IDF project
+  POST /api/esp/idf/build          — idf.py build
+  POST /api/esp/idf/flash          — idf.py flash
+  GET  /api/esp/idf/monitor        — idf.py monitor command
+  GET  /api/esp/flash/detect/{dev} — esptool chip-id
+  POST /api/esp/flash/backup/{dev} — esptool read_flash
+  POST /api/esp/flash/write/{dev}  — esptool write_flash
+  POST /api/esp/flash/micropython/{dev} — mpremote/ampy file push
+  GET  /api/esp/flash/backups      — list backups
+  DELETE /api/esp/flash/backups/{n} — delete backup
 """
 
 from __future__ import annotations
@@ -14,11 +23,25 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
+from pydantic import BaseModel
 
+from services.idf_service import (
+    detect_idf_installation,
+    get_esptool_cmd,
+    get_idf_env,
+    get_idf_esptool_cmd,
+    get_idf_python,
+    idf_build,
+    idf_flash,
+    idf_monitor,
+    idf_ready,
+)
 from services.esp_terminal_service import (
     HAS_PYSERIAL,
     BUILD_COMMAND_TEMPLATES,
@@ -230,36 +253,41 @@ async def ws_serial_terminal(websocket: WebSocket, device: str, baud: int = Quer
 
 @router.get("/idf/status")
 def get_idf_status():
-    """ESP-IDF toolchain availability and version."""
-    import os as _os
+    """Full ESP-IDF toolchain status — auto-detects installed IDF from ~/.espressif/esp_idf.json.
 
-    idf_path = _os.getenv("IDF_PATH", "")
-    idf_py = _os.getenv("IDF_PYTHON", "python")
+    Returns: installed versions, active path, IDF Python, all toolchains (xtensa/riscv),
+    esptool version, cmake, ninja, openocd.
+    """
+    return detect_idf_installation()
 
-    status = {
-        "idf_available": idf_available(),
-        "idf_path": idf_path or "not set",
-        "idf_python": idf_py,
-        "espnow_available": espnow_available(),
-        "pyserial_available": HAS_PYSERIAL,
-        "projects_dir": str(IDF_PROJECTS_DIR),
-    }
 
-    # Try to get IDF version
-    if idf_available() and idf_path:
-        import subprocess
-        try:
-            result = subprocess.run(
-                [idf_py, str(Path(idf_path) / "tools" / "idf.py"), "--version"],
-                capture_output=True, text=True, timeout=10,
-                cwd=idf_path,
-            )
-            if result.returncode == 0:
-                status["idf_version"] = result.stdout.strip()
-        except Exception:
-            pass
+# ── idf.py Build / Flash / Monitor ────────────────────────────────────────
 
-    return status
+class BuildRequest(BaseModel):
+    project_path: str
+    target: str = "esp32"
+    extra_args: Optional[List[str]] = None
+
+class FlashRequest(BaseModel):
+    project_path: str
+    port: str
+    target: str = "esp32"
+    baud: str = "921600"
+
+@router.post("/idf/build")
+def idf_project_build(req: BuildRequest):
+    """Build an ESP-IDF project using idf.py."""
+    return idf_build(req.project_path, target=req.target, extra_args=req.extra_args)
+
+@router.post("/idf/flash")
+def idf_project_flash(req: FlashRequest):
+    """Flash a built ESP-IDF project to device using idf.py flash."""
+    return idf_flash(req.project_path, port=req.port, target=req.target, baud=req.baud)
+
+@router.get("/idf/monitor")
+def idf_project_monitor(project_path: str, port: str, target: str = "esp32"):
+    """Get the idf.py monitor command for interactive serial monitoring."""
+    return idf_monitor(project_path, port=port, target=target)
 
 
 @router.get("/idf/projects")
@@ -343,7 +371,7 @@ def esp_status():
     """ESP-NOW library status."""
     return {
         "library_available": espnow_available(),
-        "idf_available": idf_available(),
+        "idf_available": idf_ready(),
         "library_path": "libraries/esp-now-lib/",
     }
 
@@ -468,3 +496,218 @@ def esp_build_info(name: str, target: str = "esp32", port: str = ""):
 def esp_binaries(name: str):
     """Built firmware binaries for an example."""
     return get_firmware_binaries(name)
+
+
+# ── Real Device Flash / Backup / Detect ────────────────────────────────────
+# These use actual esptool + pyserial (NOT stubs) to interact with hardware.
+
+import hashlib
+import tempfile
+from datetime import datetime, timezone
+
+from services.esp_terminal_service import HAS_PYSERIAL, list_serial_ports
+
+
+@router.get("/flash/detect/{device:path}")
+def detect_chip(device: str):
+    """Detect ESP chip info via esptool chip-id (REAL hardware call)."""
+    if not HAS_PYSERIAL:
+        raise HTTPException(500, "pyserial not installed — cannot detect chip")
+
+    esptool = get_esptool_cmd()
+    try:
+        result = subprocess.run(
+            esptool + ["--port", device, "chip-id"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            # chip-id succeeded; if it didn't, try flash_id (underscore deprecation) as fallback
+            result = subprocess.run(
+                esptool + ["--port", device, "flash_id"],
+                capture_output=True, text=True, timeout=15,
+            )
+        return {
+            "success": result.returncode == 0,
+            "device": device,
+            "output": result.stdout.strip(),
+            "error": result.stderr.strip() if result.returncode != 0 else None,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except FileNotFoundError:
+        raise HTTPException(500, "esptool.py not found — run: pip install esptool")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(500, f"Timed out probing {device}")
+
+
+@router.post("/flash/backup/{device:path}")
+def backup_firmware(device: str, size: str = "4MB"):
+    """Backup current firmware from device via esptool read_flash (REAL)."""
+    if not HAS_PYSERIAL:
+        raise HTTPException(500, "pyserial not installed")
+
+    backup_dir = Path(__file__).resolve().parents[1] / "data" / "firmware_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    safe_name = device.replace("/", "_").replace("\\", "_").replace(":", "_")
+    backup_path = backup_dir / f"{safe_name}-{ts}-backup.bin"
+
+    esptool = get_esptool_cmd()
+    try:
+        result = subprocess.run(
+            esptool + ["--port", device, "read_flash", "0", size, str(backup_path)],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "device": device,
+                "error": result.stderr.strip(),
+                "backup_path": None,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        backup_size = backup_path.stat().st_size if backup_path.exists() else 0
+        return {
+            "success": True,
+            "device": device,
+            "backup_path": str(backup_path),
+            "backup_size": backup_size,
+            "backup_size_mb": round(backup_size / (1024 * 1024), 2),
+            "output": result.stdout.strip(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except FileNotFoundError:
+        raise HTTPException(500, "esptool.py not found")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(500, f"Backup timed out for {device}")
+
+
+@router.post("/flash/write/{device:path}")
+def flash_firmware(
+    device: str,
+    firmware_path: str,
+    offset: str = "0x0",
+    baud: str = "921600",
+    backup_first: bool = True,
+):
+    """Flash firmware to device (REAL esptool write_flash).
+
+    Set backup_first=true to auto-backup before flashing.
+    """
+    if not HAS_PYSERIAL:
+        raise HTTPException(500, "pyserial not installed")
+
+    fw = Path(firmware_path)
+    if not fw.exists():
+        raise HTTPException(404, f"Firmware file not found: {firmware_path}")
+
+    result = {"device": device, "firmware": str(fw), "offset": offset, "backup": None}
+
+    # Auto-backup before flash
+    if backup_first:
+        try:
+            backup_result = backup_firmware(device)
+            result["backup"] = backup_result
+        except Exception as e:
+            result["backup_warning"] = str(e)
+
+    esptool = get_esptool_cmd()
+    try:
+        flash_result = subprocess.run(
+            esptool + ["--port", device, "--baud", baud,
+             "write_flash", offset, str(fw)],
+            capture_output=True, text=True, timeout=300,
+        )
+        result["success"] = flash_result.returncode == 0
+        result["output"] = flash_result.stdout.strip()
+        result["error"] = flash_result.stderr.strip() if flash_result.returncode != 0 else None
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return result
+    except FileNotFoundError:
+        raise HTTPException(500, "esptool.py not found")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(500, f"Flash timed out for {device}")
+
+
+@router.post("/flash/micropython/{device:path}")
+def flash_micropython_files(device: str, source_dir: str):
+    """Push MicroPython files to device via mpremote/ampy (REAL).
+
+    Copies all .py files from source_dir to the device root.
+    """
+    if not HAS_PYSERIAL:
+        raise HTTPException(500, "pyserial not installed")
+
+    src = Path(source_dir)
+    if not src.exists() or not src.is_dir():
+        raise HTTPException(404, f"Source directory not found: {source_dir}")
+
+    py_files = list(src.glob("*.py")) + list(src.glob("*.json"))
+    results = []
+
+    for f in py_files:
+        target = f":{f.name}"
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "mpremote", "connect", device, "fs", "cp", str(f), target],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.returncode != 0:
+                # Fallback to ampy
+                r2 = subprocess.run(
+                    [sys.executable, "-m", "ampy.cli", "--port", device, "put", str(f), f.name],
+                    capture_output=True, text=True, timeout=30,
+                )
+                results.append({
+                    "file": f.name,
+                    "success": r2.returncode == 0,
+                    "tool": "ampy",
+                    "error": r2.stderr.strip() if r2.returncode != 0 else None,
+                })
+            else:
+                results.append({
+                    "file": f.name,
+                    "success": True,
+                    "tool": "mpremote",
+                    "error": None,
+                })
+        except Exception as e:
+            results.append({"file": f.name, "success": False, "error": str(e)})
+
+    return {
+        "success": all(r["success"] for r in results),
+        "device": device,
+        "files_transferred": len(results),
+        "results": results,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/flash/backups")
+def list_backups():
+    """List all firmware backups on disk."""
+    backup_dir = Path(__file__).resolve().parents[1] / "data" / "firmware_backups"
+    if not backup_dir.exists():
+        return {"backups": [], "count": 0}
+
+    backups = []
+    for f in sorted(backup_dir.glob("*-backup.bin"), key=lambda x: x.stat().st_mtime, reverse=True):
+        backups.append({
+            "name": f.name,
+            "path": str(f),
+            "size_bytes": f.stat().st_size,
+            "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
+            "created": datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat(),
+        })
+    return {"backups": backups, "count": len(backups), "directory": str(backup_dir)}
+
+
+@router.delete("/flash/backups/{name}")
+def delete_backup(name: str):
+    """Delete a firmware backup."""
+    backup_dir = Path(__file__).resolve().parents[1] / "data" / "firmware_backups"
+    f = backup_dir / name
+    if not f.exists():
+        raise HTTPException(404, f"Backup not found: {name}")
+    f.unlink()
+    return {"deleted": True, "name": name}

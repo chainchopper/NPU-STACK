@@ -656,21 +656,113 @@ function EspNowPanel({ selectedDevice }) {
   );
 }
 
-// ── Firmware Templates Tab ─────────────────────────────────────────────────
-function FirmwarePanel() {
+// ── Firmware Tab (REAL flash + backup + detect) ────────────────────────────
+function FirmwarePanel({ selectedDevice, fleetDevices }) {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [backups, setBackups] = useState([]);
+  const [flashDevice, setFlashDevice] = useState(selectedDevice || '');
+  const [chipInfo, setChipInfo] = useState(null);
+  const [detecting, setDetecting] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [flashing, setFlashing] = useState(false);
+  const [backupResult, setBackupResult] = useState(null);
+  const [flashResult, setFlashResult] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [fwPath, setFwPath] = useState('');
+  const [baudRate, setBaudRate] = useState('921600');
+  const [flashOffset, setFlashOffset] = useState('0x0');
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
 
+  // Sync selectedDevice from parent
   useEffect(() => {
-    fetch(API_BASE + '/esp/firmware-templates')
-      .then(r => r.ok ? r.json() : { templates: [] })
-      .then(d => setTemplates(d.templates || []))
-      .catch(() => setTemplates([]))
-      .finally(() => setLoading(false));
-  }, []);
+    if (selectedDevice && !flashDevice) setFlashDevice(selectedDevice);
+  }, [selectedDevice]);
+
+  const refreshAll = async () => {
+    setLoading(true);
+    try {
+      const [tRes, bRes] = await Promise.all([
+        fetch(API_BASE + '/esp/firmware-templates').then(r => r.ok ? r.json() : { templates: [] }),
+        fetch(API_BASE + '/esp/flash/backups').then(r => r.ok ? r.json() : { backups: [] }),
+      ]);
+      setTemplates(tRes.templates || []);
+      setBackups(bRes.backups || []);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { refreshAll(); }, []);
+
+  // ── Detect Chip ──
+  const handleDetect = async () => {
+    if (!flashDevice || detecting) return;
+    setDetecting(true); setChipInfo(null);
+    try {
+      const r = await fetch(API_BASE + `/esp/flash/detect/${encodeURIComponent(flashDevice)}`);
+      const data = await r.json();
+      setChipInfo(data);
+    } catch (e) {
+      setChipInfo({ success: false, error: e.message });
+    }
+    setDetecting(false);
+  };
+
+  // ── Backup Firmware ──
+  const handleBackup = async () => {
+    if (!flashDevice || backingUp) return;
+    setBackingUp(true); setBackupResult(null);
+    try {
+      const r = await fetch(API_BASE + `/esp/flash/backup/${encodeURIComponent(flashDevice)}?size=4MB`, { method: 'POST' });
+      const data = await r.json();
+      setBackupResult(data);
+      if (data.success) refreshAll(); // refresh backup list
+    } catch (e) {
+      setBackupResult({ success: false, error: e.message });
+    }
+    setBackingUp(false);
+  };
+
+  // ── Flash Firmware (with confirm) ──
+  const triggerFlash = () => {
+    if (!flashDevice) return;
+    setShowConfirm(true);
+    setPendingAction('flash');
+  };
+
+  const confirmFlash = async () => {
+    setShowConfirm(false);
+    if (!flashDevice || flashing) return;
+    setFlashing(true); setFlashResult(null);
+    try {
+      const params = new URLSearchParams({
+        firmware_path: fwPath || 'auto-detect',
+        offset: flashOffset,
+        baud: baudRate,
+        backup_first: 'true',
+      });
+      const r = await fetch(API_BASE + `/esp/flash/write/${encodeURIComponent(flashDevice)}?${params}`, { method: 'POST' });
+      const data = await r.json();
+      setFlashResult(data);
+      if (data.backup?.success) setBackupResult(data.backup);
+    } catch (e) {
+      setFlashResult({ success: false, error: e.message });
+    }
+    setFlashing(false);
+  };
+
+  const cancelAction = () => {
+    setShowConfirm(false);
+    setPendingAction(null);
+  };
+
+  // Build list of flashable devices for quick-select
+  const flashableDevices = fleetDevices.filter(d =>
+    d.family?.startsWith('esp') || d.chip?.toLowerCase().includes('esp') || d.family === 'rp2040' || d.family === 'rp2350'
+  );
 
   const categories = [...new Set(templates.map(t => t.category_label))];
-
   const catIcons = {
     'ESP-NOW': <Radio size={14} color="#4ade80" />,
     'Firmware': <Download size={14} color="#d29922" />,
@@ -678,81 +770,313 @@ function FirmwarePanel() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Download size={18} color="#4ade80" />
-        <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>Firmware Templates</h3>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* ── Device Selector & Actions ── */}
+      <div style={{
+        padding: 14, borderRadius: 10, background: 'var(--bg-card)',
+        border: '2px solid #4ade8066',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <Download size={18} color="#4ade80" />
+          <h3 style={{ margin: 0, fontSize: 16, color: 'var(--text-primary)' }}>Flash & Backup</h3>
+          <span style={{ fontSize: 10, color: '#4ade80', marginLeft: 'auto', padding: '2px 8px', borderRadius: 4, background: '#1a3a2a' }}>
+            REAL esptool · mpremote · ampy
+          </span>
+        </div>
+
+        {/* Device select */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+          <select value={flashDevice} onChange={e => setFlashDevice(e.target.value)}
+            style={{
+              background: 'var(--bg-input)', color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)', borderRadius: 6, padding: '6px 10px',
+              fontSize: 12, minWidth: 220, fontFamily: 'monospace',
+            }}>
+            <option value="">-- Select device port --</option>
+            {flashableDevices.map(d => (
+              <option key={d.id} value={d.port || d.id}>
+                {d.port || d.id} {d.chip ? `(${d.chip})` : ''}
+              </option>
+            ))}
+          </select>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>or</span>
+          <input value={flashDevice} onChange={e => setFlashDevice(e.target.value)}
+            placeholder="COM3 or /dev/ttyUSB0"
+            style={{
+              background: 'var(--bg-input)', color: 'var(--text-primary)',
+              border: '1px solid var(--border-color)', borderRadius: 6, padding: '6px 10px',
+              fontSize: 12, fontFamily: 'monospace', width: 160, outline: 'none',
+            }} />
+          {flashDevice && (
+            <span style={{ fontSize: 11, color: '#4ade80', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <CheckCircle size={12} /> {flashDevice}
+            </span>
+          )}
+        </div>
+
+        {/* Action buttons row */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={handleDetect} disabled={!flashDevice || detecting}
+            style={{
+              background: flashDevice ? '#58a6ff' : 'var(--bg-tertiary)',
+              border: 'none', borderRadius: 6, padding: '8px 16px',
+              cursor: flashDevice && !detecting ? 'pointer' : 'default',
+              color: flashDevice ? '#fff' : 'var(--text-muted)',
+              fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+            {detecting ? <RefreshCw size={14} style={{animation:'spin 1s linear infinite'}} /> : <Cpu size={14} />}
+            {detecting ? 'Detecting...' : 'Detect Chip'}
+          </button>
+
+          <button onClick={handleBackup} disabled={!flashDevice || backingUp}
+            style={{
+              background: flashDevice ? '#d29922' : 'var(--bg-tertiary)',
+              border: 'none', borderRadius: 6, padding: '8px 16px',
+              cursor: flashDevice && !backingUp ? 'pointer' : 'default',
+              color: flashDevice ? '#000' : 'var(--text-muted)',
+              fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+            {backingUp ? <RefreshCw size={14} style={{animation:'spin 1s linear infinite'}} /> : <Upload size={14} />}
+            {backingUp ? 'Backing up...' : 'Backup Firmware'}
+          </button>
+
+          <button onClick={triggerFlash} disabled={!flashDevice || flashing}
+            style={{
+              background: flashDevice ? (flashing ? '#d29922' : '#ef4444') : 'var(--bg-tertiary)',
+              border: 'none', borderRadius: 6, padding: '8px 16px',
+              cursor: flashDevice && !flashing ? 'pointer' : 'default',
+              color: '#fff', fontSize: 12, fontWeight: 600,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+            {flashing ? <RefreshCw size={14} style={{animation:'spin 1s linear infinite'}} /> : <Send size={14} />}
+            {flashing ? 'Flashing...' : 'Flash Firmware'}
+          </button>
+
+          <button onClick={refreshAll} style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+            borderRadius: 6, padding: '8px 12px', cursor: 'pointer', color: 'var(--text-secondary)',
+          }}><RefreshCw size={14} /></button>
+        </div>
+
+        {/* Flash options (advanced) */}
+        {flashDevice && (
+          <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap', fontSize: 11 }}>
+            <label style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Path: <input value={fwPath} onChange={e => setFwPath(e.target.value)}
+                placeholder="firmware.bin"
+                style={{
+                  background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
+                  borderRadius: 4, padding: '3px 8px', fontSize: 11, fontFamily: 'monospace', width: 180, outline: 'none',
+                }} />
+            </label>
+            <label style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Offset: <input value={flashOffset}
+                onChange={e => setFlashOffset(e.target.value)}
+                style={{
+                  background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
+                  borderRadius: 4, padding: '3px 6px', fontSize: 11, fontFamily: 'monospace', width: 70, outline: 'none',
+                }} />
+            </label>
+            <label style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Baud: <select value={baudRate} onChange={e => setBaudRate(e.target.value)}
+                style={{
+                  background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
+                  borderRadius: 4, padding: '3px 6px', fontSize: 11,
+                }}>
+                {['921600','460800','230400','115200'].map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
       </div>
 
-      {loading && <div className="spinner" style={{margin:'20px auto'}} />}
-
-      {categories.map(cat => (
-        <div key={cat}>
-          <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-            {catIcons[cat] || <Zap size={14} />}
-            {cat} ({templates.filter(t => t.category_label === cat).length})
-          </h4>
-          {templates.filter(t => t.category_label === cat).map(t => (
-            <div key={t.id} style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-              marginBottom: 6, borderRadius: 8,
-              background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-            }}>
-              <Download size={16} color={t.category === 'firmware' ? '#d29922' : '#4ade80'} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {t.name}
-                  {t.category === 'firmware' && (
-                    <span style={{ fontSize: 10, marginLeft: 8, padding: '1px 6px', borderRadius: 4, background: '#3a2a1a', color: '#d29922' }}>
-                      {t.modes} modes
-                    </span>
-                  )}
-                  {t.license && (
-                    <span style={{ fontSize: 10, marginLeft: 4, padding: '1px 6px', borderRadius: 4, background: '#1a2a3a', color: '#58a6ff' }}>
-                      {t.license}
-                    </span>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {t.description}
-                </div>
-                {t.boards && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                    {t.boards.slice(0, 5).map(b => (
-                      <span key={b} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
-                        {b}
-                      </span>
-                    ))}
-                    {t.boards.length > 5 && (
-                      <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>+{t.boards.length - 5} more</span>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 4, flexDirection: 'column', alignItems: 'flex-end' }}>
-                {t.wiki && (
-                  <a href={t.wiki} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#58a6ff', textDecoration: 'none' }}>
-                    Wiki →
-                  </a>
-                )}
-                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                  {t.actions?.map(a => (
-                    <span key={a} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#1a3a2a', color: '#4ade80' }}>
-                      {a}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-
-      {!loading && templates.length === 0 && (
-        <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: 20, textAlign: 'center' }}>
-          No firmware templates available. Add firmware sources to libraries/ or use ESP-IDF projects.
+      {/* ── CONFIRM DIALOG ── */}
+      {showConfirm && (
+        <div style={{
+          padding: 16, borderRadius: 10, background: 'rgba(239,68,68,0.08)',
+          border: '2px solid #ef4444', animation: 'fadeIn 0.2s',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <AlertCircle size={20} color="#ef4444" />
+            <h4 style={{ margin: 0, fontSize: 15, color: '#ef4444' }}>Confirm Flash</h4>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 6px' }}>
+            You are about to <strong style={{color:'#ef4444'}}>flash firmware</strong> to <code style={{background:'var(--bg-input)',padding:'2px 6px',borderRadius:3}}>{flashDevice}</code>.
+          </p>
+          <p style={{ fontSize: 11, color: '#d29922', margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <CheckCircle size={12} /> A backup will be created automatically before flashing.
+          </p>
+          {!fwPath && (
+            <p style={{ fontSize: 11, color: '#f87171', margin: '0 0 12px' }}>
+              ⚠ No firmware path specified — this will fail. Enter a firmware .bin path above.
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={confirmFlash}
+              style={{
+                background: '#ef4444', border: 'none', borderRadius: 6, padding: '8px 20px',
+                cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 700,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+              <Send size={14} /> Flash Now (with backup)
+            </button>
+            <button onClick={cancelAction}
+              style={{
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                borderRadius: 6, padding: '8px 20px', cursor: 'pointer',
+                color: 'var(--text-secondary)', fontSize: 13,
+              }}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
+
+      {/* ── Chip Info Result ── */}
+      {chipInfo && (
+        <div style={{
+          padding: 12, borderRadius: 8,
+          background: chipInfo.success ? 'rgba(74,222,128,0.05)' : 'rgba(248,81,73,0.05)',
+          border: `1px solid ${chipInfo.success ? '#4ade8044' : '#f8514944'}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            {chipInfo.success ? <CheckCircle size={14} color="#4ade80" /> : <XCircle size={14} color="#f85149" />}
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {chipInfo.success ? 'Chip Detected' : 'Detection Failed'}
+            </span>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+              {chipInfo.timestamp}
+            </span>
+          </div>
+          <pre style={{
+            fontSize: 10, fontFamily: 'monospace', color: 'var(--text-secondary)',
+            margin: 0, padding: '8px', background: 'var(--bg-input)', borderRadius: 6,
+            maxHeight: 200, overflowY: 'auto', whiteSpace: 'pre-wrap',
+          }}>
+            {chipInfo.output || chipInfo.error || 'No output'}
+          </pre>
+        </div>
+      )}
+
+      {/* ── Backup Result ── */}
+      {backupResult && (
+        <div style={{
+          padding: 12, borderRadius: 8,
+          background: backupResult.success ? 'rgba(210,153,34,0.05)' : 'rgba(248,81,73,0.05)',
+          border: `1px solid ${backupResult.success ? '#d2992244' : '#f8514944'}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {backupResult.success ? <CheckCircle size={14} color="#d29922" /> : <XCircle size={14} color="#f85149" />}
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {backupResult.success
+                ? `Backup saved: ${backupResult.backup_size_mb || '?'} MB`
+                : 'Backup Failed'}
+            </span>
+          </div>
+          {backupResult.backup_path && (
+            <code style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
+              {backupResult.backup_path}
+            </code>
+          )}
+          {backupResult.error && (
+            <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>{backupResult.error}</div>
+          )}
+        </div>
+      )}
+
+      {/* ── Flash Result ── */}
+      {flashResult && (
+        <div style={{
+          padding: 12, borderRadius: 8,
+          background: flashResult.success ? 'rgba(74,222,128,0.05)' : 'rgba(248,81,73,0.05)',
+          border: `1px solid ${flashResult.success ? '#4ade8044' : '#f8514944'}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: flashResult.output ? 8 : 0 }}>
+            {flashResult.success ? <CheckCircle size={16} color="#4ade80" /> : <XCircle size={16} color="#f85149" />}
+            <span style={{ fontSize: 14, fontWeight: 700, color: flashResult.success ? '#4ade80' : '#f85149' }}>
+              {flashResult.success ? '✓ Flash Complete!' : '✗ Flash Failed'}
+            </span>
+            {flashResult.backup?.success && (
+              <span style={{ fontSize: 10, color: '#d29922', marginLeft: 8 }}>
+                Backup: {flashResult.backup.backup_size_mb} MB
+              </span>
+            )}
+          </div>
+          {flashResult.output && (
+            <pre style={{
+              fontSize: 10, fontFamily: 'monospace', color: 'var(--text-secondary)',
+              margin: 0, padding: '8px', background: 'var(--bg-input)', borderRadius: 6,
+              maxHeight: 200, overflowY: 'auto', whiteSpace: 'pre-wrap',
+            }}>
+              {flashResult.output}
+            </pre>
+          )}
+          {flashResult.error && (
+            <div style={{ fontSize: 11, color: '#f87171', marginTop: 4 }}>{flashResult.error}</div>
+          )}
+        </div>
+      )}
+
+      {/* ── Backup List ── */}
+      <div>
+        <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Upload size={14} color="#d29922" />
+          Saved Backups ({backups.length})
+        </h4>
+        {backups.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 12px' }}>
+            No backups yet. Connect a device and click "Backup Firmware".
+          </div>
+        ) : (
+          backups.slice(0, 10).map(b => (
+            <div key={b.name} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
+              marginBottom: 4, borderRadius: 6, fontSize: 11,
+              background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            }}>
+              <Upload size={12} color="#d29922" />
+              <code style={{ color: 'var(--text-primary)', flex: 1 }}>{b.name}</code>
+              <span style={{ color: 'var(--text-muted)' }}>{b.size_mb} MB</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{new Date(b.created).toLocaleDateString()}</span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* ── Templates list ── */}
+      <div>
+        <h4 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, marginTop: 0 }}>
+          <Zap size={14} style={{verticalAlign:'middle',marginRight:4}} />
+          Firmware Templates ({templates.length})
+        </h4>
+        {loading && <div className="spinner" style={{margin:'20px auto'}} />}
+        {categories.map(cat => (
+          <div key={cat}>
+            <h5 style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {catIcons[cat] || <Zap size={12} />}
+              {cat} ({templates.filter(t => t.category_label === cat).length})
+            </h5>
+            {templates.filter(t => t.category_label === cat).map(t => (
+              <div key={t.id} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+                marginBottom: 4, borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                background: selectedTemplate === t.id ? 'rgba(74,222,128,0.1)' : 'var(--bg-card)',
+                border: selectedTemplate === t.id ? '1px solid #4ade80' : '1px solid var(--border-color)',
+              }}
+              onClick={() => { setSelectedTemplate(selectedTemplate === t.id ? null : t.id); }}>
+                <Download size={14} color={t.category === 'firmware' ? '#d29922' : '#4ade80'} />
+                <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{t.name}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 10, flex: 1 }}>{t.description?.substring(0, 50)}</span>
+                {t.boards && (
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{t.boards.length} boards</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -929,7 +1253,7 @@ export default function EspDevConsole() {
         )}
         {activeTab === 'terminal' && <SerialTerminal />}
         {activeTab === 'espnow' && <EspNowPanel selectedDevice={selectedDevice} />}
-        {activeTab === 'firmware' && <FirmwarePanel />}
+        {activeTab === 'firmware' && <FirmwarePanel selectedDevice={selectedDevice} fleetDevices={fleetDevices} />}
         {activeTab === 'projects' && <ProjectsPanel />}
       </div>
     </div>
