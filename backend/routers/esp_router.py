@@ -711,3 +711,94 @@ def delete_backup(name: str):
         raise HTTPException(404, f"Backup not found: {name}")
     f.unlink()
     return {"deleted": True, "name": name}
+
+
+# ── Fleet Manifest (unified backup + bundle per platform) ──────────────────
+
+from services.fleet_manifest import (
+    PLATFORMS,
+    backup_device,
+    list_backups as list_fleet_backups,
+    list_bundles,
+    prepare_device_bundle,
+)
+
+
+class BundleRequest(BaseModel):
+    device_id: str
+    platform: str
+    wifi_ssid: str = ""
+    wifi_pass: str = ""
+    mqtt_broker: str = "127.0.0.1"
+    mqtt_port: int = 1883
+
+
+class BackupRequest(BaseModel):
+    device_id: str
+    platform: str
+    port: str = ""
+    ip: str = ""
+    drive: str = ""
+
+
+@router.get("/fleet/platforms")
+def list_platforms():
+    """All supported device platforms and their flash/backup methods."""
+    result = {}
+    for pid, prof in PLATFORMS.items():
+        result[pid] = {
+            "name": prof["name"],
+            "families": prof["families"],
+            "main_file": prof["main_file"],
+            "flash_tool": prof["flash"]["tool"],
+            "backup_tool": prof["backup"]["tool"],
+        }
+    return {"platforms": result, "count": len(result)}
+
+
+@router.post("/fleet/bundles/prepare")
+def prepare_bundle(req: BundleRequest):
+    """Generate a ready-to-flash firmware bundle for a device with baked-in config.
+
+    Downloads as a ZIP with agent code + npu_config.json + flash instructions.
+    Backup is enforced before flashing in the UI — this just prepares.
+    """
+    return prepare_device_bundle(
+        device_id=req.device_id,
+        platform=req.platform,
+        wifi_ssid=req.wifi_ssid,
+        wifi_pass=req.wifi_pass,
+        mqtt_broker=req.mqtt_broker,
+        mqtt_port=req.mqtt_port,
+    )
+
+
+@router.get("/fleet/bundles")
+def get_bundles():
+    """List all prepared firmware bundles."""
+    return {"bundles": list_bundles(), "count": len(list_bundles())}
+
+
+@router.post("/fleet/backup")
+def backup_device_endpoint(req: BackupRequest):
+    """Backup firmware from a device BEFORE flashing. MANDATORY guard.
+
+    Platform-specific:
+    - micropython-esp32: esptool read_flash → .bin
+    - circuitpython: copy all files from CIRCUITPY drive
+    - linux-sbc: scp pull key files
+    """
+    return backup_device(
+        device_id=req.device_id,
+        platform=req.platform,
+        port=req.port,
+        ip=req.ip,
+        drive=req.drive,
+    )
+
+
+@router.get("/fleet/backups")
+def get_fleet_backups():
+    """List all device firmware backups."""
+    backups = list_fleet_backups()
+    return {"backups": backups, "count": len(backups)}
