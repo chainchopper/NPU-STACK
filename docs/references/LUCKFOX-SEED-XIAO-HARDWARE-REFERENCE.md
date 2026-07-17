@@ -44,3 +44,21 @@
 ## LuckFox RV1106 (additional)
 - OpenCV Mobile: https://wiki.luckfox.com/Luckfox-Pico-RV1106/opencv-mobile
 - Downloads (firmware images, SDK, tools): https://wiki.luckfox.com/Luckfox-Pico-RV1106/Downloads
+
+## XiaoZhi ESP32 Voice Assistant (Reference)
+- GitHub: https://github.com/78/xiaozhi-esp32 (28.2k stars, v2.3.0)
+- Architecture: Wake Word → ASR → LLM → TTS pipeline over WebSocket/MQTT+UDP
+- Supports ESP32-S3/P4/C3/C5/C6, OPUS codec, OLED/LCD with emoji
+- MCP protocol for device control (servo, LED, GPIO)
+- 70+ boards supported: M5Stack, Waveshare, LILYGO, SenseCAP
+- Custom board guide: https://github.com/78/xiaozhi-esp32/blob/main/docs/custom-board.md
+- Server implementations: Python, Java, Golang available
+- NPU-STACK should integrate the MCP protocol for AI agent control of fleet devices
+
+## XIAO ESP32S3 Round Display Pin Reference
+- Display: TFT_eSPI / LVGL / Arduino GFX libraries
+- Touch: CHSC6x I2C controller (D4 SDA, D5 SCL, D3 DC, D1 CS, D7 INT, D6 backlight)
+- SD Card: SPI (D2 CS, D8 SCK, D9 MISO, D10 MOSI) — requires TFT init first
+- RTC: PCF8563T I2C (D4 SDA, D5 SCL)
+- Battery: A0/D0 analog voltage read, KE switch toggles D6/A0 between display backlight and GPIO
+- Camera: ESP32S3 Sense has onboard camera (OV2640)
