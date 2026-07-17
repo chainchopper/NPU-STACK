@@ -60,6 +60,13 @@ from services.fleet_manifest import (
     list_bundles,
     prepare_device_bundle,
 )
+from services.device_descriptor import (
+    generate_device_descriptor,
+    generate_npu_config,
+    get_brand_summary,
+    load_brand_config,
+    update_brand_config,
+)
 from services.esp_terminal_service import (
     HAS_PYSERIAL,
     BUILD_COMMAND_TEMPLATES,
@@ -860,3 +867,37 @@ def get_fleet_backups():
     """List all device firmware backups."""
     backups = list_fleet_backups()
     return {"backups": backups, "count": len(backups)}
+
+
+# ── Device Descriptor Branding ────────────────────────────────────────────
+
+class BrandUpdateRequest(BaseModel):
+    vendor: Optional[str] = None
+    device_prefix: Optional[str] = None
+    manufacturer: Optional[str] = None
+    product_template: Optional[str] = None
+    serial_template: Optional[str] = None
+    fleet_prefix: Optional[str] = None
+
+
+@router.get("/fleet/brand")
+def fleet_brand_summary():
+    """Get current device branding configuration (USB/mDNS/BLE descriptors)."""
+    return get_brand_summary()
+
+
+@router.post("/fleet/brand")
+def fleet_brand_update(req: BrandUpdateRequest):
+    """Update fleet branding. Writes to .env, applies to all new bundles."""
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    return update_brand_config(updates)
+
+
+@router.get("/fleet/descriptor/{device_id}")
+def fleet_device_descriptor(
+    device_id: str,
+    chip: str = "unknown",
+    platform: str = "micropython-esp32",
+):
+    """Preview the branded descriptor for a specific device (used in flash UI)."""
+    return generate_device_descriptor(device_id, chip, platform)

@@ -2,12 +2,15 @@
 
 Single source of truth for flashing every supported board in NPU-STACK.
 Every flash operation is: backup → prepare → flash, with user confirmation.
+Device descriptors (USB strings, mDNS, BLE names) are branded per .env config.
 """
 from __future__ import annotations
 
 import json, os, shutil, subprocess, sys, time, zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from backend.services.device_descriptor import generate_npu_config, load_brand_config
 
 REPO = Path(__file__).resolve().parents[2]
 FIRMWARE_DIR = REPO / "firmware"
@@ -122,16 +125,16 @@ def prepare_device_bundle(
             shutil.copy2(f, bundle_dir / f.name)
             files.append(f.name)
 
-    # Generate baked-in config
-    cfg = {
-        "device_id": device_id,
-        "mqtt_broker": mqtt_broker,
-        "mqtt_port": mqtt_port,
-        "wifi_ssid": wifi_ssid,
-        "wifi_password": wifi_pass,
-        "telemetry_interval": 5,
-        "npu_stack_version": "1.0.0",
-    }
+    # Generate branded config with descriptors
+    cfg = generate_npu_config(
+        device_id=device_id,
+        chip=prof.get("chip", platform),
+        platform=platform,
+        mqtt_broker=mqtt_broker,
+        mqtt_port=mqtt_port,
+        wifi_ssid=wifi_ssid,
+        wifi_pass=wifi_pass,
+    )
     (bundle_dir / "npu_config.json").write_text(json.dumps(cfg, indent=2))
     files.append("npu_config.json")
 
