@@ -47,6 +47,12 @@ from services.rockusb_service import (
     detect_rockchip_devices,
     flash_rockchip_firmware,
 )
+from services.luckfox_npu_service import (
+    detect_luckfox_npu,
+    list_rknn_models,
+    push_model_to_luckfox,
+    run_rknn_inference,
+)
 from services.fleet_manifest import (
     PLATFORMS,
     backup_device,
@@ -744,6 +750,33 @@ def rockchip_backup(size_mb: int = 256):
 def rockchip_flash(firmware_path: str):
     """Flash firmware to Rockchip/LuckFox device."""
     return flash_rockchip_firmware(firmware_path)
+
+
+# ── LuckFox NPU ───────────────────────────────────────────────────────────
+
+@router.get("/luckfox/npu")
+def luckfox_npu_info(chip: str = "auto"):
+    """Get NPU specifications for LuckFox RV1103/RV1106/RK3588."""
+    return detect_luckfox_npu(chip)
+
+
+@router.get("/luckfox/models")
+def luckfox_models():
+    """List available RKNN model files."""
+    models = list_rknn_models()
+    return {"models": models, "count": len(models)}
+
+
+@router.post("/luckfox/push-model")
+def luckfox_push_model(model_path: str, device_ip: str, target_dir: str = "/userdata/models/"):
+    """Push RKNN model to LuckFox board via SCP."""
+    return push_model_to_luckfox(model_path, device_ip, target_dir)
+
+
+@router.post("/luckfox/inference")
+def luckfox_inference(device_ip: str, model_name: str, input_source: str = "camera"):
+    """Trigger RKNN inference on LuckFox device."""
+    return run_rknn_inference(device_ip, model_name, input_source)
 
 
 # ── Fleet Manifest (unified backup + bundle per platform) ──────────────────
