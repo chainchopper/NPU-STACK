@@ -24,6 +24,8 @@ NAMES = {
     0x239A: "ADAFRUIT",
     0x2886: "SEEED XIAO",
     0x04D8: "MICROCHIP",
+    0x1A86: "WCH/CH343 (Grove Vision AI V2)",
+    0x2E8A: "RASPBERRY PI RP2040/RP2350",
 }
 
 for d in sorted(devs, key=lambda x: (x.idVendor, x.idProduct)):
