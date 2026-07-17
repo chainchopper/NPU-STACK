@@ -1,0 +1,29 @@
+{
+  "device_id": "esp32-s3-npu-fleet-01",
+  "mqtt_broker": "127.0.0.1",
+  "mqtt_port": 1883,
+  "wifi_ssid": "",
+  "wifi_password": "",
+  "telemetry_interval": 5,
+  "brand": {
+    "usb": {
+      "manufacturer": "Fanalogy \u2014 NPU-STACK Fleet",
+      "product": "Nirvana Fleet ESP32-S3 \u2014 esp32-s3-npu-fleet-01",
+      "serial": "NPU-esp32-s3-npu-fleet-01-c6ea56c5"
+    },
+    "discovery": {
+      "mqtt_topic": "npu-fleet/status/esp32-s3-npu-fleet-01",
+      "mdns_name": "esp32-s3-npu-fleet-01._npu-fleet._tcp.local.",
+      "ble_name": "Nirvana esp32-s3",
+      "wifi_hostname": "nirvana-c6ea56c5"
+    },
+    "meta": {
+      "fleet_version": "1.0.0",
+      "brand": "Fanalogy",
+      "brand_short": "NPU-STACK",
+      "platform": "micropython-esp32",
+      "chip": "ESP32-S3",
+      "flashed_at": "2026-07-17T09:24:31Z"
+    }
+  }
+}
