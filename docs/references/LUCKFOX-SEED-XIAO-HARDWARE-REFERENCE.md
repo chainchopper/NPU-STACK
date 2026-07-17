@@ -55,10 +55,18 @@
 - Server implementations: Python, Java, Golang available
 - NPU-STACK should integrate the MCP protocol for AI agent control of fleet devices
 
-## XIAO ESP32S3 Round Display Pin Reference
-- Display: TFT_eSPI / LVGL / Arduino GFX libraries
-- Touch: CHSC6x I2C controller (D4 SDA, D5 SCL, D3 DC, D1 CS, D7 INT, D6 backlight)
-- SD Card: SPI (D2 CS, D8 SCK, D9 MISO, D10 MOSI) — requires TFT init first
-- RTC: PCF8563T I2C (D4 SDA, D5 SCL)
-- Battery: A0/D0 analog voltage read, KE switch toggles D6/A0 between display backlight and GPIO
-- Camera: ESP32S3 Sense has onboard camera (OV2640)
+## XIAO ESP32S3 Sense (Camera + Mic + SD)
+- Getting Started: https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/
+- Pin Multiplexing: https://wiki.seeedstudio.com/xiao_esp32s3_pin_multiplexing/
+- MicroPython: https://wiki.seeedstudio.com/xiao_esp32s3_with_micropython/
+- Camera: OV2640 (discontinued, now OV3660)
+- Flash: esptool --chip esp32s3 --port COMx write_flash 0x0 firmware.bin
+- Boot: hold BOOT + plug USB
+
+## Grove Vision AI V2 (WiseEye2 HX6538 + Ethos-U55)
+- Wiki: https://wiki.seeedstudio.com/grove_vision_ai_v2/
+- SDK: https://github.com/HimaxWiseEyePlus/Seeed_Grove_Vision_AI_Module_V2
+- USB Chip: CH343 (VID 1A86:55D3), needs CH343 driver
+- Flash: minicom + firmware script (Linux) or Arduino IDE + Seeed_Arduino_SSCMA
+- Connects to XIAO via I2C for inference result output
+- Not an ESP32 — cannot flash with esptool
