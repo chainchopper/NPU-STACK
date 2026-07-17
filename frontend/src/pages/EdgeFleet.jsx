@@ -17,6 +17,7 @@ import {
     installPreparedBundle,
     listBackups,
     listDevices,
+    fleetScan,
     listPreparedBundles,
     pairDevice,
     prepareDevice,
@@ -170,14 +171,24 @@ export default function EdgeFleet() {
 
     const fetchDevices = useCallback(async () => {
         try {
-            const data = await listDevices(showLowConfidence);
-            setDevices(data.devices || []);
+            const [registry, fleet] = await Promise.all([
+                listDevices(showLowConfidence),
+                fleetScan().catch(() => ({ devices: [], count: 0, sources: {} })),
+            ]);
+            // Merge fleet scan devices with registry
+            const fleetDevices = fleet.devices || [];
+            const fleetIds = new Set(fleetDevices.map(d => d.id));
+            const merged = [...fleetDevices];
+            for (const d of (registry.devices || [])) {
+                if (!fleetIds.has(d.id)) merged.push(d);
+            }
+            setDevices(merged);
             setSummary({
-                count: data.count || 0,
-                paired_count: data.paired_count || 0,
-                detected_count: data.detected_count || 0,
-                available_count: data.available_count || 0,
-                hidden_low_confidence: data.hidden_low_confidence || 0,
+                count: merged.length,
+                paired_count: fleet.sources?.mqtt || 0,
+                detected_count: fleet.sources?.serial || 0,
+                available_count: fleet.sources?.libusb || 0,
+                hidden_low_confidence: 0,
             });
             setBackendWarning('');
         } catch (error) {

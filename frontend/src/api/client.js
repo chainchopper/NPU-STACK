@@ -527,6 +527,11 @@ export async function listDevices(includeLowConfidence = false) {
     return request(`/devices${params}`);
 }
 
+export async function fleetScan() {
+    /** Unified fleet scanner: serial ports + libusb Rockchip + MQTT devices. */
+    return request('/esp/fleet/scan');
+}
+
 export async function listDeviceProfiles(deviceId) {
     const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     return request(`/devices/profiles${params}`);
