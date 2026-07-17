@@ -92,6 +92,136 @@ router = APIRouter(prefix="/api/esp", tags=["esp"])
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IDF_PROJECTS_DIR = REPO_ROOT / "firmware" / "esp-idf-projects"
 
+# ── Unified Fleet Scanner ─────────────────────────────────────────────────
+
+@router.get("/fleet/scan")
+def fleet_scan():
+    """Comprehensive fleet scan — ALL detection methods combined into one view.
+
+    Combines: pyserial COM ports + libusb Rockchip devices + MQTT fleet status.
+    This is THE endpoint for the NPU-STACK fleet dashboard.
+    """
+    devices = []
+    seen_ids = set()
+
+    # ── 1. Serial ports (pyserial) ──
+    from services.esp_terminal_service import list_serial_ports
+    ports = list_serial_ports()
+    for p in ports.get("ports", []):
+        vid = p.get("vid", "")
+        pid = p.get("pid", "")
+        port_id = p.get("device", "")
+        family = p.get("family", "unknown")
+        flash_method = p.get("flash_method", "unknown")
+
+        # Build human-friendly name
+        chip_hint = p.get("chip") or ""
+
+        # Map VID to vendor name
+        vid_map = {
+            "0x303A": "Espressif", "0x239A": "Adafruit", "0x2886": "Seeed",
+            "0x04D8": "Microchip", "0x2E8A": "Raspberry Pi", "0x1A86": "WCH",
+            "0x2207": "Rockchip",
+        }
+        vendor = vid_map.get(vid, "")
+
+        device = {
+            "id": port_id.replace(":", "_"),
+            "port": port_id,
+            "description": p.get("description", ""),
+            "vid": vid,
+            "pid": pid,
+            "serial": p.get("serial_number", ""),
+            "vendor": vendor,
+            "chip": chip_hint or family,
+            "family": family,
+            "flash_method": flash_method,
+            "toolchain": p.get("toolchain", ""),
+            "source": "serial",
+            "is_esp": p.get("is_esp", False),
+            "is_npu": family in ["rockchip", "esp32-p4"],
+        }
+        devices.append(device)
+        seen_ids.add(port_id)
+
+    # ── 2. Rockchip/LuckFox via libusb ──
+    from services.rockusb_service import detect_rockchip_devices
+    rk_devices = detect_rockchip_devices()
+    for rk in rk_devices:
+        rk_id = f"rockchip-bus{rk['bus']}-addr{rk['address']}"
+        if rk_id not in seen_ids:
+            devices.append({
+                "id": rk_id,
+                "port": rk.get("port", ""),
+                "description": f"{rk['chip']} (rockusb)",
+                "vid": rk.get("vid", "0x2207"),
+                "pid": rk.get("pid", ""),
+                "serial": "",
+                "vendor": "Rockchip",
+                "chip": rk["chip"],
+                "family": "rockchip",
+                "flash_method": "rkdeveloptool",
+                "toolchain": "RKDevTool / rkdeveloptool",
+                "source": "libusb",
+                "is_npu": rk.get("npu", False),
+            })
+            seen_ids.add(rk_id)
+
+    # ── 3. MQTT fleet devices ──
+    import paho.mqtt.client as mqtt, json, time as _time
+    mqtt_found = []
+    def _on_msg(c, u, msg):
+        try:
+            d = json.loads(msg.payload.decode())
+            mqtt_found.append(d)
+        except:
+            pass
+    try:
+        c = mqtt.Client(client_id="npu-fleet-scan", protocol=mqtt.MQTTv311)
+        c.on_message = _on_msg
+        c.connect("127.0.0.1", 1883, 3)
+        c.subscribe("npu-fleet/status/#")
+        c.subscribe("fleet/status/#")
+        c.loop_start()
+        _time.sleep(2)
+        c.loop_stop()
+        c.disconnect()
+    except:
+        pass
+
+    for mq in mqtt_found:
+        mq_id = mq.get("device_id", "unknown")
+        if mq_id not in seen_ids:
+            devices.append({
+                "id": mq_id,
+                "port": "",
+                "description": mq.get("device_type", "MQTT Fleet Device"),
+                "vid": "",
+                "pid": "",
+                "serial": mq_id,
+                "vendor": mq.get("brand", {}).get("meta", {}).get("brand", "NPU-STACK") if isinstance(mq.get("brand"), dict) else "NPU-STACK",
+                "chip": mq.get("chip", mq.get("device_type", "")),
+                "family": mq.get("platform", "unknown"),
+                "flash_method": "ota",
+                "toolchain": "MQTT OTA",
+                "source": "mqtt",
+                "online": mq.get("online", True),
+                "uptime_s": mq.get("uptime_s", 0),
+                "battery": mq.get("battery"),
+            })
+            seen_ids.add(mq_id)
+
+    return {
+        "devices": devices,
+        "count": len(devices),
+        "sources": {
+            "serial": len([d for d in devices if d["source"] == "serial"]),
+            "libusb": len([d for d in devices if d["source"] == "libusb"]),
+            "mqtt": len([d for d in devices if d["source"] == "mqtt"]),
+        },
+    }
+
+
 # ── Serial Ports ──────────────────────────────────────────────────────────
 
 @router.get("/serial-ports")
