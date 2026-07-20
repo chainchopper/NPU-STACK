@@ -2099,3 +2099,55 @@ async def run_full_discovery(
         "devices": registry_view["devices"],
         "last_scan": registry_view["last_scan"],
     }
+
+
+# ── Auto-Poll Background Scanner ─────────────────────────────────────────
+
+_poll_thread = None
+_poll_stop = False
+_poll_interval_seconds = 30
+
+
+def _poll_worker():
+    """Background thread that scans USB devices and updates the registry."""
+    global _poll_stop
+    logger.info("Fleet auto-poll worker started (interval: %ss)", _poll_interval_seconds)
+    while not _poll_stop:
+        try:
+            # Always run USB scan (cheap and reliable)
+            devices = scan_usb_devices()
+            devices.extend(scan_usb_mass_storage_devices())
+            if devices:
+                merge_into_registry(devices)
+                logger.debug("Auto-poll: %d USB devices merged", len(devices))
+        except Exception as e:
+            logger.warning("Auto-poll error: %s", e)
+        time.sleep(_poll_interval_seconds)
+    logger.info("Fleet auto-poll worker stopped")
+
+
+def start_auto_poll(interval_seconds: int = 30, blocking: bool = False):
+    """Start background fleet scanner.
+
+    Polls USB devices every N seconds and merges into the registry.
+    Call this from backend startup (lifespan).
+    """
+    import threading
+    global _poll_thread, _poll_stop, _poll_interval_seconds
+    _poll_interval_seconds = interval_seconds
+    _poll_stop = False
+    if _poll_thread and _poll_thread.is_alive():
+        logger.info("Auto-poll already running")
+        return
+    _poll_thread = threading.Thread(target=_poll_worker, daemon=True, name="fleet-poll")
+    _poll_thread.start()
+    if blocking:
+        _poll_thread.join()
+    return _poll_thread
+
+
+def stop_auto_poll():
+    """Stop the background fleet scanner."""
+    global _poll_stop
+    _poll_stop = True
+    logger.info("Fleet auto-poll stop requested")

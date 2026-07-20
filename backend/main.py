@@ -80,6 +80,7 @@ from routers.lmstudio import router as lmstudio_router
 from routers.boards import router as boards_router
 from services.docs_index_service import ensure_docs_index
 from services.docs_index_service import sync_project_docs_to_gitbook
+from services.edge_discovery import start_auto_poll, stop_auto_poll
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -132,6 +133,8 @@ async def lifespan(app: FastAPI):
             mqtt_status = {"started": False, "reason": f"mosquitto not found at {mqtt_exe}"}
     except Exception as exc:
         mqtt_status = {"started": False, "reason": str(exc)}
+    # ── Auto-Start Fleet Device Poller ──
+    start_auto_poll(interval_seconds=30)
     # ── Auto-start Nirvana WebUI (fire-and-forget) ──
     # NOTE: WebUI static files are now mounted directly on this server at /nirvana-webui/
     # The separate :8789 process is no longer needed for serving static content.
