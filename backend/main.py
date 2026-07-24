@@ -78,9 +78,11 @@ from routers.docs_index import router as docs_index_router
 from routers.nirvana_webui import router as nirvana_webui_router
 from routers.lmstudio import router as lmstudio_router
 from routers.boards import router as boards_router
+from routers.xiaozhi_router import router as xiaozhi_router
 from services.docs_index_service import ensure_docs_index
 from services.docs_index_service import sync_project_docs_to_gitbook
 from services.edge_discovery import start_auto_poll, stop_auto_poll
+from services.xiaozhi_server import init_xiaozhi_server, shutdown_xiaozhi_server
 
 # Create directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -133,6 +135,18 @@ async def lifespan(app: FastAPI):
             mqtt_status = {"started": False, "reason": f"mosquitto not found at {mqtt_exe}"}
     except Exception as exc:
         mqtt_status = {"started": False, "reason": str(exc)}
+    # ── Start XiaoZhi Voice Server (MQTT fleet voice protocol) ──
+    try:
+        if mqtt_status.get("started"):
+            from services.xiaozhi_server import init_xiaozhi_server as _init_xz
+            _ = _init_xz(
+                mqtt_broker="127.0.0.1",
+                mqtt_port=1883,
+                fleet_prefix="npu-fleet",
+            )
+    except Exception:
+        pass
+
     # ── Auto-Start Fleet Device Poller ──
     start_auto_poll(interval_seconds=30)
     # ── Auto-start Nirvana WebUI (fire-and-forget) ──
@@ -183,6 +197,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
     yield  # App runs here
     print("NPU-STACK Backend shutting down...")
+    shutdown_xiaozhi_server()
 
 
 app = FastAPI(
@@ -263,6 +278,7 @@ app.include_router(docs_index_router)
 app.include_router(nirvana_webui_router)
 app.include_router(lmstudio_router)
 app.include_router(boards_router)
+app.include_router(xiaozhi_router)
 
 # ── Mount Nirvana WebUI proxy for iframe embedding ──
 # Strips CSP/X-Frame-Options headers so the WebUI can be embedded in NPU-STACK
