@@ -67,6 +67,11 @@ from services.device_descriptor import (
     load_brand_config,
     update_brand_config,
 )
+from services.device_identity import (
+    get_architecture_summary,
+    identify_all_devices,
+    save_identity_cache,
+)
 from services.esp_terminal_service import (
     HAS_PYSERIAL,
     BUILD_COMMAND_TEMPLATES,
@@ -291,6 +296,27 @@ def usb_scan():
         })
 
     return {"devices": devices, "count": len(devices)}
+
+
+# ── Device Identity (Windows PnP + USB + Architecture) ────────────────────
+
+@router.get("/fleet/identify")
+def fleet_identify():
+    """Comprehensive device identification using Windows PnP + USB descriptors."""
+    devices = identify_all_devices()
+    return {
+        "devices": devices, "count": len(devices),
+        "architecture_summary": get_architecture_summary(),
+        "fleet_devices": len([d for d in devices if d.get("template")]),
+        "bridge_devices": len([d for d in devices if d.get("architecture") == "bridge-chip"]),
+    }
+
+
+@router.post("/fleet/identify/save")
+def fleet_identify_save():
+    """Save current device identities to cache for ML training."""
+    data = save_identity_cache()
+    return {"saved": True, "devices": data["count"], "architecture_summary": data["architecture_summary"]}
 
 
 def _pid_to_chip(pid):
