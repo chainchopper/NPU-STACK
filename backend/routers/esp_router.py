@@ -245,6 +245,7 @@ def usb_scan():
         0x04D8: ("Microchip", "unknown"),
         0x1A86: ("WCH/CH343", None),
         0x2E8A: ("Raspberry Pi", "uf2"),
+        0x0BDA: ("Realtek/Ameba", "arduino-ide"),
     }
 
     for d in usb.core.find(find_all=True, backend=be):
