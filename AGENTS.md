@@ -83,6 +83,8 @@ Default section order:
 - Push to GitHub frequently — after every validated slice of work.
 - **Branch strategy**: `dev` is the primary development branch. `main` receives trickle-down merges from `dev` after audit. Never commit directly to `main` — always work in `dev` first. Sensitive/internal features stay in `dev` and are filtered before push to `main`.
 - **internal/ folder**: Private NPU-STACK assets (training data, scrapers, proposals, internal docs) live in `internal/`. This folder is **gitignored** — never push to GitHub. Use `git add -A` with caution; prefer `git add <specific files>` to avoid accidentally staging internal/.
+- **BACKUP BEFORE FLASH — MANDATORY**: Every device flash MUST be preceded by a full firmware backup. NO EXCEPTIONS. Use `GET /api/esp/fleet/backup` or the platform-specific backup method. If backup fails, STOP — do not proceed to flash. This is enforced in the flash endpoint (`backup_first=True`) but the agent must also enforce it at the planning/debugging level. The S3 Matrix game (accelerometer+gyroscope, running for years) was lost because this rule was violated. That never happens again.
+- **NEVER format, delete, or write to ANY drive without explicit user approval**. Some devices expose SD cards or CIRCUITPY drives as Windows drive letters. These may be system drives or contain irreplaceable data. Detection/reading is fine — writing and formatting is forbidden without confirmation.
 - Nirvana WebUI absorption: Phase 1 complete — proxy middleware (`backend/hermes_proxy.py`) forwards unmatched /api/* paths to absorbed WebUI at :8789. Frontend has /nirvana-chat route with iframe-embedded full WebUI. Agent icon opens Nirvana Chat directly. Phase 2 will mount vanilla JS modules directly.
 
 ## Child DOX Index
