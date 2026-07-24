@@ -1,21 +1,21 @@
 {
-  "device_id": "esp32-s3-npu-fleet-01",
+  "device_id": "nirvana-s3-matrix-01",
   "mqtt_broker": "127.0.0.1",
   "mqtt_port": 1883,
-  "wifi_ssid": "",
-  "wifi_password": "",
+  "wifi_ssid": "DaMatrix5G",
+  "wifi_password": "N0b0ss434343#",
   "telemetry_interval": 5,
   "brand": {
     "usb": {
       "manufacturer": "Fanalogy \u2014 NPU-STACK Fleet",
-      "product": "Nirvana Fleet ESP32-S3 \u2014 esp32-s3-npu-fleet-01",
-      "serial": "NPU-esp32-s3-npu-fleet-01-c6ea56c5"
+      "product": "Nirvana Fleet ESP32-S3 \u2014 nirvana-s3-matrix-01",
+      "serial": "NPU-nirvana-s3-matrix-01-9d74d37f"
     },
     "discovery": {
-      "mqtt_topic": "npu-fleet/status/esp32-s3-npu-fleet-01",
-      "mdns_name": "esp32-s3-npu-fleet-01._npu-fleet._tcp.local.",
-      "ble_name": "Nirvana esp32-s3",
-      "wifi_hostname": "nirvana-c6ea56c5"
+      "mqtt_topic": "npu-fleet/status/nirvana-s3-matrix-01",
+      "mdns_name": "nirvana-s3-matrix-01._npu-fleet._tcp.local.",
+      "ble_name": "Nirvana nirvana-",
+      "wifi_hostname": "nirvana-9d74d37f"
     },
     "meta": {
       "fleet_version": "1.0.0",
@@ -23,7 +23,7 @@
       "brand_short": "NPU-STACK",
       "platform": "micropython-esp32",
       "chip": "ESP32-S3",
-      "flashed_at": "2026-07-17T09:24:31Z"
+      "flashed_at": "2026-07-24T10:14:50Z"
     }
   }
 }

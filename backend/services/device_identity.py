@@ -69,6 +69,30 @@ KNOWN_IDENTITIES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "chip": "CH343", "vendor": "WCH", "family": "bridge",
         "architecture": "bridge-chip", "board": "CH343 (Grove Vision V2)", "npu": False, "flash_method": "none",
     },
+    ("1A86", "7522"): {
+        "chip": "CH340K", "vendor": "WCH", "family": "bridge",
+        "architecture": "bridge-chip", "board": "CH340K UART Bridge (ESP32 board)", "npu": False, "flash_method": "none",
+        "notes": "CH340K is typically on ESP32 dev boards — check serial output for chip ID. If ESP32-S3 ROM boot msg seen, board behind this bridge is an ESP32-S3.",
+    },
+    # ── Arduino ──
+    ("2341", "0074"): {
+        "chip": "SAMD21G18", "vendor": "Arduino", "family": "arduino",
+        "architecture": "arm-cortex-m0", "board": "Arduino Nano R4",
+        "npu": False, "flash_mb": 0, "flash_method": "arduino-ide",
+    },
+    ("2341", "0043"): {
+        "chip": "ATmega328P", "vendor": "Arduino", "family": "arduino",
+        "architecture": "avr", "board": "Arduino Uno R3", "npu": False, "flash_method": "arduino-ide",
+    },
+    # ── Waveshare S3 Matrix (same VID as Espressif, identified by serial pattern) ──
+    ("303A", "4001-MATRIX"): {  # Special key: VID-PID serial when "123456" detected
+        "chip": "ESP32-S3", "vendor": "Waveshare", "family": "esp32-s3",
+        "architecture": "xtensa-lx7", "board": "ESP32-S3 Matrix (Waveshare)",
+        "npu": False, "flash_mb": 16, "psram_mb": 8, "flash_method": "esptool",
+        "features": ["neopixel-25xWS2812", "accelerometer", "gyroscope"],
+        "neopixel_pin": 21, "neopixel_count": 25,
+        "notes": "Serial 123456 = Waveshare S3 Matrix. CDC port is MicroPython, CH340K port shows boot ROM.",
+    },
     # ── Rockchip ──
     ("2207", "110C"): {
         "chip": "RV1106", "vendor": "Rockchip/LuckFox", "family": "rockchip",
@@ -103,6 +127,7 @@ ARCHITECTURES = {
     "risc-v":         {"label": "RISC-V",         "group": "risc-v",  "template": "micropython-esp32"},
     "bridge-chip":    {"label": "Bridge Chip",    "group": "bridge",  "template": None},
     "arm":            {"label": "ARM",            "group": "arm",     "template": "linux-sbc"},
+    "avr":            {"label": "AVR ATmega",   "group": "avr",     "template": None},
 }
 
 
@@ -119,6 +144,15 @@ def identify_all_devices() -> List[Dict[str, Any]]:
             continue
         vid, pid = f"{p.vid:04X}", f"{p.pid:04X}"
         info = KNOWN_IDENTITIES.get((vid, pid), {}).copy()
+
+        # ── Special detection: Waveshare S3 Matrix (serial "123456") ──
+        if vid == "303A" and pid == "4001" and p.serial_number == "123456":
+            info = KNOWN_IDENTITIES.get(("303A", "4001-MATRIX"), info).copy()
+
+        # ── Special detection: CH340K with ESP32-S3 behind it ──
+        if vid == "1A86" and pid == "7522":
+            info["notes"] = info.get("notes", "") + " — probe serial output for chip ID (ESP32-S3 boot ROM detected)"
+
         if not info:
             info = {"family": "unknown", "architecture": "unknown", "board": p.description or "USB Device"}
 
