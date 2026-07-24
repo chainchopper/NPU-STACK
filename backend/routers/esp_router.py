@@ -222,6 +222,83 @@ def fleet_scan():
     }
 
 
+# ── USB Device Scanner (full libusb, not just serial) ────────────────────
+
+@router.get("/usb-scan")
+def usb_scan():
+    """Full USB device scan via libusb — detects devices without serial ports.
+
+    Identifies Grove Vision AI V2 (CH343), Rockchip, XIAO, etc.
+    """
+    import ctypes, usb.backend.libusb1, usb.core, usb.util
+    DLL = r"C:\Windows\System32\libusb-1.0.dll"
+    be = usb.backend.libusb1.get_backend(find_library=lambda x: DLL)
+    if not be:
+        return {"devices": [], "count": 0, "error": "libusb backend not found"}
+
+    devices = []
+    VID_NAMES = {
+        0x2207: ("Rockchip/LuckFox", "rkdeveloptool"),
+        0x303A: ("Espressif", "esptool"),
+        0x239A: ("Adafruit", "uf2"),
+        0x2886: ("Seeed Studio XIAO", "esptool"),
+        0x04D8: ("Microchip", "unknown"),
+        0x1A86: ("WCH/CH343", None),
+        0x2E8A: ("Raspberry Pi", "uf2"),
+    }
+
+    for d in usb.core.find(find_all=True, backend=be):
+        vid_name, flash_method = VID_NAMES.get(d.idVendor, (None, None))
+        if not vid_name:
+            continue
+
+        # Special handling for Grove Vision AI V2 (CH343 + WiseEye2)
+        chip = ""
+        npu = False
+        if d.idVendor == 0x1A86 and d.idProduct == 0x55D3:
+            chip = "WiseEye2 HX6538 (Grove Vision AI V2)"
+            flash_method = "xmodem-921600"
+            npu = True
+        elif d.idVendor == 0x2207:
+            chip = _pid_to_chip(d.idProduct)
+            npu = d.idProduct in [0x110B, 0x110C, 0x350A, 0x350B, 0x350D]
+        elif d.idVendor == 0x239A and d.idProduct == 0x8018:
+            chip = "CPlay Express (SAMD21)"
+
+        try:
+            mfg = usb.util.get_string(d, d.iManufacturer) if d.iManufacturer else ""
+        except:
+            mfg = ""
+        try:
+            prod = usb.util.get_string(d, d.iProduct) if d.iProduct else ""
+        except:
+            prod = ""
+
+        devices.append({
+            "id": f"{vid_name.lower().replace('/','-')}-bus{d.bus}-addr{d.address}",
+            "vid": f"0x{d.idVendor:04X}",
+            "pid": f"0x{d.idProduct:04X}",
+            "bus": d.bus,
+            "address": d.address,
+            "port": str(d.port_numbers) if d.port_numbers else "",
+            "vendor": vid_name,
+            "chip": chip or prod or vid_name,
+            "manufacturer": mfg,
+            "flash_method": flash_method or "unknown",
+            "npu": npu,
+            "source": "libusb",
+        })
+
+    return {"devices": devices, "count": len(devices)}
+
+
+def _pid_to_chip(pid):
+    return {
+        0x110A: "RV1103", 0x110B: "RV1103", 0x110C: "RV1106",
+        0x330C: "RK3308", 0x350A: "RK3588", 0x350B: "RK3588S", 0x350D: "RK3562",
+    }.get(pid, f"RK{pid:04X}")
+
+
 # ── Serial Ports ──────────────────────────────────────────────────────────
 
 @router.get("/serial-ports")
