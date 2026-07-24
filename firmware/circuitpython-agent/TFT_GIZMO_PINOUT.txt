@@ -1,0 +1,9 @@
+TFT Gizmo -> CPlay Express pins:
+  Display SPI: SCK=A6, MOSI=A7(TX), MISO=A8(RX)
+  TFT_CS = D4 (A6), TFT_DC = D3 (A7/TX)
+  TFT_RST= D9 (A9), TFT_BACKLIGHT = D13 (LED)
+  Speaker amp on A0 (DAC output — use audioio.AudioOut not pwmio)
+  JST Port 1 (left) = A1 (NeoPixel/servo)
+  JST Port 2 (right) = A2 (NeoPixel/servo)
+  Power: 3-5VDC via VOUT
+TFT: ST7789 240x240 1.54" IPS
