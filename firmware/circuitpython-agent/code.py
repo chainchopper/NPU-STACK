@@ -1,274 +1,426 @@
-# NPU-STACK Nirvana Fleet Agent
-# Adafruit Circuit Playground Express + TFT Gizmo
-# ============================================================
-# Board: Circuit Playground Express (SAMD21G18)
-# Display: TFT Gizmo (ST7789 240x240, SPI)
-# Agent: v4.0 — multi-mode with full sensor suite
-#
-# MODES (cycle with Button A):
-#   1. STATUS — shows device ID, uptime, free RAM on neopixel ring
-#   2. SENSORS — reads all sensors, displays on REPL
-#   3. RAINBOW — animated rainbow on neopixels
-#   4. THERMOMETER — neopixels show temperature (blue=cool, red=hot)
-#   5. VU_METER — neopixels respond to sound level from mic
-#   6. TOUCH — capacitive touch pads light up neopixels
-#
-# Button B: toggle speaker (play tone on mode change)
-# SERIAL: Type JSON commands — {"command":"HELP"} for list
-#
-# FLASH: See README.md in firmware/circuitpython-agent/
-# ============================================================
+# Nirvana Fleet Agent v5 — CPlay Express + TFT Gizmo
+# Full ST7789 display + audio speaker + all sensors + 6 modes
+# Flash: drop CP 10.2.1 UF2 to CPLAYBOOT, then copy code.py + lib/ to CIRCUITPY
 
-import time, json, board, neopixel, digitalio, analogio, touchio, microcontroller, math, gc
+import board
+import busio
+import displayio
+import terminalio
+import time
+import math
+import json
+import gc
+import array
+import analogio
+import digitalio
+import touchio
+import audioio
+import audiocore
+from fourwire import FourWire
+from adafruit_st7789 import ST7789
+from adafruit_display_text import label
+import neopixel
+import adafruit_lis3dh
+import adafruit_thermistor
 
-# ── Hardware ───────────────────────────────────────────────────────────────
-NUM_PIXELS = 10
-pixels = neopixel.NeoPixel(board.NEOPIXEL, NUM_PIXELS, brightness=0.25, auto_write=False)
+# ═══════════════════════════════════════════
+# NIRVANA FLEET BRANDING
+# ═══════════════════════════════════════════
+DEVICE_ID = "npu-cpx-001"
+FLEET_NAME = "NIRVANA FLEET"
+VERSION = "v5.0-gizmo"
+NIRVANA_PURPLE = 0x9933FF
+NIRVANA_GREEN = 0x00FF88
 
-# Buttons
+# ═══════════════════════════════════════════
+# HARDWARE INIT
+# ═══════════════════════════════════════════
+
+# --- TFT Gizmo Display (ST7789 240x240 IPS) ---
+displayio.release_displays()
+spi = busio.SPI(board.SCL, MOSI=board.SDA)  # Gizmo: SPI on A4(SCK) A5(MOSI)
+tft_cs = board.RX      # A7
+tft_dc = board.TX      # A6
+tft_bl = board.A3      # Backlight PWM
+display_bus = FourWire(spi, command=tft_dc, chip_select=tft_cs)
+display = ST7789(
+    display_bus,
+    width=240, height=240,
+    rowstart=80,
+    backlight_pin=tft_bl,
+    rotation=180
+)
+
+# --- NeoPixels ---
+pixels = neopixel.NeoPixel(board.NEOPIXEL, 10, brightness=0.3, auto_write=False)
+
+# --- Sensors ---
+light_sensor = analogio.AnalogIn(board.LIGHT)
+mic_sensor = analogio.AnalogIn(board.MIC)
+thermistor = adafruit_thermistor.Thermistor(
+    board.TEMPERATURE, 10000, 10000, 25, 3950
+)
+i2c = board.I2C()
+lis3dh = adafruit_lis3dh.LIS3DH_I2C(i2c, address=0x18)
+
+# --- Buttons & Switch ---
 btn_a = digitalio.DigitalInOut(board.BUTTON_A)
 btn_a.switch_to_input(pull=digitalio.Pull.DOWN)
 btn_b = digitalio.DigitalInOut(board.BUTTON_B)
 btn_b.switch_to_input(pull=digitalio.Pull.DOWN)
+slide = digitalio.DigitalInOut(board.SLIDE_SWITCH)
+slide.switch_to_input(pull=digitalio.Pull.UP)
 
-# Touch pads
-TOUCH_PINS = {
-    "A1": board.A1, "A2": board.A2, "A3": board.A3,
-    "A4": board.A4, "A5": board.A5, "A6": board.A6, "A7": board.A7,
-}
-touch = {}
-for name, pin in TOUCH_PINS.items():
-    try: touch[name] = touchio.TouchIn(pin)
-    except: pass
+# --- Touch Pads ---
+touch_names = ["A1", "A2", "A3", "A4", "A5", "A6", "A7"]
+touch_pins = [board.A1, board.A2, board.A3, board.A4, board.A5, board.A6, board.A7]
+touches = []
+for p in touch_pins:
+    try:
+        touches.append(touchio.TouchIn(p))
+    except:
+        touches.append(None)
 
-# Sensors
-try: light_sensor = analogio.AnalogIn(board.LIGHT)
-except: light_sensor = None
-try: mic = analogio.AnalogIn(board.MIC)
-except: mic = None
-try: temp = microcontroller.cpu.temperature
-except: temp = None
+# --- Audio (Gizmo Class D amp on A0 DAC) ---
+audio = audioio.AudioOut(board.A0)
+speaker_on = True
 
-# LED (the small red LED next to USB)
-try: red_led = digitalio.DigitalInOut(board.D13)
-     red_led.switch_to_output(); red_led.value = False
-except: red_led = None
+# ═══════════════════════════════════════════
+# DISPLAY HELPERS
+# ═══════════════════════════════════════════
+root = displayio.Group()
+display.root_group = root
 
-# Audio (speaker on A0)
-try:
-    import pwmio
-    speaker = pwmio.PWMOut(board.SPEAKER, duty_cycle=0, frequency=440, variable_frequency=True)
-    HAS_SPEAKER = True
-except:
-    HAS_SPEAKER = False
+def cls():
+    """Clear screen"""
+    while len(root) > 0:
+        root.pop()
 
-# ── Config ─────────────────────────────────────────────────────────────────
-try:
-    with open("npu_config.json") as f: cfg = json.load(f)
-except:
-    cfg = {"device_id": "nirvana-cplay-01", "vendor": "Fanalogy", "fleet": "NPU-STACK"}
+def header(title):
+    """Draw Nirvana header bar"""
+    bar = displayio.Bitmap(240, 22, 1)
+    pal = displayio.Palette(1)
+    pal[0] = NIRVANA_PURPLE
+    root.append(displayio.TileGrid(bar, pixel_shader=pal, y=0))
+    root.append(label.Label(
+        terminalio.FONT, text=f"  {FLEET_NAME} // {title}",
+        color=0xFFFFFF, scale=1, x=4, y=5
+    ))
 
-MODE_COUNT = 6
+def text(msg, x, y, color=0xFFFFFF, scale=1):
+    """Draw text label"""
+    t = label.Label(terminalio.FONT, text=msg, color=color, scale=scale)
+    t.x = x
+    t.y = y
+    root.append(t)
+    return t
+
+def rect(x, y, w, h, color):
+    """Draw filled rectangle"""
+    bmp = displayio.Bitmap(w, h, 1)
+    pal = displayio.Palette(1)
+    pal[0] = color
+    root.append(displayio.TileGrid(bmp, pixel_shader=pal, x=x, y=y))
+
+def center_text(msg, y, color=0xFFFFFF, scale=2):
+    """Draw centered text"""
+    t = label.Label(terminalio.FONT, text=msg, color=color, scale=scale)
+    tw = t.bounding_box[2] * scale
+    t.x = (240 - tw) // 2
+    t.y = y
+    root.append(t)
+
+def footer():
+    """Draw mode footer"""
+    text("A:mode  B:speaker", 5, 222, 0x444444, 1)
+
+# ═══════════════════════════════════════════
+# AUDIO
+# ═══════════════════════════════════════════
+def beep(freq=880, dur=0.05):
+    if not speaker_on:
+        return
+    try:
+        n = max(int(8000 / freq), 2)
+        samples = array.array('H', [0] * n)
+        for i in range(n):
+            samples[i] = int(32768 + 28000 * math.sin(2 * math.pi * i / n))
+        wave = audiocore.RawSample(samples, sample_rate=8000)
+        audio.play(wave, loop=True)
+        time.sleep(dur)
+        audio.stop()
+    except:
+        pass
+
+def play_note(freq, dur):
+    if not speaker_on:
+        return
+    try:
+        length = max(int(8000 // freq), 2)
+        samples = array.array('H', [0] * length)
+        for i in range(length):
+            samples[i] = int(32768 + 28000 * math.sin(2 * math.pi * i / length))
+        wave = audiocore.RawSample(samples, sample_rate=8000)
+        audio.play(wave, loop=True)
+        time.sleep(dur)
+        audio.stop()
+    except:
+        pass
+
+# ═══════════════════════════════════════════
+# HSV to RGB
+# ═══════════════════════════════════════════
+def hsv2rgb(h, s=1.0, v=1.0):
+    h = h % 360
+    c = v * s
+    x = c * (1 - abs((h / 60) % 2 - 1))
+    m = v - c
+    if h < 60:   r, g, b = c, x, 0
+    elif h < 120: r, g, b = x, c, 0
+    elif h < 180: r, g, b = 0, c, x
+    elif h < 240: r, g, b = 0, x, c
+    elif h < 300: r, g, b = x, 0, c
+    else:         r, g, b = c, 0, x
+    return (int((r + m) * 255), int((g + m) * 255), int((b + m) * 255))
+
+# ═══════════════════════════════════════════
+# MODE RENDERERS
+# ═══════════════════════════════════════════
+def draw_status():
+    cls()
+    header("STATUS")
+    text(f"Device:  {DEVICE_ID}", 8, 35, NIRVANA_GREEN)
+    text(f"Version: {VERSION}", 8, 55, NIRVANA_GREEN)
+    text("Board:   SAMD21G18A", 8, 80, 0x888888)
+    text("Display: TFT Gizmo 240x240", 8, 98, 0x888888)
+    text("Flash:   2 MB SPI", 8, 116, 0x888888)
+    text("Speaker: Gizmo Amp (A0)", 8, 134, 0x888888)
+    text("Sensors: Temp/Light/Mic/Accel", 8, 152, 0x888888)
+    text(f"Free RAM: {gc.mem_free()} bytes", 8, 175, 0x666666)
+    footer()
+
+def draw_sensors():
+    cls()
+    header("SENSORS")
+    t = thermistor.temperature
+    l = light_sensor.value
+    m = mic_sensor.value
+    ax, ay, az = lis3dh.acceleration
+
+    color = 0xFF4444 if t > 30 else (0x44AAFF if t < 20 else NIRVANA_GREEN)
+    center_text(f"{t:.1f} C", 40, color, 3)
+
+    light_pct = min(l // 512, 10)
+    mic_pct = min(m // 100, 10)
+    text(f"Light: {'#' * light_pct}{'.' * (10 - light_pct)}", 10, 80, 0xFFCC00)
+    text(f"Mic:   {'#' * mic_pct}{'.' * (10 - mic_pct)}", 10, 100, 0x44CCFF)
+
+    text(f"Accel X:{ax:6.1f}", 10, 130, 0xAAFF44)
+    text(f"      Y:{ay:6.1f}", 10, 148, 0xAAFF44)
+    text(f"      Z:{az:6.1f}", 10, 166, 0xAAFF44)
+
+    touched = []
+    for i, tch in enumerate(touches):
+        if tch and tch.value:
+            touched.append(touch_names[i])
+    if touched:
+        text(f"Touch: {', '.join(touched)}", 10, 192, 0xFF88FF)
+    else:
+        text("Touch: none", 10, 192, 0x444444)
+    footer()
+
+def draw_rainbow():
+    global _rainbow_hue
+    cls()
+    header("RAINBOW")
+    _rainbow_hue = (_rainbow_hue + 3) % 360
+    h = _rainbow_hue
+    for i in range(10):
+        pixels[i] = hsv2rgb(h + i * 36)
+    pixels.show()
+    center_text("NEO RAINBOW", 100, hsv2rgb(h))
+    footer()
+
+def draw_vu():
+    cls()
+    header("VU METER")
+    m = mic_sensor.value >> 6
+    level = min(m // 10, 100)
+
+    pixels.fill(0)
+    lit = min(m // 100, 10)
+    for i in range(lit):
+        if i < 3:   pixels[i] = (0, 255, 0)
+        elif i < 7: pixels[i] = (255, 255, 0)
+        else:       pixels[i] = (255, 0, 0)
+    pixels.show()
+
+    center_text(f"VOL: {m}", 40, NIRVANA_GREEN, 3)
+
+    for row in range(10):
+        bar_w = int(level * 1.5)
+        if bar_w > 0:
+            y = 80 + row * 12
+            if row < 4:   c = 0x00FF00
+            elif row < 7: c = 0xFFFF00
+            else:         c = 0xFF0000
+            rect(20, y, bar_w, 10, c)
+    footer()
+
+def draw_touch():
+    cls()
+    header("TOUCH PADS")
+    active = False
+    for i in range(7):
+        tch = touches[i]
+        if tch is None:
+            continue
+        raw = tch.raw_value
+        on = tch.value
+        y = 30 + i * 22
+        c = NIRVANA_GREEN if on else 0x333333
+        rect(15, y, 200, 18, c)
+        status = "TOUCHED!" if on else ""
+        text(f"{touch_names[i]}: {raw:5d} {status}", 20, y + 2,
+             0xFFFFFF if on else 0x888888)
+        if on:
+            active = True
+            pixels[i % 10] = (255, 0, 255)
+    if not active:
+        pixels.fill(0)
+    pixels.show()
+    footer()
+
+def draw_eye():
+    cls()
+    header("NIRVANA EYE")
+    t = time.monotonic()
+
+    # Sclera
+    rect(30, 30, 180, 160, 0xFFFFFF)
+
+    # Iris
+    iris_r = 55
+    iris_x = int(120 + 20 * math.sin(t * 0.7))
+    iris_y = int(110 + 15 * math.cos(t * 0.5))
+    rect(iris_x - iris_r, iris_y - iris_r, iris_r * 2, iris_r * 2, NIRVANA_PURPLE)
+
+    # Pupil
+    pupil_r = 20
+    px = int(iris_x + 8 * math.sin(t * 1.3))
+    py = int(iris_y + 5 * math.cos(t * 0.9))
+    rect(px - pupil_r, py - pupil_r, pupil_r * 2, pupil_r * 2, 0x000000)
+
+    # Highlight
+    rect(px + 5, py - 15, 8, 8, 0xFFFFFF)
+
+    center_text("NIRVANA", 210, NIRVANA_GREEN, 1)
+    footer()
+
+# ═══════════════════════════════════════════
+# SERIAL COMMAND HANDLER
+# ═══════════════════════════════════════════
+def handle_serial():
+    try:
+        import supervisor
+        if supervisor.runtime.serial_bytes_available:
+            line = input()
+            if not line:
+                return
+            try:
+                data = json.loads(line)
+            except:
+                return
+            cmd = data.get("cmd", "")
+            global current_mode, speaker_on
+            if cmd == "mode":
+                current_mode = int(data.get("value", 0)) % len(MODES)
+            elif cmd == "pixels":
+                c = data.get("color", [0, 0, 0])
+                pixels.fill(tuple(c))
+                pixels.show()
+            elif cmd == "speaker":
+                speaker_on = bool(data.get("enable", True))
+            elif cmd == "tone":
+                play_note(data.get("freq", 440), data.get("dur", 0.2))
+            elif cmd == "display_text":
+                cls()
+                text(data.get("text", "NIRVANA"), 10, 50, NIRVANA_PURPLE, 2)
+            elif cmd == "status":
+                print(json.dumps({
+                    "device": DEVICE_ID,
+                    "fleet": FLEET_NAME,
+                    "version": VERSION,
+                    "mode": MODES[current_mode],
+                    "temp": thermistor.temperature,
+                    "light": light_sensor.value,
+                    "free_ram": gc.mem_free(),
+                    "speaker": speaker_on
+                }))
+            elif cmd == "reboot":
+                import microcontroller
+                microcontroller.reset()
+    except:
+        pass
+
+# ═══════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════
+MODES = ["STATUS", "SENSORS", "RAINBOW", "VU", "TOUCH", "EYE"]
 current_mode = 0
-speaker_enabled = True
-last_btn_a = False
-last_btn_b = False
+_rainbow_hue = 0
 
-# ── Neopixel Helpers ───────────────────────────────────────────────────────
-def _wheel(pos):
-    pos = 255 - pos
-    if pos < 85: return (255 - pos * 3, 0, pos * 3)
-    if pos < 170: pos -= 85; return (0, pos * 3, 255 - pos * 3)
-    pos -= 170; return (pos * 3, 255 - pos * 3, 0)
+last_a = False
+last_b = False
 
-def np_fill(r, g, b): pixels.fill((r, g, b)); pixels.show()
-def np_off(): pixels.fill((0, 0, 0)); pixels.show()
+print(f"\n>>> {FLEET_NAME} AGENT {VERSION} <<<")
+print(f"    Device: {DEVICE_ID}")
+print(f"    Modes: {', '.join(MODES)}")
+print(f"    Buttons: A=next mode, B=toggle speaker")
+print(f"    Ready.\n")
 
-# ── Audio ────────────────────────────────────────────────────────────────
-def beep(freq=880, ms=80):
-    if not HAS_SPEAKER or not speaker_enabled: return
-    try:
-        speaker.frequency = freq; speaker.duty_cycle = 32768
-        time.sleep(ms / 1000)
-        speaker.duty_cycle = 0
-    except: pass
-
-# ── Modes ─────────────────────────────────────────────────────────────────
-MODE_NAMES = ["STATUS", "SENSORS", "RAINBOW", "THERMOMETER", "VU_METER", "TOUCH"]
-
-def mode_status():
-    """Show device identity on neopixels and serial."""
-    gc.collect()
-    info = {
-        "device": cfg.get("device_id"), "vendor": cfg.get("vendor"),
-        "fleet": cfg.get("fleet"), "mode": MODE_NAMES[current_mode],
-        "uptime_s": round(time.monotonic(), 1), "free_ram": gc.mem_free(),
-        "board": "Circuit Playground Express", "chip": "SAMD21G18",
-        "flash_mb": 2, "neopixels": 10,
-    }
-    np_fill(0, 255, 0)  # Green ring = ready
-    return info
-
-def mode_sensors():
-    """Read all sensors."""
-    data = {"mode": "SENSORS", "uptime_s": round(time.monotonic(), 1)}
-    gc.collect(); data["free_ram"] = gc.mem_free()
-    if temp: data["temp_c"] = round(temp, 1)
-    if light_sensor: data["light_raw"] = light_sensor.value
-    if mic: data["mic_raw"] = mic.value
-    # Touch check
-    data["touch"] = {}
-    for n, t in touch.items():
-        try: data["touch"][n] = t.raw_value > 500
-        except: pass
-    # Voltage
-    try:
-        vcc = analogio.AnalogIn(board.VOLTAGE_MONITOR)
-        data["voltage"] = round((vcc.value * 3.3) / 65536 * 2, 2)
-    except: pass
-    return data
-
-def mode_rainbow():
-    """Animate rainbow on neopixel ring for one cycle."""
-    for j in range(256):
-        for i in range(NUM_PIXELS):
-            idx = (i * 256 // NUM_PIXELS + j) & 255
-            pixels[i] = _wheel(idx)
-        pixels.show()
-        # Check for button press to exit
-        if btn_a.value: return
-    np_off()
-
-def mode_thermometer():
-    """Show temperature as color gradient (blue=cool, red=hot)."""
-    t = temp or 25
-    # Map 10°C → 40°C to 0 → 9 pixels
-    level = min(NUM_PIXELS - 1, max(0, int((t - 10) * NUM_PIXELS / 30)))
-    for i in range(NUM_PIXELS):
-        if i <= level:
-            r = int(255 * i / (NUM_PIXELS - 1))
-            b = 255 - r
-            pixels[i] = (r, 0, b)
-        else:
-            pixels[i] = (0, 0, 0)
-    pixels.show()
-
-def mode_vu_meter():
-    """Show sound level from microphone on neopixels."""
-    if not mic: return
-    level = min(NUM_PIXELS, int(mic.value * NUM_PIXELS / 65535))
-    for i in range(NUM_PIXELS):
-        if i < level:
-            g = int(255 * (NUM_PIXELS - i) / NUM_PIXELS)
-            pixels[i] = (0, g, 0)
-        else:
-            pixels[i] = (0, 0, 0)
-    pixels.show()
-
-def mode_touch():
-    """Light up neopixels for each touched pad."""
-    count = 0
-    for name, t in touch.items():
-        try:
-            if t.raw_value > 500:
-                idx = int(name[1]) - 1  # A1→0, A7→6
-                if 0 <= idx < NUM_PIXELS:
-                    pixels[idx] = (255, 255, 0)
-                    count += 1
-        except: pass
-    if count == 0: np_off()
-    else: pixels.show()
-
-# ── Mode Runner ────────────────────────────────────────────────────────────
-def run_mode():
-    if current_mode == 0: return mode_status()
-    elif current_mode == 1: return mode_sensors()
-    elif current_mode == 2: mode_rainbow(); return {"mode": "RAINBOW"}
-    elif current_mode == 3: mode_thermometer(); return {"mode": "THERMOMETER", "temp_c": round(temp, 1) if temp else None}
-    elif current_mode == 4: mode_vu_meter(); return {"mode": "VU_METER"}
-    elif current_mode == 5: mode_touch(); return {"mode": "TOUCH"}
-    return {"mode": current_mode}
-
-def change_mode(delta=1):
-    global current_mode
-    current_mode = (current_mode + delta) % MODE_COUNT
-    np_off()
-    beep(440 + current_mode * 100, 60)
-    np_fill(0, 255, 0)
-    time.sleep(0.1)
-    np_off()
-    result = run_mode()
-    print(json.dumps({"mode_changed": MODE_NAMES[current_mode], **result}))
-
-# ── Command Handler ────────────────────────────────────────────────────────
-def handle(cmd):
-    global current_mode, speaker_enabled
-    n = cmd.get("command", "")
-    try:
-        if n == "HELP":
-            return {"commands": ["HELP","READ_SENSORS","GET_HEALTH","GET_STATUS","SET_MODE","NEXT_MODE","TOGGLE_SPEAKER","NEOPIXEL_FILL","NEOPIXEL_OFF","NEOPIXEL_RAINBOW","TONE","SET_CONFIG"],"device":cfg.get("device_id"),"board":"Circuit Playground Express","chip":"SAMD21G18","display":"TFT Gizmo ST7789 240x240","modes":MODE_NAMES,"current_mode":MODE_NAMES[current_mode],"neopixels":10,"sensors":["temperature","light","microphone","capacitive_touch","voltage"],"wireless":"None (SAMD21 — USB Serial only)","speaker":HAS_SPEAKER,"speaker_enabled":speaker_enabled}
-        if n in ("READ_SENSORS", "GET_HEALTH"): return mode_sensors()
-        if n == "GET_STATUS": return {"mode": MODE_NAMES[current_mode], "device": cfg.get("device_id"), "uptime_s": round(time.monotonic(), 1)}
-        if n == "SET_MODE":
-            m = int(cmd.get("mode", 0))
-            if 0 <= m < MODE_COUNT:
-                global current_mode; current_mode = m
-                run_mode()
-                return {"mode": MODE_NAMES[current_mode]}
-        if n == "NEXT_MODE": change_mode(1); return {"mode": MODE_NAMES[current_mode]}
-        if n == "PREV_MODE": change_mode(-1); return {"mode": MODE_NAMES[current_mode]}
-        if n == "TOGGLE_SPEAKER":
-            global speaker_enabled; speaker_enabled = not speaker_enabled
-            return {"speaker_enabled": speaker_enabled}
-        if n == "NEOPIXEL_FILL":
-            r, g, b = int(cmd.get("r", 0)), int(cmd.get("g", 255)), int(cmd.get("b", 0))
-            np_fill(r, g, b); return {"filled": [r, g, b]}
-        if n == "NEOPIXEL_OFF": np_off(); return {"off": True}
-        if n == "NEOPIXEL_RAINBOW": mode_rainbow(); return {"rainbow_done": True}
-        if n == "TONE":
-            freq, ms = int(cmd.get("hz", 440)), int(cmd.get("duration_ms", 500))
-            beep(freq, ms); return {"tone": [freq, ms]}
-        if n == "SET_CONFIG":
-            for k, v in cmd.items():
-                if k in cfg and k != "command": cfg[k] = v
-            try: json.dump(cfg, open("npu_config.json", "w"))
-            except: pass
-            return {"ok": True}
-        return {"error": "unknown cmd", "try": "HELP"}
-    except Exception as e: return {"error": str(e)}
-
-# ── Main Loop ──────────────────────────────────────────────────────────────
-print("=" * 50)
-print("  Nirvana Fleet Agent v4.0")
-print(f"  {cfg.get('device_id', 'cplay')} | {cfg.get('vendor', 'Fanalogy')} {cfg.get('fleet', 'NPU-STACK')}")
-print(f"  Mode: {MODE_NAMES[current_mode]} | Buttons: A=next B=toggle speaker")
-print("  Type: {\"command\": \"HELP\"}")
-print("=" * 50)
-
-np_fill(0, 255, 0)
-beep(880, 50); time.sleep(0.05); beep(1320, 50)  # Startup chime
+beep(880, 0.08)
+beep(1320, 0.08)
 
 while True:
-    # ── USB Serial command ──
-    try:
-        line = ""  # Non-blocking read attempt
-    except: pass
+    a = btn_a.value
+    b = btn_b.value
+    sw = slide.value
 
-    # ── Button handling ──
-    a_now, b_now = btn_a.value, btn_b.value
-    if a_now and not last_btn_a:
-        change_mode(1)
-    if b_now and not last_btn_b:
-        speaker_enabled = not speaker_enabled
-        beep(440, 30) if speaker_enabled else None
-        print(json.dumps({"speaker_toggled": speaker_enabled}))
-    last_btn_a, last_btn_b = a_now, b_now
+    if a and not last_a:
+        current_mode = (current_mode + 1) % len(MODES)
+        beep(880, 0.03)
+        print(f"MODE: {MODES[current_mode]}")
 
-    # ── Run current mode ──
-    run_mode()
+    if b and not last_b:
+        speaker_on = not speaker_on
+        if speaker_on:
+            beep(660, 0.05)
+        print(f"SPEAKER: {'ON' if speaker_on else 'OFF'}")
 
-    # Small delay
-    if current_mode in (2, 3, 4, 5):
-        time.sleep(0.05)
-    else:
+    last_a = a
+    last_b = b
+
+    pixels.brightness = 0.5 if sw else 0.15
+
+    if current_mode == 0:
+        draw_status()
         time.sleep(0.5)
+    elif current_mode == 1:
+        draw_sensors()
+        time.sleep(0.3)
+    elif current_mode == 2:
+        draw_rainbow()
+        time.sleep(0.05)
+    elif current_mode == 3:
+        draw_vu()
+        time.sleep(0.08)
+    elif current_mode == 4:
+        draw_touch()
+        time.sleep(0.1)
+    elif current_mode == 5:
+        draw_eye()
+        time.sleep(0.08)
+
+    handle_serial()
+    gc.collect()
