@@ -1,24 +1,29 @@
-// Nirvana Fleet Agent — WiFi + MQTT (xiaozhi-compatible protocol)
-// Uses xiaozhi-esp32 MQTT+UDP hybrid protocol for fleet interoperability
+// Nirvana Fleet Agent — WiFi + MQTT (Ameba SDK compatible)
+// Uses AmebaMQTTClient (bundled in AmebaD Pro2 SDK)
 
 #ifndef NIRVANA_WIFI_H
 #define NIRVANA_WIFI_H
 
 #include <WiFi.h>
-#include <WiFiClient.h>
-#include <PubSubClient.h>
+#include <PubSubClient.h>  // AmebaMQTTClient — bundled in realtek:AmebaPro2
 #include <ArduinoJson.h>
 #include "nirvana_config.h"
 
-// ═══════════════ GLOBALS ═══════════════
+// ═══ GLOBALS ═══
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 String mqttSessionId = "";
 bool mqttConnected = false;
-bool udpChannelOpen = false;
 unsigned long lastMqttReconnect = 0;
 
-// ═══════════════ WIFI ═══════════════
+// ═══ STRING IP HELPER (Ameba IPAddress has no toString) ═══
+String ipToString(IPAddress ip) {
+    char buf[20];
+    snprintf(buf, sizeof(buf), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+    return String(buf);
+}
+
+// ═══ WIFI ═══
 bool nirvana_wifi_connect() {
     Serial.print("[WIFI] Connecting to ");
     Serial.println(WIFI_SSID);
@@ -32,115 +37,104 @@ bool nirvana_wifi_connect() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\n[WIFI] Connected!");
+        Serial.println();
+        Serial.println("[WIFI] Connected!");
         Serial.print("[WIFI] IP: ");
-        Serial.println(WiFi.localIP());
+        Serial.println(ipToString(WiFi.localIP()));
         Serial.print("[WIFI] RSSI: ");
         Serial.println(WiFi.RSSI());
         return true;
     }
-    Serial.println("\n[WIFI] FAILED!");
+    Serial.println();
+    Serial.println("[WIFI] FAILED!");
     return false;
 }
 
-// ═══════════════ MQTT CALLBACK ═══════════════
+// ═══ MQTT CALLBACK ═══
 void nirvana_mqtt_callback(char* topic, byte* payload, unsigned int length) {
-    // Build JSON string from payload
     char json[1024] = {0};
-    unsigned int copyLen = min(length, (unsigned int)1023);
+    unsigned int copyLen = length < 1023 ? length : 1023;
     memcpy(json, payload, copyLen);
 
-    StaticJsonDocument<512> doc;
+    JsonDocument doc;
     DeserializationError err = deserializeJson(doc, json);
     if (err) {
-        Serial.print("[MQTT] JSON parse error: ");
+        Serial.print("[MQTT] JSON error: ");
         Serial.println(err.c_str());
         return;
     }
 
     const char* type = doc["type"] | "";
-    Serial.print("[MQTT] Received: ");
+    Serial.print("[MQTT] RX: ");
     Serial.println(type);
 
-    // === xiaozhi protocol messages ===
     if (strcmp(type, "hello") == 0) {
-        // Server hello response — open UDP channel
         const char* sess = doc["session_id"] | "";
         mqttSessionId = String(sess);
         Serial.print("[MQTT] Session: ");
         Serial.println(mqttSessionId);
 
-        // Parse UDP endpoint from hello response
         JsonObject udpObj = doc["udp"];
         if (!udpObj.isNull()) {
             const char* udpServer = udpObj["server"] | "";
             int udpPort = udpObj["port"] | 8888;
-            Serial.printf("[UDP] Endpoint: %s:%d\n", udpServer, udpPort);
-            // UDP channel opened by main loop
-            udpChannelOpen = true;
+            Serial.print("[UDP] Endpoint: ");
+            Serial.print(udpServer);
+            Serial.print(":");
+            Serial.println(udpPort);
         }
 
-        // Parse audio params
         JsonObject audioObj = doc["audio_params"];
         if (!audioObj.isNull()) {
-            int sampleRate = audioObj["sample_rate"] | 24000;
-            Serial.printf("[AUDIO] Server rate: %d Hz\n", sampleRate);
+            int sr = audioObj["sample_rate"] | 24000;
+            Serial.print("[AUDIO] Server rate: ");
+            Serial.print(sr);
+            Serial.println(" Hz");
         }
     }
     else if (strcmp(type, "tts") == 0) {
-        // TTS audio data — play through speaker
         const char* state = doc["state"] | "";
-        Serial.printf("[TTS] State: %s\n", state);
-        if (strcmp(state, "start") == 0) {
-            // Begin TTS playback
-        } else if (strcmp(state, "stop") == 0) {
-            // Stop TTS
-        }
+        Serial.print("[TTS] ");
+        Serial.println(state);
     }
     else if (strcmp(type, "stt") == 0) {
-        // Speech-to-text result from server
         const char* text = doc["text"] | "";
-        Serial.printf("[STT] %s\n", text);
+        Serial.print("[STT] ");
+        Serial.println(text);
     }
     else if (strcmp(type, "llm") == 0) {
-        // LLM emotion/status for UI
         const char* emotion = doc["emotion"] | "neutral";
-        Serial.printf("[LLM] Emotion: %s\n", emotion);
+        Serial.print("[LLM] Emotion: ");
+        Serial.println(emotion);
     }
     else if (strcmp(type, "mcp") == 0) {
-        // MCP device control — relay to NPU-STACK
         JsonObject mcpPayload = doc["payload"];
-        String mcpStr;
-        serializeJson(mcpPayload, mcpStr);
-        Serial.printf("[MCP] %s\n", mcpStr.c_str());
-
-        // Publish to NPU-STACK fleet topic
-        String fleetTopic = String(NIRVANA_MQTT_TOPIC) + "/mcp";
-        mqtt.publish(fleetTopic.c_str(), mcpStr.c_str());
+        Serial.print("[MCP] RX");
+        String fleetTopic = String(MQTT_TOPIC_PREFIX) + "/mcp";
+        char mcpBuf[256];
+        serializeJson(mcpPayload, mcpBuf, sizeof(mcpBuf));
+        mqtt.publish(fleetTopic.c_str(), mcpBuf);
     }
     else if (strcmp(type, "system") == 0) {
-        const char* command = doc["command"] | "";
-        Serial.printf("[SYSTEM] Command: %s\n", command);
-        if (strcmp(command, "reboot") == 0) {
-            Serial.println("[SYSTEM] Rebooting...");
-            delay(100);
-            // ESP.restart() equivalent for Ameba
-        }
+        const char* cmd = doc["command"] | "";
+        Serial.print("[SYSTEM] ");
+        Serial.println(cmd);
     }
     else if (strcmp(type, "alert") == 0) {
         const char* status = doc["status"] | "";
         const char* message = doc["message"] | "";
-        Serial.printf("[ALERT] %s: %s\n", status, message);
-        // Show on display
+        Serial.print("[ALERT] ");
+        Serial.print(status);
+        Serial.print(": ");
+        Serial.println(message);
     }
     else if (strcmp(type, "goodbye") == 0) {
-        Serial.println("[MQTT] Server goodbye — closing UDP");
-        udpChannelOpen = false;
+        Serial.println("[MQTT] Server goodbye");
         mqttSessionId = "";
     }
 }
 
-// ═══════════════ MQTT CONNECT ═══════════════
+// ═══ MQTT CONNECT ═══
 bool nirvana_mqtt_connect() {
     if (mqtt.connected()) return true;
 
@@ -153,39 +147,33 @@ bool nirvana_mqtt_connect() {
     mqtt.setCallback(nirvana_mqtt_callback);
     mqtt.setKeepAlive(MQTT_KEEPALIVE);
 
-    String clientId = String(NIRVANA_DEVICE_ID) + "-" + String(random(1000, 9999));
+    String clientId = String(NIRVANA_DEVICE_ID) + "-" + String(rand() % 9000 + 1000);
     if (mqtt.connect(clientId.c_str())) {
         Serial.println("[MQTT] Connected!");
 
-        // Subscribe to device-specific topic
-        String topic = String(NIRVANA_MQTT_TOPIC) + "/" + NIRVANA_DEVICE_ID;
+        String topic = String(MQTT_TOPIC_PREFIX) + "/" + NIRVANA_DEVICE_ID;
         mqtt.subscribe(topic.c_str());
-        Serial.printf("[MQTT] Subscribed: %s\n", topic.c_str());
+        Serial.print("[MQTT] Subscribed: ");
+        Serial.println(topic);
 
-        // Send xiaozhi-compatible hello
-        StaticJsonDocument<384> hello;
+        // Xiaozhi hello
+        JsonDocument hello;
         hello["type"] = "hello";
         hello["version"] = 3;
         hello["transport"] = "udp";
-        JsonObject features = hello.createNestedObject("features");
-        features["mcp"] = true;
-        features["aec"] = false;
-        features["glyph_push"] = true;
-        JsonObject textFont = hello.createNestedObject("text_font");
-        textFont["bundle"] = "noto-v1";
-        textFont["charset"] = "common";
-        textFont["size"] = 20;
-        textFont["bpp"] = 4;
-        JsonObject audioParams = hello.createNestedObject("audio_params");
-        audioParams["format"] = "opus";
-        audioParams["sample_rate"] = AUDIO_SAMPLE_RATE;
-        audioParams["channels"] = 1;
-        audioParams["frame_duration"] = AUDIO_FRAME_MS;
+        JsonObject feat = hello["features"].to<JsonObject>();
+        feat["mcp"] = true;
+        JsonObject af = hello["audio_params"].to<JsonObject>();
+        af["format"] = "opus";
+        af["sample_rate"] = 16000;
+        af["channels"] = 1;
+        af["frame_duration"] = 60;
 
-        char buffer[512];
-        serializeJson(hello, buffer);
-        mqtt.publish(topic.c_str(), buffer);
-        Serial.printf("[MQTT] Hello sent: %s\n", buffer);
+        char buf[512];
+        serializeJson(hello, buf, sizeof(buf));
+        mqtt.publish(topic.c_str(), buf);
+        Serial.print("[MQTT] Hello sent: ");
+        Serial.println(buf);
 
         mqttConnected = true;
         return true;
@@ -196,28 +184,25 @@ bool nirvana_mqtt_connect() {
     return false;
 }
 
-// ═══════════════ FLEET STATUS PUBLISH ═══════════════
+// ═══ FLEET STATUS ═══
 void nirvana_publish_status() {
     if (!mqtt.connected()) return;
 
-    String topic = String(NIRVANA_MQTT_TOPIC) + "/status";
-    StaticJsonDocument<256> doc;
+    String topic = String(MQTT_TOPIC_PREFIX) + "/status";
+    JsonDocument doc;
     doc["device"] = NIRVANA_DEVICE_ID;
     doc["fleet"] = NIRVANA_FLEET_NAME;
     doc["version"] = NIRVANA_VERSION;
     doc["uptime"] = millis() / 1000;
     doc["wifi_rssi"] = WiFi.RSSI();
-    doc["free_heap"] = ESP.getFreeHeap(); // Ameba equivalent
-    doc["display"] = FEATURE_DISPLAY;
-    doc["camera"] = FEATURE_CAMERA;
-    doc["sd_card"] = FEATURE_SD_CARD;
+    doc["ip"] = ipToString(WiFi.localIP());
 
-    char buffer[256];
-    serializeJson(doc, buffer);
-    mqtt.publish(topic.c_str(), buffer);
+    char buf[256];
+    serializeJson(doc, buf, sizeof(buf));
+    mqtt.publish(topic.c_str(), buf);
 }
 
-// ═══════════════ MAINTAIN CONNECTION ═══════════════
+// ═══ LOOP ═══
 void nirvana_mqtt_loop() {
     if (!mqtt.connected()) {
         unsigned long now = millis();
@@ -231,4 +216,4 @@ void nirvana_mqtt_loop() {
     mqtt.loop();
 }
 
-#endif // NIRVANA_WIFI_H
+#endif
