@@ -16,7 +16,7 @@
 // CS       →  AMB_D12    →  PE_4       →  Default HW SPI SS (shares I2C_SDA)
 // DC       →  AMB_D7     →  PF_14      →  GPIO, PWM-capable
 // RST      →  AMB_D8     →  PF_15      →  GPIO, PWM-capable
-// BL       →  AMB_D4     →  PF_11      →  GPIO, PWM-capable (backlight)
+// BL       →  AMB_D5     →  PF_12      →  GPIO, PWM-capable (backlight)
 // VCC      →  3.3V
 // GND      →  GND
 //
@@ -57,7 +57,7 @@
 #define TFT_CS              AMB_D12   // PE_4  — SPI SS (default)
 #define TFT_DC              AMB_D7    // PF_14 — Data/Command
 #define TFT_RST             AMB_D8    // PF_15 — Reset
-#define TFT_BL              AMB_D4    // PF_11 — Backlight PWM
+#define TFT_BL              AMB_D5    // PF_12 — Backlight PWM (NOT D4 — conflicts with SPI1/I2S)
 #define TFT_WIDTH           240
 #define TFT_HEIGHT          320
 
