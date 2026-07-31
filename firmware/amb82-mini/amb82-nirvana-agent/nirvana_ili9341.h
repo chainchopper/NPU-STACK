@@ -143,8 +143,8 @@ void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int fc, bo
     nirvana_text(54,70,visionStatus,0x07FF,1);
     nirvana_text(4,88,"POST /api/nirvana/multimodal",0x8410,1);
     nirvana_text(4,102,"Host: " MQTT_HOST ":5000",0x8410,1);
-    nirvana_text(4,TFT_HEIGHT-28,"Long press: Snapshot & Send",NIRVANA_GREEN,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Backend runs multimodal AI",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Press: Snapshot & Send",NIRVANA_GREEN,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Hold 0.6s: Back  Auto-cycle home",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
@@ -171,7 +171,7 @@ void nirvana_home_screen(int cursor) {
     }
     // Status bar at bottom
     nirvana_display_fill_rect(0,260,TFT_WIDTH,60,NIRVANA_BLACK);
-    nirvana_text(4,264,"[BTN] Short:Next  Long:Select",NIRVANA_GRAY,1);
+    nirvana_text(4,264,"[BTN] Press to select  Auto-cycle",NIRVANA_GRAY,1);
     nirvana_center("NIRVANA FLEET",TFT_HEIGHT-20,NIRVANA_PURPLE,1);
 }
 
@@ -195,8 +195,8 @@ void nirvana_page_explorer(int cursor, char files[][32], int fileCount,
         uint16_t fg = (i == cursor) ? NIRVANA_WHITE : NIRVANA_CYAN;
         nirvana_text(6, y, files[i], fg, 1);
     }
-    nirvana_text(4,TFT_HEIGHT-28,"Short:Next File",NIRVANA_GRAY,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Long:View/Play  Hold:Back",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Press: Open file  Hold: Back",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Files auto-cycle every 2s",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
@@ -225,8 +225,8 @@ void nirvana_page_memos(int cursor, char files[][32], int fileCount,
         if (i == cursor) nirvana_display_fill_rect(4,y-2,TFT_WIDTH-8,16,bg);
         nirvana_text(6, y, files[i], i==cursor?NIRVANA_WHITE:NIRVANA_CYAN,1);
     }
-    nirvana_text(4,TFT_HEIGHT-28,"Short:Next  Long:Back",NIRVANA_GRAY,1);
-    nirvana_text(4,TFT_HEIGHT-14,"REC=Hold 2s to toggle",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Press: Toggle REC  Hold: Back",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Files auto-cycle every 2s",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
@@ -244,7 +244,7 @@ void nirvana_page_ota(const char* status) {
     nirvana_text(4,130,"/firmware/npu-amb82-latest.bin",0x07FF,1);
     nirvana_text(4,160,"Hold button to start OTA",NIRVANA_GRAY,1);
     nirvana_text(4,176,"Device will reboot after flash",NIRVANA_RED,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Long:Start OTA  Short:Back",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Press: Start OTA  Hold: Back",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
@@ -274,8 +274,8 @@ void nirvana_page_settings(int cursor, uint8_t brightness, uint8_t volume,
     // 5: Save & Exit
     if(cursor==5)nirvana_display_fill_rect(4,110,TFT_WIDTH-8,18,NIRVANA_PURPLE);
     nirvana_text(6,112,"Save Config & Exit",cursor==5?NIRVANA_WHITE:NIRVANA_GREEN,1);
-    nirvana_text(4,TFT_HEIGHT-28,"Short:+5/+toggle  Long:Next",NIRVANA_GRAY,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Save persists to SD card",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Press: Adjust  Hold: Back",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Items auto-cycle every 2.5s",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
@@ -293,7 +293,7 @@ void nirvana_page_marketplace(int cursor){
     }
     nirvana_text(4,160,"Source: github.com/chainchopper",NIRVANA_GRAY,1);
     nirvana_text(4,176,"Format: MicroPython / WASM",NIRVANA_GRAY,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Short:Next  Long:Download",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Press: Download  Hold: Back",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
@@ -304,7 +304,7 @@ void nirvana_page_workspace(){
     nirvana_center("No apps installed",120,NIRVANA_GRAY,1);
     nirvana_center("Visit Marketplace to download",140,NIRVANA_GRAY,1);
     nirvana_center("MicroPython & WASM sandbox",160,NIRVANA_GRAY,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Press button to return",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Press: Back to home",NIRVANA_GRAY,1);
 }
 
 #endif
