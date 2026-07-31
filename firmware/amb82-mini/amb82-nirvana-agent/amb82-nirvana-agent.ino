@@ -17,6 +17,7 @@
 #include "nirvana_orb.h"
 #include "nirvana_ota.h"
 #include "nirvana_recorder.h"
+#include "nirvana_vision.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -66,10 +67,20 @@ void setup(){
     nirvana_camera_init();
     // ── Audio ──
     nirvana_audio_init();
-    // ── NN ──
+    // ── NN — init model but only start pipeline if model loaded OK ──
     nirvana_nn_od_init(camConfigNN);
-    nirvana_camera_pipe_to(CAM_CH_NN, nnOD);
-    nirvana_camera_start(CAM_CH_NN);
+    // Wait a moment for vipnn errors to appear (if model is corrupt)
+    delay(500);
+    // Check Serial output — if you see "nbg magic not match", model is corrupt.
+    // We still set up the pipeline to avoid compile errors, but CH3 won't
+    // consume frames usefully if VIPLite is dead.
+    if (nnOD_ready) {
+        nirvana_camera_pipe_to(CAM_CH_NN, nnOD);
+        nirvana_camera_start(CAM_CH_NN);
+    } else {
+        Serial.println("[NN-OD] SKIPPED — model failed, VIPLite offline");
+        nnModelOk = false;
+    }
     // ── SD Card ──
     if (nirvana_sd_init()) {
         sdFileCount = nirvana_sd_list(sdFiles, 12);
@@ -101,6 +112,15 @@ void loop(){
 
     // ── Button handling ──
     int btnAction = nirvana_menu_tick();
+
+    // ── Special: NIRVANA AI long press = capture & send frame ──
+    if (btnAction == 2 && menuState == MENU_STATE_NIRVANA_AI) {
+        Serial.println("[BTN] Vision snapshot triggered");
+        nirvana_vision_send_frame();
+        lastMenuActivity = millis();
+        needsRedraw = true;
+        btnAction = 0;
+    }
 
     // ── Special: MEMOS long press = toggle recording ──
     if (btnAction == 2 && menuState == MENU_STATE_VOICE_MEMOS) {

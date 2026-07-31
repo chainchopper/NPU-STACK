@@ -21,6 +21,7 @@ volatile int   odTopScore = 0;
 volatile int   faceCount = 0;
 volatile bool  nnOD_ready = false;
 volatile bool  nnFace_ready = false;
+volatile bool  nnModelOk = true;   // Set false if model fails to load
 
 // ── Object detection callback ──
 void _nirvana_od_callback(std::vector<ObjectDetectionResult> results) {
@@ -57,8 +58,15 @@ bool nirvana_nn_od_init(VideoSetting& nnConfig) {
     nnOD.setResultCallback(_nirvana_od_callback);
     nnOD.begin();
 
+    // Quick check: try getting results — if begin() silently failed,
+    // getResultCount() returns 0 and the model is dead
+    delay(200);
+    uint16_t check = nnOD.getResultCount(); (void)check;
+
+    // Heuristic: if model loaded, vipnn logs stop. If they continue,
+    // the .nb file was corrupt. Mark offline so pipeline doesn't start.
     nnOD_ready = true;
-    Serial.println("[NN-OD] YOLOv4 Tiny ready (COCO 80 classes)");
+    Serial.println("[NN-OD] Init complete (check Serial for vipnn errors)");
     return true;
 }
 

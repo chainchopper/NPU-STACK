@@ -42,6 +42,9 @@ void nirvana_page_marketplace(int cursor);
 void nirvana_page_workspace();
 void nirvana_page_ota(const char* status);
 
+extern char visionStatus[64];
+extern volatile bool nnModelOk;
+
 bool nirvana_display_init() {
     // All GPIO — no SPI peripheral
     pinMode(MOSI,OUTPUT);pinMode(SCLK,OUTPUT);pinMode(TFT_CS,OUTPUT);
@@ -119,18 +122,29 @@ void nirvana_page_fleet(bool mq,unsigned long up){
 }
 void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int fc, bool cam, bool aud){
     nirvana_display_fill(NIRVANA_BLACK);nirvana_header("NIRVANA AI");char b[32];
-    // Compact status — orb handles the visual
     nirvana_text(4,22,"Cam:",0x8410,1);nirvana_text(40,22,cam?"OK":"OFF",cam?0x07E0:0xF800,1);
     nirvana_text(80,22,"Aud:",0x8410,1);nirvana_text(114,22,aud?"OK":"OFF",aud?0x07E0:0xF800,1);
-    // Detection summary
-    if(odCount>0 && topLabel[0]){
+    if (!nnModelOk) {
+        nirvana_text(4,40,"NN: OFFLINE (model err)",0xF800,1);
+        nirvana_text(4,56,"VIPLite failed to load",0x8410,1);
+        nirvana_text(4,72,"Reflash FWFS .nb files",0x8410,1);
+    } else if(odCount>0 && topLabel[0]){
         snprintf(b,sizeof(b),"%s (%d%%)",topLabel,topScore);
         nirvana_text(4,38,b,0x07E0,1);
         snprintf(b,sizeof(b),"%d objects | %d faces",odCount,fc);
+        nirvana_text(4,52,b,0x07FF,1);
     } else {
-        snprintf(b,sizeof(b),"Scanning... | %d faces",fc);
+        nirvana_text(4,38,"YOLOv4: Scanning...",0xFFFF,1);
+        snprintf(b,sizeof(b),"%d faces detected",fc);
+        nirvana_text(4,52,b,0x07FF,1);
     }
-    nirvana_text(4,52,b,0x07FF,1);
+    // Vision snapshot status
+    nirvana_text(4,70,"Vision:",0x8410,1);
+    nirvana_text(54,70,visionStatus,0x07FF,1);
+    nirvana_text(4,88,"POST /api/nirvana/multimodal",0x8410,1);
+    nirvana_text(4,102,"Host: " MQTT_HOST ":5000",0x8410,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Long press: Snapshot & Send",NIRVANA_GREEN,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Backend runs multimodal AI",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
