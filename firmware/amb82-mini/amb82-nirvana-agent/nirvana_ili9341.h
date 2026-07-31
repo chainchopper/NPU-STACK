@@ -33,6 +33,14 @@ void nirvana_header(const char* t);
 void nirvana_page_fleet(bool mq,unsigned long up);
 void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCount, bool cam, bool audio);
 
+void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCount, bool cam, bool audio);
+void nirvana_home_screen(int cursor);
+void nirvana_page_explorer(int cursor, char files[][32], int fileCount, uint32_t sdTotal, uint32_t sdFree);
+void nirvana_page_memos();
+void nirvana_page_settings(int cursor);
+void nirvana_page_marketplace(int cursor);
+void nirvana_page_workspace();
+
 bool nirvana_display_init() {
     // All GPIO — no SPI peripheral
     pinMode(MOSI,OUTPUT);pinMode(SCLK,OUTPUT);pinMode(TFT_CS,OUTPUT);
@@ -133,4 +141,116 @@ void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int fc, bo
     nirvana_text(4,142,"OV5647 5MP CSI MIPI",0x8410,1);
     nirvana_text(4,158,"I2S 16kHz AMIC+SPK",0x8410,1);
 }
+
+// ══════════════════════════════════════════════════
+//  NIRVANA OS HOME SCREEN — 2×3 Card Grid
+// ══════════════════════════════════════════════════
+void nirvana_home_screen(int cursor) {
+    nirvana_display_fill(NIRVANA_BLACK);
+    nirvana_display_fill_rect(0,0,TFT_WIDTH,20,NIRVANA_PURPLE);
+    nirvana_text(3,2,"NIRVANA OS",NIRVANA_WHITE,1);
+    nirvana_text(160,2,"v3.0",NIRVANA_CYAN,1);
+
+    const char* labels[] = {"Nirvana AI","Workspace","Marketplace",
+                            "Explorer","Recorder","Settings"};
+    uint16_t colors[] = {0x4014,0x1C60,0x1922, 0x2C20,0x4008,0x4210};
+    int xPos[] = {4,124,4,  124,4,124};
+    int yPos[] = {28,28,106, 106,184,184};
+
+    for (int i=0; i<6; i++) {
+        uint16_t bg = (i == cursor) ? NIRVANA_WHITE : colors[i];
+        uint16_t fg = (i == cursor) ? NIRVANA_BLACK : NIRVANA_WHITE;
+        nirvana_display_fill_rect(xPos[i],yPos[i],114,70,bg);
+        int16_t tx = xPos[i] + (114 - strlen(labels[i])*6)/2;
+        nirvana_text(tx, yPos[i]+28, labels[i], fg, 1);
+    }
+    // Status bar at bottom
+    nirvana_display_fill_rect(0,260,TFT_WIDTH,60,NIRVANA_BLACK);
+    nirvana_text(4,264,"[BTN] Short:Next  Long:Select",NIRVANA_GRAY,1);
+    nirvana_center("NIRVANA FLEET",TFT_HEIGHT-20,NIRVANA_PURPLE,1);
+}
+
+// ══════════════════════════════════════════════════
+//  FILE EXPLORER — SD Card Browser
+// ══════════════════════════════════════════════════
+void nirvana_page_explorer(int cursor, char files[][32], int fileCount,
+                           uint32_t sdTotal, uint32_t sdFree) {
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("FILE EXPLORER");char b[32];
+    snprintf(b,sizeof(b),"SD: %lu/%lu MB free",sdFree,sdTotal);
+    nirvana_text(4,20,b,NIRVANA_CYAN,1);
+
+    if (fileCount == 0) {
+        nirvana_center("No files on SD card",100,NIRVANA_GRAY,1);
+        nirvana_center("Insert TF card & reboot",120,NIRVANA_GRAY,1);
+    }
+    for (int i=0; i<fileCount && i<10; i++) {
+        int y = 38 + i*16;
+        uint16_t bg = (i == cursor) ? NIRVANA_PURPLE : NIRVANA_BLACK;
+        if (i == cursor) nirvana_display_fill_rect(4,y-2,TFT_WIDTH-8,15,bg);
+        uint16_t fg = (i == cursor) ? NIRVANA_WHITE : NIRVANA_CYAN;
+        nirvana_text(6, y, files[i], fg, 1);
+    }
+    nirvana_text(4,TFT_HEIGHT-14,"Short:Next File  Long:Back",NIRVANA_GRAY,1);
+}
+
+// ══════════════════════════════════════════════════
+//  VOICE MEMOS / RECORDER
+// ══════════════════════════════════════════════════
+void nirvana_page_memos() {
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("MEMOS & RECORDER");
+    nirvana_display_fill_rect(60,80,120,50,NIRVANA_RED);
+    nirvana_center("RECORD",104,NIRVANA_WHITE,2);
+    nirvana_text(4,150,"Saved recordings:",NIRVANA_GRAY,1);
+    nirvana_text(4,168,"memo_001.wav  1.2 MB",NIRVANA_CYAN,1);
+    nirvana_text(4,184,"memo_002.wav  420 KB",NIRVANA_CYAN,1);
+    nirvana_text(4,210,"Long press RECORD to start",NIRVANA_GRAY,1);
+    nirvana_text(4,226,"I2S AMIC 16kHz Mono WAV",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Short:Back  Long:Record",NIRVANA_GRAY,1);
+}
+
+// ══════════════════════════════════════════════════
+//  SETTINGS — Backlight, WiFi, CPU Profile
+// ══════════════════════════════════════════════════
+void nirvana_page_settings(int cursor){
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("SETTINGS");
+    const char* items[] = {"Backlight: 75%","WiFi:" WIFI_SSID,
+                           "CPU: Turbo 500MHz","Audio: AEC+AGC+NS",
+                           "Camera: CSI MIPI","MQTT: " MQTT_HOST};
+    for(int i=0;i<6;i++){
+        int y=24+i*22;
+        if(i==cursor)nirvana_display_fill_rect(4,y-2,TFT_WIDTH-8,20,NIRVANA_PURPLE);
+        nirvana_text(6,y,items[i],i==cursor?NIRVANA_WHITE:NIRVANA_CYAN,1);
+    }
+    nirvana_text(4,TFT_HEIGHT-14,"Short:Next  Long:Back",NIRVANA_GRAY,1);
+}
+
+// ══════════════════════════════════════════════════
+//  MARKETPLACE — GitHub OTA App Store
+// ══════════════════════════════════════════════════
+void nirvana_page_marketplace(int cursor){
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("NIRVANA STORE");
+    const char* apps[] = {"NES Emulator v1.1","Doom Shareware",
+                          "MQTT Dashboard","Web Radio Stream"};
+    for(int i=0;i<4;i++){
+        int y=28+i*28;
+        if(i==cursor)nirvana_display_fill_rect(4,y-2,TFT_WIDTH-8,26,NIRVANA_PURPLE);
+        nirvana_text(6,y,apps[i],i==cursor?NIRVANA_WHITE:0x07E0,1);
+        nirvana_text(TFT_WIDTH-30,y,"GET",0x07E0,1);
+    }
+    nirvana_text(4,160,"Source: github.com/chainchopper",NIRVANA_GRAY,1);
+    nirvana_text(4,176,"Format: MicroPython / WASM",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Short:Next  Long:Download",NIRVANA_GRAY,1);
+}
+
+// ══════════════════════════════════════════════════
+//  WORKSPACE — Installed Apps Launcher
+// ══════════════════════════════════════════════════
+void nirvana_page_workspace(){
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("WORKSPACE");
+    nirvana_center("No apps installed",120,NIRVANA_GRAY,1);
+    nirvana_center("Visit Marketplace to download",140,NIRVANA_GRAY,1);
+    nirvana_center("MicroPython & WASM sandbox",160,NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Press button to return",NIRVANA_GRAY,1);
+}
+
 #endif
