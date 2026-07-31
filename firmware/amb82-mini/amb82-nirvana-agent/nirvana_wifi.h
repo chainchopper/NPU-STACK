@@ -132,6 +132,14 @@ void nirvana_mqtt_callback(char* topic, byte* payload, unsigned int length) {
         Serial.println("[MQTT] Server goodbye");
         mqttSessionId = "";
     }
+    // ── Remote control commands ──
+    else if (strcmp(type, "command") == 0) {
+        const char* cmd = doc["cmd"] | "";
+        if (cmd[0]) {
+            extern bool nirvana_control_exec(const char* cmd);
+            nirvana_control_exec(cmd);
+        }
+    }
 }
 
 // ═══ MQTT CONNECT ═══
@@ -155,6 +163,10 @@ bool nirvana_mqtt_connect() {
         mqtt.subscribe(topic.c_str());
         Serial.print("[MQTT] Subscribed: ");
         Serial.println(topic);
+
+        // Subscribe to fleet command topic for remote control
+        String cmdTopic = String(MQTT_TOPIC_PREFIX) + "/amb82/command";
+        mqtt.subscribe(cmdTopic.c_str());
 
         // Xiaozhi hello
         JsonDocument hello;

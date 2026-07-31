@@ -1,12 +1,12 @@
-// NIRVANA MENU SYSTEM — Auto-cycling single-button navigation
-// Cursor moves automatically every 2s — just press to select, hold to go back.
-// Button D29 (PF_10): Short press = SELECT/ENTER, Long press = GO BACK/CANCEL
+// NIRVANA MENU — Single-button manual navigation
+// Button D29 (PF_10): TAP (<400ms) = next item, HOLD (400ms+) = select/back
+// No auto-cycling. You control the pace.
 #ifndef NIRVANA_MENU_H
 #define NIRVANA_MENU_H
 
 #include "nirvana_config.h"
 
-extern int sdFileCount;  // Defined in main .ino via nirvana_sd.h
+extern int sdFileCount;
 
 #define MENU_STATE_HOME         0
 #define MENU_STATE_NIRVANA_AI   1
@@ -16,103 +16,95 @@ extern int sdFileCount;  // Defined in main .ino via nirvana_sd.h
 #define MENU_STATE_VOICE_MEMOS  5
 #define MENU_STATE_SETTINGS     6
 #define MENU_STATE_OTA          7
-#define MENU_STATE_COUNT        8
 
-#define BTN_DEBOUNCE_MS    50
-#define BTN_LONG_PRESS_MS  600
-#define AUTO_CYCLE_MS      2000   // Cursor advances every 2 seconds
-#define MENU_TIMEOUT_MS    30000   // Auto-return to home after 30s idle
+#define BTN_DEBOUNCE_MS    40
+#define BTN_HOLD_MS        400     // Hold this long = select/back (feels snappy)
+#define MENU_TIMEOUT_MS    60000   // 60s auto-return
 
-// ── Menu State ──
+// ── State ──
 int menuState = MENU_STATE_HOME;
-int menuCursor = 0;            // Selected item within home screen
-int subCursor = 0;             // Selected item within sub-screens
-unsigned long lastAutoCycle = 0;
-unsigned long lastBtnCheck = 0;
+int menuCursor = 0;
+int subCursor = 0;
 unsigned long lastMenuActivity = 0;
 
-// Button state machine
-enum { BTN_IDLE, BTN_PRESSED, BTN_HELD };
+// Button
+enum { BTN_IDLE, BTN_DOWN, BTN_HELD };
 int btnState = BTN_IDLE;
-unsigned long btnPressStart = 0;
+unsigned long btnDownAt = 0;
 
-// ── Button Read + State Machine ──
-// Returns: 0=nothing, 1=short press (select), 2=long press (back)
+// ── Read button. Returns: 0=nothing, 1=TAP (move), 2=HOLD (select/back) ──
 int nirvana_menu_tick() {
-    int action = 0;
     bool pressed = (digitalRead(ONBOARD_BUTTON) == LOW);
+    unsigned long now = millis();
+    int action = 0;
 
-    switch (btnState) {
-    case BTN_IDLE:
-        if (pressed) {
-            btnPressStart = millis();
-            btnState = BTN_PRESSED;
-        }
-        break;
-    case BTN_PRESSED:
+    if (btnState == BTN_IDLE && pressed) {
+        btnDownAt = now;
+        btnState = BTN_DOWN;
+    }
+    if (btnState == BTN_DOWN) {
         if (!pressed) {
-            // Released before threshold → SHORT (select)
+            // Released before hold threshold → TAP
             action = 1;
             btnState = BTN_IDLE;
-        } else if (millis() - btnPressStart >= BTN_LONG_PRESS_MS) {
-            // Held past threshold → LONG (back)
+        } else if (now - btnDownAt >= BTN_HOLD_MS) {
+            // Held past threshold → HOLD
             action = 2;
             btnState = BTN_HELD;
         }
-        break;
-    case BTN_HELD:
-        if (!pressed) btnState = BTN_IDLE;
-        break;
+    }
+    if (btnState == BTN_HELD && !pressed) {
+        btnState = BTN_IDLE;
     }
 
-    if (action) lastMenuActivity = millis();
+    if (action) lastMenuActivity = now;
     return action;
 }
 
-// ── Auto-advance cursor on home screen ──
-// Returns true if cursor moved (needs redraw)
-bool nirvana_menu_auto_cycle() {
-    unsigned long now = millis();
-    if (menuState != MENU_STATE_HOME) return false;
-    if (now - lastAutoCycle < AUTO_CYCLE_MS) return false;
-    lastAutoCycle = now;
-
-    menuCursor = (menuCursor + 1) % 7;
-    return true;
-}
-
-// ── Menu Navigation (called AFTER .ino handles special cases) ──
-// On home: short=enter highlighted item, long ignored (auto-cycle moves cursor)
-// On sub-screens: short=back, long=back (both go home)
-// Returns true if display needs redraw
+// ── Called from .ino. btnAction: 1=tap, 2=hold.
+// Returns true if display needs redraw. ──
 bool nirvana_menu_handle(int btnAction) {
     if (btnAction == 0) return false;
 
     if (menuState == MENU_STATE_HOME) {
-        if (btnAction == 1 || btnAction == 2) {
-            // Short or long on home = SELECT highlighted item
+        if (btnAction == 1) {
+            // TAP = move cursor to next card
+            menuCursor = (menuCursor + 1) % 7;
+            return true;
+        }
+        if (btnAction == 2) {
+            // HOLD = enter highlighted app
             menuState = menuCursor + 1;
-            menuCursor = 0;
             subCursor = 0;
             return true;
         }
     } else {
-        // Sub-screen: any press = GO BACK to home
-        // (unless handled specially in .ino before reaching here)
-        menuState = MENU_STATE_HOME;
-        menuCursor = 0;
-        subCursor = 0;
-        return true;
+        // Sub-screen
+        if (btnAction == 1) {
+            // TAP = move sub-cursor (where applicable)
+            int max = 0;
+            if (menuState == MENU_STATE_FILE_EXPL)     max = sdFileCount;
+            else if (menuState == MENU_STATE_SETTINGS)  max = 6;
+            else if (menuState == MENU_STATE_MARKETPLACE) max = 4;
+            else if (menuState == MENU_STATE_VOICE_MEMOS) max = sdFileCount;
+            else return false; // No cursor on this screen
+            if (max > 0) { subCursor = (subCursor + 1) % max; return true; }
+        }
+        if (btnAction == 2) {
+            // HOLD on sub-screen = go back to home
+            menuState = MENU_STATE_HOME;
+            subCursor = 0;
+            return true;
+        }
     }
     return false;
 }
 
-// ── Auto-return to home after timeout ──
+// ── 60-second auto-return ──
 bool nirvana_menu_timeout() {
     if (menuState != MENU_STATE_HOME &&
         millis() - lastMenuActivity > MENU_TIMEOUT_MS) {
         menuState = MENU_STATE_HOME;
-        menuCursor = 0;
         subCursor = 0;
         return true;
     }

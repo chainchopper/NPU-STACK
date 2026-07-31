@@ -20,6 +20,7 @@
 #include "nirvana_vision.h"
 #include "nirvana_config_storage.h"
 #include "nirvana_stream.h"
+#include "nirvana_control.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -104,6 +105,10 @@ void setup(){
 
     digitalWrite(ONBOARD_LED_BLUE, LOW);
     Serial.println("\n>>> NIRVANA OS READY <<<\n");
+    Serial.println("  Commands: home ai settings explorer memos store ota");
+    Serial.println("            snapshot record stop back next select");
+    Serial.println("  Or type them via MQTT: npu-fleet/amb82/command");
+    Serial.println("  Or say 'Nirvana go home' into the mic");
 }
 
 void loop(){
@@ -119,88 +124,54 @@ void loop(){
         digitalWrite(ONBOARD_LED_BLUE, ledState ? HIGH : LOW);
     }
 
-    // ── Button + auto-cycle ──
+    // ── Serial command input (type commands in Serial Monitor) ──
+    nirvana_control_serial();
+
+    // ── Button reading ──
     int btnAction = nirvana_menu_tick();
-    bool autoCycled = nirvana_menu_auto_cycle();  // Moves home cursor every 2s
 
-    // ── Sub-screen button actions (BEFORE menu_handle which does back) ──
-    // SHORT press (1) on sub-screen = DO ACTION
-    // LONG press (2) = go back (handled by menu_handle below)
-
-    // Nirvana AI: press = snapshot
-    if (btnAction > 0 && menuState == MENU_STATE_NIRVANA_AI) {
-        Serial.println("[BTN] Vision snapshot");
-        nirvana_vision_send_frame();
-        lastMenuActivity = millis(); needsRedraw = true; btnAction = 0;
-    }
-
-    // Memos: press = toggle recording, hold 600ms = back
-    if (btnAction == 1 && menuState == MENU_STATE_VOICE_MEMOS) {
-        if (nirvana_recorder_is_active()) {
-            nirvana_recorder_stop();
-            sdFileCount = nirvana_sd_list(sdFiles, 12);
-            subCursor = 0; needsRedraw = true;
-        } else {
-            if (nirvana_recorder_start() != NULL) {
-                subCursor = -1; needsRedraw = true;
-            }
+    // ── Sub-screen ACTIONS: hold on sub-screen = perform screen-specific action ──
+    // (Instead of going back — we intercept hold BEFORE menu_handle)
+    if (btnAction == 2) {
+        if (menuState == MENU_STATE_NIRVANA_AI) {
+            Serial.println("[BTN] Snapshot");
+            nirvana_vision_send_frame();
+            lastMenuActivity = millis(); needsRedraw = true; btnAction = 0;
         }
-        lastMenuActivity = millis(); btnAction = 0;
+        else if (menuState == MENU_STATE_VOICE_MEMOS) {
+            if (nirvana_recorder_is_active()) {
+                nirvana_recorder_stop();
+                sdFileCount = nirvana_sd_list(sdFiles, 12);
+            } else {
+                nirvana_recorder_start();
+            }
+            lastMenuActivity = millis(); needsRedraw = true; btnAction = 0;
+        }
+        else if (menuState == MENU_STATE_MARKETPLACE) {
+            Serial.print("[STORE] Download slot "); Serial.println(subCursor);
+            lastMenuActivity = millis(); needsRedraw = true; btnAction = 0;
+        }
+        else if (menuState == MENU_STATE_FILE_EXPL && sdFileCount > 0) {
+            Serial.print("[SD] Open: "); Serial.println(sdFiles[subCursor]);
+            lastMenuActivity = millis(); needsRedraw = true; btnAction = 0;
+        }
+        else if (menuState == MENU_STATE_OTA) {
+            nirvana_ota_start();
+            lastMenuActivity = millis(); needsRedraw = true; btnAction = 0;
+        }
+        else if (menuState == MENU_STATE_SETTINGS) {
+            // Hold on settings = adjust current item
+            if (subCursor == 0) { nvCfg.brightness = (nvCfg.brightness + 5) % 105; nirvana_cfg_apply_brightness(); }
+            else if (subCursor == 1) { nvCfg.volume = (nvCfg.volume + 5) % 105; }
+            else if (subCursor == 2) { nvCfg.turbo = !nvCfg.turbo; }
+            else if (subCursor == 5) { nirvana_cfg_save(); menuState = MENU_STATE_HOME; subCursor = 0; }
+            lastMenuActivity = millis(); needsRedraw = true; btnAction = 0;
+        }
     }
 
-    // Settings: press = adjust auto-cycled item, hold = back
-    if (btnAction == 1 && menuState == MENU_STATE_SETTINGS) {
-        if (subCursor == 0) { nvCfg.brightness = (nvCfg.brightness + 5) % 105; nirvana_cfg_apply_brightness(); }
-        else if (subCursor == 1) { nvCfg.volume = (nvCfg.volume + 5) % 105; }
-        else if (subCursor == 2) { nvCfg.turbo = !nvCfg.turbo; }
-        else if (subCursor == 5) { nirvana_cfg_save(); menuState = MENU_STATE_HOME; subCursor = 0; }
-        needsRedraw = true;
-        lastMenuActivity = millis(); btnAction = 0;
-    }
-    // Settings: auto-cycle cursor
-    static unsigned long lastSettingsCycle = 0;
-    if (menuState == MENU_STATE_SETTINGS && now - lastSettingsCycle > 2500) {
-        lastSettingsCycle = now;
-        subCursor = (subCursor + 1) % 6;
-        needsRedraw = true;
-    }
-
-    // Explorer: press = view file, auto-cycle through files
-    if (btnAction == 1 && menuState == MENU_STATE_FILE_EXPL && sdFileCount > 0) {
-        Serial.print("[SD] Selected: "); Serial.println(sdFiles[subCursor]);
-        // TODO: open/view file
-        lastMenuActivity = millis(); btnAction = 0; needsRedraw = true;
-    }
-    // Explorer: auto-cycle
-    static unsigned long lastExplCycle = 0;
-    if (menuState == MENU_STATE_FILE_EXPL && sdFileCount > 0 &&
-        now - lastExplCycle > 2000) {
-        lastExplCycle = now;
-        subCursor = (subCursor + 1) % sdFileCount;
-        needsRedraw = true;
-    }
-
-    // Marketplace: press = download, auto-cycle
-    if (btnAction == 1 && menuState == MENU_STATE_MARKETPLACE) {
-        Serial.print("[STORE] Download slot "); Serial.println(subCursor);
-        lastMenuActivity = millis(); btnAction = 0; needsRedraw = true;
-    }
-    static unsigned long lastMarketCycle = 0;
-    if (menuState == MENU_STATE_MARKETPLACE && now - lastMarketCycle > 2000) {
-        lastMarketCycle = now;
-        subCursor = (subCursor + 1) % 4;
-        needsRedraw = true;
-    }
-
-    // OTA: press = start update
-    if (btnAction == 1 && menuState == MENU_STATE_OTA) {
-        nirvana_ota_start();
-        lastMenuActivity = millis(); btnAction = 0; needsRedraw = true;
-    }
-
-    // ── fallback: menu_handle converts any press on home = enter, any press on sub = back ──
+    // ── Default menu handling (tap=move, hold=back on sub-screens, tap=move/hold=enter on home) ──
     bool redraw = nirvana_menu_handle(btnAction);
-    redraw = redraw || autoCycled || nirvana_menu_timeout();
+    redraw = redraw || nirvana_menu_timeout();
 
     // ── Recorder tick (writes PCM chunks while active) ──
     nirvana_recorder_tick();
