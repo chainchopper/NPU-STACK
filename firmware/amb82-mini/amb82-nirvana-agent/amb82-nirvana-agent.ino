@@ -19,6 +19,7 @@
 #include "nirvana_recorder.h"
 #include "nirvana_vision.h"
 #include "nirvana_config_storage.h"
+#include "nirvana_stream.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -63,6 +64,9 @@ void setup(){
             Serial.println("[MQTT] Fleet registered");
         }
     }
+
+    // ── WebSocket audio stream (background, auto-reconnects) ──
+    nirvana_stream_connect();
 
     // ── Camera ──
     nirvana_camera_init();
@@ -171,6 +175,19 @@ void loop(){
 
     // ── Keep menu alive while recording (no timeout) ──
     if (nirvana_recorder_is_active()) lastMenuActivity = now;
+
+    // ── WebSocket audio stream tick ──
+    nirvana_stream_tick();
+    // Receive TTS audio from server, feed orb + speaker
+    int16_t streamBuf[512];
+    int streamSamples = nirvana_stream_recv_audio(streamBuf, 512);
+    if (streamSamples > 0) {
+        float rms = nirvana_stream_rms(streamBuf, streamSamples);
+        if (rms > 0.01f) {
+            nirvana_orb_feed(rms);
+        }
+        // TODO: play streamBuf through speaker DAC
+    }
 
     // ── Auto-redraw memos every 1s while recording (elapsed counter) ──
     static unsigned long lastMemosRedraw = 0;
