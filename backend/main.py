@@ -79,6 +79,7 @@ from routers.nirvana_webui import router as nirvana_webui_router
 from routers.lmstudio import router as lmstudio_router
 from routers.boards import router as boards_router
 from routers.xiaozhi_router import router as xiaozhi_router
+from routers.nirvana_multimodal import router as nirvana_multimodal_router
 from services.docs_index_service import ensure_docs_index
 from services.docs_index_service import sync_project_docs_to_gitbook
 from services.edge_discovery import start_auto_poll, stop_auto_poll
@@ -279,6 +280,7 @@ app.include_router(nirvana_webui_router)
 app.include_router(lmstudio_router)
 app.include_router(boards_router)
 app.include_router(xiaozhi_router)
+app.include_router(nirvana_multimodal_router)
 
 # ── Mount Nirvana WebUI proxy for iframe embedding ──
 # Strips CSP/X-Frame-Options headers so the WebUI can be embedded in NPU-STACK

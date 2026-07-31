@@ -50,21 +50,19 @@ void _nirvana_face_callback(std::vector<FaceDetectionResult> results) {
 
 // ── Init object detection ──
 bool nirvana_nn_od_init(VideoSetting& nnConfig) {
-    Serial.println("[NN-OD] Init YOLOv4 Tiny...");
+    Serial.println("[NN-OD] Init YOLOv7 Tiny...");
 
     nnOD.configVideo(nnConfig);
-    nnOD.modelSelect(OBJECT_DETECTION, DEFAULT_YOLOV4TINY, NA_MODEL, NA_MODEL);
+    // Try YOLOv7 Tiny (0x03) — different FWFS slot, may not be corrupt
+    // If still broken, try YOLOv3 Tiny (0x01) or DEFAULT_YOLOV4TINY (0x02)
+    nnOD.modelSelect(OBJECT_DETECTION, DEFAULT_YOLOV7TINY, NA_MODEL, NA_MODEL);
     nnOD.configThreshold(0.45, 0.35);
     nnOD.setResultCallback(_nirvana_od_callback);
     nnOD.begin();
 
-    // Quick check: try getting results — if begin() silently failed,
-    // getResultCount() returns 0 and the model is dead
     delay(200);
     uint16_t check = nnOD.getResultCount(); (void)check;
 
-    // Heuristic: if model loaded, vipnn logs stop. If they continue,
-    // the .nb file was corrupt. Mark offline so pipeline doesn't start.
     nnOD_ready = true;
     Serial.println("[NN-OD] Init complete (check Serial for vipnn errors)");
     return true;
