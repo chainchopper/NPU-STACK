@@ -36,10 +36,11 @@ void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCo
 void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCount, bool cam, bool audio);
 void nirvana_home_screen(int cursor);
 void nirvana_page_explorer(int cursor, char files[][32], int fileCount, uint32_t sdTotal, uint32_t sdFree);
-void nirvana_page_memos();
+void nirvana_page_memos(int cursor, char files[][32], int fileCount);
 void nirvana_page_settings(int cursor);
 void nirvana_page_marketplace(int cursor);
 void nirvana_page_workspace();
+void nirvana_page_ota(const char* status);
 
 bool nirvana_display_init() {
     // All GPIO — no SPI peripheral
@@ -117,29 +118,19 @@ void nirvana_page_fleet(bool mq,unsigned long up){
     nirvana_text(4,130,"Nirvana Voice Ready",0x07E0,1);nirvana_text(4,144,"xiao zhi MQTT bridge",0x8410,1);
 }
 void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int fc, bool cam, bool aud){
-    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("AI VISION + AUDIO");char b[32];
-    // Hardware status
-    nirvana_text(4,22,"Camera:",0x8410,1);nirvana_text(66,22,cam?"CSI OK":"OFF",cam?0x07E0:0xF800,1);
-    nirvana_text(4,36,"Audio:",0x8410,1);nirvana_text(66,36,aud?"I2S OK":"OFF",aud?0x07E0:0xF800,1);
-    // Object detection
-    nirvana_text(4,56,"YOLOv4 Tiny:",0x8410,1);
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("NIRVANA AI");char b[32];
+    // Compact status — orb handles the visual
+    nirvana_text(4,22,"Cam:",0x8410,1);nirvana_text(40,22,cam?"OK":"OFF",cam?0x07E0:0xF800,1);
+    nirvana_text(80,22,"Aud:",0x8410,1);nirvana_text(114,22,aud?"OK":"OFF",aud?0x07E0:0xF800,1);
+    // Detection summary
     if(odCount>0 && topLabel[0]){
         snprintf(b,sizeof(b),"%s (%d%%)",topLabel,topScore);
-        nirvana_text(66,56,b,0x07E0,1);
-        snprintf(b,sizeof(b),"%d objects",odCount);
-        nirvana_text(4,70,b,0x07FF,1);
+        nirvana_text(4,38,b,0x07E0,1);
+        snprintf(b,sizeof(b),"%d objects | %d faces",odCount,fc);
     } else {
-        nirvana_text(66,56,"Scanning...",0xFFFF,1);
+        snprintf(b,sizeof(b),"Scanning... | %d faces",fc);
     }
-    // Face detection
-    nirvana_text(4,88,"Face Detect:",0x8410,1);
-    if(fc>0){snprintf(b,sizeof(b),"%d faces",fc);nirvana_text(88,88,b,0x07E0,1);}
-    else nirvana_text(88,88,"None",0x8410,1);
-    // Hardware
-    nirvana_text(4,110,"RTL8735B NN Engine",0x8410,1);
-    nirvana_text(4,124,"VIPLite Accel 500MHz",0x8410,1);
-    nirvana_text(4,142,"OV5647 5MP CSI MIPI",0x8410,1);
-    nirvana_text(4,158,"I2S 16kHz AMIC+SPK",0x8410,1);
+    nirvana_text(4,52,b,0x07FF,1);
 }
 
 // ══════════════════════════════════════════════════
@@ -149,18 +140,18 @@ void nirvana_home_screen(int cursor) {
     nirvana_display_fill(NIRVANA_BLACK);
     nirvana_display_fill_rect(0,0,TFT_WIDTH,20,NIRVANA_PURPLE);
     nirvana_text(3,2,"NIRVANA OS",NIRVANA_WHITE,1);
-    nirvana_text(160,2,"v3.0",NIRVANA_CYAN,1);
+    nirvana_text(150,2,NIRVANA_VERSION,NIRVANA_CYAN,1);
 
     const char* labels[] = {"Nirvana AI","Workspace","Marketplace",
-                            "Explorer","Recorder","Settings"};
-    uint16_t colors[] = {0x4014,0x1C60,0x1922, 0x2C20,0x4008,0x4210};
-    int xPos[] = {4,124,4,  124,4,124};
-    int yPos[] = {28,28,106, 106,184,184};
+                            "Explorer","Recorder","Settings","OTA"};
+    uint16_t colors[] = {0x4014,0x1C60,0x1922, 0x2C20,0x4008,0x4210,0x2800};
+    int xPos[] = {4,124,4,  124,4,124,64};
+    int yPos[] = {28,28,106,  106,184,184,262};
 
-    for (int i=0; i<6; i++) {
+    for (int i=0; i<7; i++) {
         uint16_t bg = (i == cursor) ? NIRVANA_WHITE : colors[i];
         uint16_t fg = (i == cursor) ? NIRVANA_BLACK : NIRVANA_WHITE;
-        nirvana_display_fill_rect(xPos[i],yPos[i],114,70,bg);
+        nirvana_display_fill_rect(xPos[i],yPos[i],114,(i<6?70:40),bg);
         int16_t tx = xPos[i] + (114 - strlen(labels[i])*6)/2;
         nirvana_text(tx, yPos[i]+28, labels[i], fg, 1);
     }
@@ -171,7 +162,7 @@ void nirvana_home_screen(int cursor) {
 }
 
 // ══════════════════════════════════════════════════
-//  FILE EXPLORER — SD Card Browser
+//  FILE EXPLORER — SD Card Browser with sizes
 // ══════════════════════════════════════════════════
 void nirvana_page_explorer(int cursor, char files[][32], int fileCount,
                            uint32_t sdTotal, uint32_t sdFree) {
@@ -190,22 +181,50 @@ void nirvana_page_explorer(int cursor, char files[][32], int fileCount,
         uint16_t fg = (i == cursor) ? NIRVANA_WHITE : NIRVANA_CYAN;
         nirvana_text(6, y, files[i], fg, 1);
     }
-    nirvana_text(4,TFT_HEIGHT-14,"Short:Next File  Long:Back",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Short:Next File",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Long:View/Play  Hold:Back",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
-//  VOICE MEMOS / RECORDER
+//  VOICE MEMOS / RECORDER — SD-backed
 // ══════════════════════════════════════════════════
-void nirvana_page_memos() {
+void nirvana_page_memos(int cursor, char files[][32], int fileCount) {
     nirvana_display_fill(NIRVANA_BLACK);nirvana_header("MEMOS & RECORDER");
-    nirvana_display_fill_rect(60,80,120,50,NIRVANA_RED);
-    nirvana_center("RECORD",104,NIRVANA_WHITE,2);
-    nirvana_text(4,150,"Saved recordings:",NIRVANA_GRAY,1);
-    nirvana_text(4,168,"memo_001.wav  1.2 MB",NIRVANA_CYAN,1);
-    nirvana_text(4,184,"memo_002.wav  420 KB",NIRVANA_CYAN,1);
-    nirvana_text(4,210,"Long press RECORD to start",NIRVANA_GRAY,1);
-    nirvana_text(4,226,"I2S AMIC 16kHz Mono WAV",NIRVANA_GRAY,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Short:Back  Long:Record",NIRVANA_GRAY,1);
+    // Record button
+    uint16_t recBg = (cursor == -1) ? NIRVANA_WHITE : NIRVANA_RED;
+    nirvana_display_fill_rect(60,30,120,40,recBg);
+    nirvana_center("RECORD",48,recBg==NIRVANA_WHITE?NIRVANA_BLACK:NIRVANA_WHITE,2);
+
+    nirvana_text(4,80,"Saved recordings:",NIRVANA_GRAY,1);
+    if (fileCount == 0) {
+        nirvana_text(4,100,"(no recordings yet)",NIRVANA_GRAY,1);
+    }
+    for (int i=0; i<fileCount && i<6; i++) {
+        int y = 100 + i*18;
+        uint16_t bg = (i == cursor) ? NIRVANA_PURPLE : NIRVANA_BLACK;
+        if (i == cursor) nirvana_display_fill_rect(4,y-2,TFT_WIDTH-8,16,bg);
+        nirvana_text(6, y, files[i], i==cursor?NIRVANA_WHITE:NIRVANA_CYAN,1);
+    }
+    nirvana_text(4,TFT_HEIGHT-28,"Short:Next  Long REC: start",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Double-long:Play/Delete",NIRVANA_GRAY,1);
+}
+
+// ══════════════════════════════════════════════════
+//  OTA FIRMWARE UPDATE
+// ══════════════════════════════════════════════════
+void nirvana_page_ota(const char* status) {
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("OTA UPDATE");
+    nirvana_text(4,30,"Firmware Update",NIRVANA_WHITE,2);
+    nirvana_text(4,60,"Current:",NIRVANA_GRAY,1);
+    nirvana_text(70,60,NIRVANA_VERSION,NIRVANA_CYAN,1);
+    nirvana_text(4,78,"Status:",NIRVANA_GRAY,1);
+    nirvana_text(70,78,status,NIRVANA_GREEN,1);
+    nirvana_text(4,100,"Source:",NIRVANA_GRAY,1);
+    nirvana_text(4,114,"http://" MQTT_HOST ":9000",0x07FF,1);
+    nirvana_text(4,130,"/firmware/npu-amb82-latest.bin",0x07FF,1);
+    nirvana_text(4,160,"Hold button to start OTA",NIRVANA_GRAY,1);
+    nirvana_text(4,176,"Device will reboot after flash",NIRVANA_RED,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Long:Start OTA  Short:Back",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════

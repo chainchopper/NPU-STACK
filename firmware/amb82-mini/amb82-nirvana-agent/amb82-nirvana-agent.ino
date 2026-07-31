@@ -14,6 +14,8 @@
 #include "nirvana_nn.h"
 #include "nirvana_menu.h"
 #include "nirvana_sd.h"
+#include "nirvana_orb.h"
+#include "nirvana_ota.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -124,17 +126,29 @@ void loop(){
             nirvana_page_explorer(subCursor, sdFiles, sdFileCount, sdTotal, sdFree);
             break;
         case MENU_STATE_VOICE_MEMOS:
-            nirvana_page_memos();
+            nirvana_page_memos(subCursor, sdFiles, sdFileCount);
             break;
         case MENU_STATE_SETTINGS:
             nirvana_page_settings(subCursor);
             break;
+        case MENU_STATE_OTA:
+            nirvana_page_ota(otaStatus);
+            break;
         }
     }
 
-    // ── Sub-screen cursor movement (for Explorer, Settings, Marketplace) ──
-    // In sub-screens, short press on button cycles sub-cursor
-    // This is handled by checking if menu didn't change but button was pressed
+    // ── Orb rendering (continuous, only on Nirvana AI screen) ──
+    if (menuState == MENU_STATE_NIRVANA_AI) {
+        // Feed simulated amplitude from NN activity (pulses when objects detected)
+        float amp = 0.0f;
+        if (odCount > 0 && odTopScore > 0) amp = odTopScore / 100.0f;
+        // Also react to face detection
+        if (faceCount > 0) amp = (amp > 0.3f + faceCount * 0.1f) ? amp : (0.3f + faceCount * 0.1f);
+        nirvana_orb_feed(amp);
+        nirvana_orb_draw();
+    }
+
+    // ── Sub-screen cursor movement ──
     static int lastMenuState = MENU_STATE_HOME;
     if (menuState != lastMenuState) {
         lastMenuState = menuState;

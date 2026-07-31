@@ -15,7 +15,8 @@ extern int sdFileCount;  // Defined in main .ino via nirvana_sd.h
 #define MENU_STATE_FILE_EXPL    4
 #define MENU_STATE_VOICE_MEMOS  5
 #define MENU_STATE_SETTINGS     6
-#define MENU_STATE_COUNT        7
+#define MENU_STATE_OTA          7
+#define MENU_STATE_COUNT        8
 
 #define BTN_DEBOUNCE_MS    50
 #define BTN_LONG_PRESS_MS  800
@@ -79,7 +80,7 @@ bool nirvana_menu_handle(int btnAction) {
 
     if (menuState == MENU_STATE_HOME) {
         if (btnAction == 1) {  // Short: move cursor
-            menuCursor = (menuCursor + 1) % 6;
+            menuCursor = (menuCursor + 1) % 7;
             return true;
         }
         if (btnAction == 2) {  // Long: enter
@@ -98,7 +99,8 @@ bool nirvana_menu_handle(int btnAction) {
             else if (menuState == MENU_STATE_MARKETPLACE) max = 4;
             else if (menuState == MENU_STATE_NIRVANA_AI)  return false; // No cursor
             else if (menuState == MENU_STATE_APPS)        return false; // No cursor
-            else if (menuState == MENU_STATE_VOICE_MEMOS) return false; // No cursor
+            else if (menuState == MENU_STATE_VOICE_MEMOS) max = sdFileCount;
+            else if (menuState == MENU_STATE_OTA)         return false; // No cursor
             if (max > 0) subCursor %= max;
             return true;
         }

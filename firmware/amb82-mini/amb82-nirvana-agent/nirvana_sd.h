@@ -65,6 +65,32 @@ size_t nirvana_sd_read(const char* path, uint8_t* buf, size_t maxLen) {
     return br;
 }
 
+// ── Get file size in bytes ──
+size_t nirvana_sd_fsize(const char* path) {
+    if (!sdReady) return 0;
+    FIL fp;
+    if (f_open(&fp, path, FA_READ) != FR_OK) return 0;
+    size_t sz = f_size(&fp);
+    f_close(&fp);
+    return sz;
+}
+
+// ── Delete a file ──
+bool nirvana_sd_delete(const char* path) {
+    if (!sdReady) return false;
+    FRESULT res = f_unlink(path);
+    Serial.print("[SD] Delete "); Serial.print(path);
+    Serial.print(": "); Serial.println(res == FR_OK ? "OK" : "FAIL");
+    return res == FR_OK;
+}
+
+// ── Format file size for display ──
+void nirvana_sd_fmt_size(size_t bytes, char* out, int maxLen) {
+    if (bytes >= 1024*1024) snprintf(out, maxLen, "%.1f MB", bytes / (1024.0f * 1024.0f));
+    else if (bytes >= 1024) snprintf(out, maxLen, "%.1f KB", bytes / 1024.0f);
+    else snprintf(out, maxLen, "%lu B", bytes);
+}
+
 // ── Free/total space in MB ──
 void nirvana_sd_space(uint32_t* totalMB, uint32_t* freeMB) {
     if (!sdReady) { *totalMB = 0; *freeMB = 0; return; }
