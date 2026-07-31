@@ -21,6 +21,7 @@
 #include "nirvana_config_storage.h"
 #include "nirvana_stream.h"
 #include "nirvana_control.h"
+#include "nirvana_ble.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -65,6 +66,9 @@ void setup(){
             Serial.println("[MQTT] Fleet registered");
         }
     }
+
+    // ── BLE keyboard/mouse input (scan for HID devices) ──
+    nirvana_ble_init();
 
     // ── WebSocket audio stream (background, auto-reconnects) ──
     nirvana_stream_connect();
@@ -178,6 +182,9 @@ void loop(){
 
     // ── Keep menu alive while recording (no timeout) ──
     if (nirvana_recorder_is_active()) lastMenuActivity = now;
+
+    // ── BLE keyboard/mouse scanning tick ──
+    nirvana_ble_tick();
 
     // ── WebSocket audio stream tick ──
     nirvana_stream_tick();

@@ -17,8 +17,8 @@ extern int sdFileCount;
 #define MENU_STATE_SETTINGS     6
 #define MENU_STATE_OTA          7
 
-#define BTN_DEBOUNCE_MS    40
-#define BTN_HOLD_MS        400     // Hold this long = select/back (feels snappy)
+#define BTN_DEBOUNCE_MS    30
+#define BTN_HOLD_MS        250     // Hold 250ms = select (fast, responsive)
 #define MENU_TIMEOUT_MS    60000   // 60s auto-return
 
 // ── State ──

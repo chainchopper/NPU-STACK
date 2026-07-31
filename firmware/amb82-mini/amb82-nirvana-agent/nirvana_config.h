@@ -28,7 +28,7 @@
 // ═══ FLEET BRANDING ═══
 #define NIRVANA_DEVICE_ID    "npu-amb82-001"
 #define NIRVANA_FLEET_NAME   "NIRVANA FLEET"
-#define NIRVANA_VERSION      "v3.9-remote-control"
+#define NIRVANA_VERSION      "v4.0-ble-control"
 
 // ═══ WIFI ═══
 #ifndef WIFI_SSID
