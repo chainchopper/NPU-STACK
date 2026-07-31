@@ -17,14 +17,13 @@
 // ── Global pipeline objects ──
 VideoSetting camConfig(VIDEO_FHD, 30, VIDEO_H264, 0);   // FHD H264
 VideoSetting camConfigNN(CAM_NN_W, CAM_NN_H, CAM_NN_FPS, VIDEO_RGB, 0);
-CameraSetting  camISP;
 
 StreamIO camStreamer(1, 1);   // Main channel → RTSP
 StreamIO camStreamerNN(1, 1); // NN channel → Object Detection
 
 bool camReady = false;
 
-// ── Initialize camera + ISP ──
+// ── Initialize camera (ISP auto-configures on Ameba SDK) ──
 bool nirvana_camera_init() {
     Serial.println("[CAM] Init CSI camera...");
 
@@ -34,16 +33,6 @@ bool nirvana_camera_init() {
 
     // NN channel: RGB 576×320 @ 10fps
     Camera.configVideoChannel(CAM_CH_NN, camConfigNN);
-
-    // ISP defaults — auto exposure, AWB, no WDR
-    camISP.setAWB(1);
-    camISP.setExposureMode(0);
-    camISP.setWDR(0);
-    camISP.setBrightness(0);
-    camISP.setContrast(50);
-    camISP.setSaturation(50);
-    camISP.setSharpness(50);
-    Camera.camInit(camISP);
 
     Camera.videoInit();
     Serial.println("[CAM] CSI ready (FHD H264 + RGB NN)");
