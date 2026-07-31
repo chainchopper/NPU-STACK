@@ -88,7 +88,7 @@ bool nirvana_sd_delete(const char* path) {
 void nirvana_sd_fmt_size(size_t bytes, char* out, int maxLen) {
     if (bytes >= 1024*1024) snprintf(out, maxLen, "%.1f MB", bytes / (1024.0f * 1024.0f));
     else if (bytes >= 1024) snprintf(out, maxLen, "%.1f KB", bytes / 1024.0f);
-    else snprintf(out, maxLen, "%lu B", bytes);
+    else snprintf(out, maxLen, "%u B", (unsigned int)bytes);
 }
 
 // ── Free/total space in MB ──

@@ -77,7 +77,7 @@ bool nirvana_control_exec(const char* cmd) {
 
     // Actions
     if (strcmp(cmd, CMD_SNAPSHOT) == 0 || strcmp(cmd, "take picture") == 0) {
-        extern void nirvana_vision_send_frame();
+        extern bool nirvana_vision_send_frame();
         nirvana_vision_send_frame();
         return true;
     }
@@ -98,7 +98,6 @@ bool nirvana_control_exec(const char* cmd) {
 
     // Settings quick-adjust
     if (strcmp(cmd, CMD_VOLUME_UP) == 0) {
-        extern uint8_t nvCfg_volume;  // accessed via nirvana_config_storage
         return true;
     }
 

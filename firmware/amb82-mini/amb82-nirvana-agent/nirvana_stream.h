@@ -116,7 +116,7 @@ bool nirvana_stream_connect() {
     }
 
     // Check for 101 Switching Protocols
-    if (strstr(wsRecvBuf, "101") || strstr(wsRecvBuf, "switching", 10)) {
+    if (strstr(wsRecvBuf, "101") || strstr(wsRecvBuf, "switching")) {
         wsConnected = true;
         wsLastPing = millis();
         Serial.println("[WS] Connected! Bi-directional audio stream ready");
