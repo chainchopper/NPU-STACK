@@ -1,67 +1,88 @@
-// AMB82-Mini + Waveshare 2.4" ILI9341 — BIT-BANGED SPI
-// Zero SPI library. Zero peripheral conflicts. Just GPIO.
-// MOSI=13, SCLK=15, CS=12, DC=7, RST=8, BL=5
+// ╔══════════════════════════════════════════════════════════╗
+// ║   NIRVANA FLEET AGENT — AMB82-Mini + ILI9341 + XiaoZhi  ║
+// ║   RTL8735B Cortex-M33 @ 500MHz + NN Engine              ║
+// ║   Bit-banged SPI LCD driver — zero peripheral conflicts ║
+// ╚══════════════════════════════════════════════════════════╝
 
-#define MOSI 13
-#define SCLK 15
-#define CS   12
-#define DC   7
-#define RST  8
-#define BL   5
-#define WIDTH  240
-#define HEIGHT 320
+#include "nirvana_config.h"
+#include "nirvana_ili9341.h"
+#include "nirvana_wifi.h"
 
-// Bit-banged SPI send
-void _send(uint8_t d) {
-    for (int8_t i = 7; i >= 0; i--) {
-        digitalWrite(SCLK, LOW);
-        digitalWrite(MOSI, (d >> i) & 1);
-        digitalWrite(SCLK, HIGH);
-    }
-}
+unsigned long lastStatus=0, lastDisplay=0, lastLed=0;
+int page=0;
+bool ledState=false;
 
-inline void _cmd(uint8_t c) { digitalWrite(CS, LOW); digitalWrite(DC, LOW); _send(c); digitalWrite(CS, HIGH); }
-inline void _dat(uint8_t d) { digitalWrite(CS, LOW); digitalWrite(DC, HIGH); _send(d); digitalWrite(CS, HIGH); }
-void _dat16(uint16_t d) { _dat(d >> 8); _dat(d & 0xFF); }
-void _win(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) { _cmd(0x2A); _dat16(x0); _dat16(x1); _cmd(0x2B); _dat16(y0); _dat16(y1); _cmd(0x2C); }
-
-void fill(uint16_t c) {
-    _win(0, 0, WIDTH-1, HEIGHT-1);
-    uint8_t hi = c >> 8, lo = c & 0xFF;
-    digitalWrite(CS, LOW); digitalWrite(DC, HIGH);
-    for (uint32_t i = 0; i < (uint32_t)WIDTH * HEIGHT; i++) { _send(hi); _send(lo); }
-    digitalWrite(CS, HIGH);
-}
-
-void setup() {
+void setup(){
     Serial.begin(115200); delay(2000);
-    Serial.println("=== ILI9341 — BIT-BANGED SPI ===");
 
-    // All pins as simple GPIO outputs — no SPI peripheral at all
-    pinMode(MOSI, OUTPUT); pinMode(SCLK, OUTPUT);
-    pinMode(CS, OUTPUT);   pinMode(DC, OUTPUT);
-    pinMode(RST, OUTPUT);  pinMode(BL, OUTPUT);
-    digitalWrite(CS, HIGH); digitalWrite(BL, HIGH);
-    digitalWrite(SCLK, HIGH);
-    Serial.println("GPIO set OK");
+    Serial.println();
+    Serial.println("=========================================");
+    Serial.println("  NIRVANA FLEET — AMB82-Mini + ILI9341");
+    Serial.println("  Bit-banged SPI | RTL8735B + NN Engine");
+    Serial.println("=========================================");
+    Serial.print("  Version: "); Serial.println(NIRVANA_VERSION);
+    Serial.print("  Device:  "); Serial.println(NIRVANA_DEVICE_ID);
 
-    // Reset
-    digitalWrite(RST, LOW);  delay(10);
-    digitalWrite(RST, HIGH); delay(150);
-    Serial.println("Reset done");
+    // ── Onboard LEDs ──
+    pinMode(ONBOARD_LED_BLUE, OUTPUT);
+    pinMode(ONBOARD_LED_GREEN, OUTPUT);
+    digitalWrite(ONBOARD_LED_BLUE, HIGH);
+    digitalWrite(ONBOARD_LED_GREEN, LOW);
+    Serial.println("[LED] OK");
 
-    // ILI9341 init
-    _cmd(0x01); delay(150); Serial.println("SW reset");
-    _cmd(0x11); delay(150); Serial.println("Sleep out");
-    _cmd(0x36); _dat(0x48); Serial.println("MADCTL");
-    _cmd(0x3A); _dat(0x55); Serial.println("RGB565");
-    _cmd(0x29); delay(50);  Serial.println("Display ON");
+    // ── Display (bit-banged SPI via GPIO, no SPI library) ──
+    Serial.println("--- Display ---");
+    if (nirvana_display_init()) {
+        nirvana_splash("Connecting...", NIRVANA_VERSION);
+        Serial.println("[DISP] Splash shown");
+    }
 
-    fill(0xF800); Serial.println("=== RED ===");
-    delay(3000);
-    fill(0x07E0); Serial.println("=== GREEN ===");
-    delay(3000);
-    fill(0x001F); Serial.println("=== BLUE ===");
+    // ── WiFi ──
+    Serial.println("--- Network ---");
+    if (nirvana_wifi_connect()) {
+        char ip[20];
+        snprintf(ip, sizeof(ip), "%d.%d.%d.%d",
+            WiFi.localIP()[0], WiFi.localIP()[1],
+            WiFi.localIP()[2], WiFi.localIP()[3]);
+        nirvana_splash(ip, NIRVANA_VERSION);
+
+        // ── MQTT (xiaozhi hello) ──
+        if (nirvana_mqtt_connect()) {
+            digitalWrite(ONBOARD_LED_GREEN, HIGH);
+            Serial.println("[MQTT] Fleet registered");
+        }
+    }
+
+    digitalWrite(ONBOARD_LED_BLUE, LOW);
+    Serial.println("\n>>> NIRVANA FLEET AGENT READY <<<\n");
 }
 
-void loop() {}
+void loop(){
+    nirvana_mqtt_loop();
+    unsigned long now = millis();
+
+    // Fleet heartbeat (30s)
+    if (now - lastStatus > 30000) { lastStatus = now; nirvana_publish_status(); }
+
+    // Blue LED pulse (1s)
+    if (now - lastLed > 1000) {
+        lastLed = now; ledState = !ledState;
+        digitalWrite(ONBOARD_LED_BLUE, ledState ? HIGH : LOW);
+    }
+
+    // Display page cycling (5s)
+    if (now - lastDisplay > 5000) {
+        lastDisplay = now; page = (page + 1) % 3;
+        char ip[20], ssid[40];
+        snprintf(ip, sizeof(ip), "%d.%d.%d.%d",
+            WiFi.localIP()[0], WiFi.localIP()[1],
+            WiFi.localIP()[2], WiFi.localIP()[3]);
+        strncpy(ssid, WiFi.SSID(), sizeof(ssid)-1); ssid[sizeof(ssid)-1] = 0;
+        int rssi = WiFi.RSSI();
+        if (page == 0)      nirvana_page_status(ip, ssid, rssi, mqttConnected, now/1000);
+        else if (page == 1) nirvana_page_network(ip, ssid, rssi);
+        else                nirvana_page_fleet(mqttConnected, now/1000);
+    }
+
+    delay(10);
+}
