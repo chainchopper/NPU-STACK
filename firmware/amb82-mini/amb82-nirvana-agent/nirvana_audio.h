@@ -56,7 +56,7 @@ void nirvana_spk_gain(uint8_t g)   { audioDev.setSpkGain(g); }
 // ── Print audio info to Serial ──
 void nirvana_audio_info() {
     Serial.println("[AUD] 16kHz Mono AMIC | AEC+AGC+NS enabled");
-    Serial.printf ("[AUD] Mic gain: %d  Spk gain: %d\n", 40, 80);
+    Serial.print(  "[AUD] Mic gain: 40  Spk gain: 80\n");
 }
 
 #endif
