@@ -95,7 +95,7 @@ bool nirvana_menu_handle(int btnAction) {
             // Wrap based on screen
             int max = 0;
             if (menuState == MENU_STATE_FILE_EXPL)     max = sdFileCount;
-            else if (menuState == MENU_STATE_SETTINGS)  max = 6;
+            else if (menuState == MENU_STATE_SETTINGS)  return false; // Handled in .ino
             else if (menuState == MENU_STATE_MARKETPLACE) max = 4;
             else if (menuState == MENU_STATE_NIRVANA_AI)  return false; // No cursor
             else if (menuState == MENU_STATE_APPS)        return false; // No cursor

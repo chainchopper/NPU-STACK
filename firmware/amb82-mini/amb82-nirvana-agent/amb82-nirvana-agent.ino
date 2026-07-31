@@ -18,6 +18,7 @@
 #include "nirvana_ota.h"
 #include "nirvana_recorder.h"
 #include "nirvana_vision.h"
+#include "nirvana_config_storage.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -87,6 +88,10 @@ void setup(){
         nirvana_sd_space(&sdTotal, &sdFree);
     }
 
+    // ── Config Storage (load from SD, apply brightness) ──
+    nirvana_cfg_load();
+    nirvana_cfg_apply_brightness();
+
     // ── Show home screen ──
     nirvana_home_screen(0);
     lastRender = millis();
@@ -139,6 +144,25 @@ void loop(){
         btnAction = 0;
     }
 
+    // ── Special: SETTINGS — short = adjust, long = next item ──
+    if (menuState == MENU_STATE_SETTINGS) {
+        if (btnAction == 1) {  // Short: adjust current setting
+            if (subCursor == 0) { nvCfg.brightness = (nvCfg.brightness + 5) % 105; nirvana_cfg_apply_brightness(); }
+            else if (subCursor == 1) { nvCfg.volume = (nvCfg.volume + 5) % 105; }
+            else if (subCursor == 2) { nvCfg.turbo = !nvCfg.turbo; }
+            else if (subCursor == 5) { nirvana_cfg_save(); menuState = MENU_STATE_HOME; subCursor = 0; }
+            needsRedraw = true;
+            lastMenuActivity = millis();
+            btnAction = 0;
+        }
+        if (btnAction == 2) {  // Long: next item
+            subCursor = (subCursor + 1) % 6;
+            needsRedraw = true;
+            lastMenuActivity = millis();
+            btnAction = 0;
+        }
+    }
+
     bool redraw = nirvana_menu_handle(btnAction);
     redraw = redraw || nirvana_menu_timeout();
 
@@ -185,7 +209,8 @@ void loop(){
                               nirvana_recorder_elapsed());
             break;
         case MENU_STATE_SETTINGS:
-            nirvana_page_settings(subCursor);
+            nirvana_page_settings(subCursor, nvCfg.brightness, nvCfg.volume,
+                                nvCfg.turbo, agentSSID, MQTT_HOST);
             break;
         case MENU_STATE_OTA:
             nirvana_page_ota(otaStatus);

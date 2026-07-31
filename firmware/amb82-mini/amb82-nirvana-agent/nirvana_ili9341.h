@@ -37,7 +37,7 @@ void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCo
 void nirvana_home_screen(int cursor);
 void nirvana_page_explorer(int cursor, char files[][32], int fileCount, uint32_t sdTotal, uint32_t sdFree);
 void nirvana_page_memos(int cursor, char files[][32], int fileCount, bool recording, uint32_t elapsed);
-void nirvana_page_settings(int cursor);
+void nirvana_page_settings(int cursor, uint8_t brightness, uint8_t volume, bool turbo, const char* ssid, const char* mqttHost);
 void nirvana_page_marketplace(int cursor);
 void nirvana_page_workspace();
 void nirvana_page_ota(const char* status);
@@ -248,19 +248,34 @@ void nirvana_page_ota(const char* status) {
 }
 
 // ══════════════════════════════════════════════════
-//  SETTINGS — Backlight, WiFi, CPU Profile
+//  SETTINGS — Editable: Backlight, Volume, Turbo, Save
 // ══════════════════════════════════════════════════
-void nirvana_page_settings(int cursor){
-    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("SETTINGS");
-    const char* items[] = {"Backlight: 75%","WiFi:" WIFI_SSID,
-                           "CPU: Turbo 500MHz","Audio: AEC+AGC+NS",
-                           "Camera: CSI MIPI","MQTT: " MQTT_HOST};
-    for(int i=0;i<6;i++){
-        int y=24+i*22;
-        if(i==cursor)nirvana_display_fill_rect(4,y-2,TFT_WIDTH-8,20,NIRVANA_PURPLE);
-        nirvana_text(6,y,items[i],i==cursor?NIRVANA_WHITE:NIRVANA_CYAN,1);
-    }
-    nirvana_text(4,TFT_HEIGHT-14,"Short:Next  Long:Back",NIRVANA_GRAY,1);
+void nirvana_page_settings(int cursor, uint8_t brightness, uint8_t volume,
+                           bool turbo, const char* ssid, const char* mqttHost){
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("SETTINGS");char b[48];
+    // 0: Backlight (editable)
+    snprintf(b,sizeof(b),"Backlight: %u%%",brightness);
+    if(cursor==0)nirvana_display_fill_rect(4,22,TFT_WIDTH-8,16,NIRVANA_PURPLE);
+    nirvana_text(6,24,b,cursor==0?NIRVANA_WHITE:NIRVANA_CYAN,1);
+    // 1: Volume (editable)
+    snprintf(b,sizeof(b),"Volume: %u%%",volume);
+    if(cursor==1)nirvana_display_fill_rect(4,38,TFT_WIDTH-8,16,NIRVANA_PURPLE);
+    nirvana_text(6,40,b,cursor==1?NIRVANA_WHITE:NIRVANA_CYAN,1);
+    // 2: Turbo (editable)
+    snprintf(b,sizeof(b),"CPU Turbo: %s",turbo?"ON":"OFF");
+    if(cursor==2)nirvana_display_fill_rect(4,54,TFT_WIDTH-8,16,NIRVANA_PURPLE);
+    nirvana_text(6,56,b,cursor==2?NIRVANA_WHITE:NIRVANA_CYAN,1);
+    // 3: WiFi (read-only info)
+    snprintf(b,sizeof(b),"WiFi: %s",ssid);
+    nirvana_text(6,76,b,NIRVANA_GRAY,1);
+    // 4: MQTT (read-only info)
+    snprintf(b,sizeof(b),"MQTT: %s",mqttHost);
+    nirvana_text(6,90,b,NIRVANA_GRAY,1);
+    // 5: Save & Exit
+    if(cursor==5)nirvana_display_fill_rect(4,110,TFT_WIDTH-8,18,NIRVANA_PURPLE);
+    nirvana_text(6,112,"Save Config & Exit",cursor==5?NIRVANA_WHITE:NIRVANA_GREEN,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Short:+5/+toggle  Long:Next",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Save persists to SD card",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
