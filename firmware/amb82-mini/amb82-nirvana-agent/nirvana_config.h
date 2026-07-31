@@ -32,10 +32,10 @@
 
 // ═══ WIFI ═══
 #ifndef WIFI_SSID
-#define WIFI_SSID           "YOUR_SSID"
+#define WIFI_SSID           "DaMatrix-5G"
 #endif
 #ifndef WIFI_PASS
-#define WIFI_PASS           "YOUR_PASSWORD"
+#define WIFI_PASS           "N0b0ss434343#"
 #endif
 
 // ═══ MQTT ═══
