@@ -36,7 +36,7 @@ void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCo
 void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCount, bool cam, bool audio);
 void nirvana_home_screen(int cursor);
 void nirvana_page_explorer(int cursor, char files[][32], int fileCount, uint32_t sdTotal, uint32_t sdFree);
-void nirvana_page_memos(int cursor, char files[][32], int fileCount);
+void nirvana_page_memos(int cursor, char files[][32], int fileCount, bool recording, uint32_t elapsed);
 void nirvana_page_settings(int cursor);
 void nirvana_page_marketplace(int cursor);
 void nirvana_page_workspace();
@@ -186,27 +186,33 @@ void nirvana_page_explorer(int cursor, char files[][32], int fileCount,
 }
 
 // ══════════════════════════════════════════════════
-//  VOICE MEMOS / RECORDER — SD-backed
+//  VOICE MEMOS / RECORDER — SD-backed with live state
 // ══════════════════════════════════════════════════
-void nirvana_page_memos(int cursor, char files[][32], int fileCount) {
+void nirvana_page_memos(int cursor, char files[][32], int fileCount,
+                        bool recording, uint32_t elapsed) {
     nirvana_display_fill(NIRVANA_BLACK);nirvana_header("MEMOS & RECORDER");
-    // Record button
-    uint16_t recBg = (cursor == -1) ? NIRVANA_WHITE : NIRVANA_RED;
-    nirvana_display_fill_rect(60,30,120,40,recBg);
-    nirvana_center("RECORD",48,recBg==NIRVANA_WHITE?NIRVANA_BLACK:NIRVANA_WHITE,2);
-
-    nirvana_text(4,80,"Saved recordings:",NIRVANA_GRAY,1);
+    // Record button — color based on recording state
+    uint16_t recBg = recording ? NIRVANA_RED : (cursor==-1 ? NIRVANA_WHITE : 0x4008);
+    uint16_t recFg = (recBg == NIRVANA_WHITE) ? NIRVANA_BLACK : NIRVANA_WHITE;
+    nirvana_display_fill_rect(60,26,120,40,recBg);
+    if (recording) {
+        char t[16]; snprintf(t,sizeof(t),"REC %lus",elapsed);
+        nirvana_center(t,38,recFg,2);
+    } else {
+        nirvana_center("RECORD",38,recFg,2);
+    }
+    nirvana_text(4,74,"Saved on SD:",NIRVANA_GRAY,1);
     if (fileCount == 0) {
-        nirvana_text(4,100,"(no recordings yet)",NIRVANA_GRAY,1);
+        nirvana_text(4,94,"(no recordings yet)",NIRVANA_GRAY,1);
     }
     for (int i=0; i<fileCount && i<6; i++) {
-        int y = 100 + i*18;
+        int y = 94 + i*18;
         uint16_t bg = (i == cursor) ? NIRVANA_PURPLE : NIRVANA_BLACK;
         if (i == cursor) nirvana_display_fill_rect(4,y-2,TFT_WIDTH-8,16,bg);
         nirvana_text(6, y, files[i], i==cursor?NIRVANA_WHITE:NIRVANA_CYAN,1);
     }
-    nirvana_text(4,TFT_HEIGHT-28,"Short:Next  Long REC: start",NIRVANA_GRAY,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Double-long:Play/Delete",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-28,"Short:Next  Long:Back",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"REC=Hold 2s to toggle",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════

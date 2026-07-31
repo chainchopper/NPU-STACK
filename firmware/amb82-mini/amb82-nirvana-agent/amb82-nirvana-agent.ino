@@ -16,6 +16,7 @@
 #include "nirvana_sd.h"
 #include "nirvana_orb.h"
 #include "nirvana_ota.h"
+#include "nirvana_recorder.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -100,8 +101,41 @@ void loop(){
 
     // ── Button handling ──
     int btnAction = nirvana_menu_tick();
+
+    // ── Special: MEMOS long press = toggle recording ──
+    if (btnAction == 2 && menuState == MENU_STATE_VOICE_MEMOS) {
+        if (nirvana_recorder_is_active()) {
+            nirvana_recorder_stop();
+            sdFileCount = nirvana_sd_list(sdFiles, 12);
+            subCursor = 0;  // Reset to file list
+            needsRedraw = true;
+        } else {
+            if (nirvana_recorder_start() != NULL) {
+                subCursor = -1; // Highlight REC button
+                needsRedraw = true;
+            }
+        }
+        lastMenuActivity = millis();
+        btnAction = 0;
+    }
+
     bool redraw = nirvana_menu_handle(btnAction);
     redraw = redraw || nirvana_menu_timeout();
+
+    // ── Recorder tick (writes PCM chunks while active) ──
+    nirvana_recorder_tick();
+
+    // ── Keep menu alive while recording (no timeout) ──
+    if (nirvana_recorder_is_active()) lastMenuActivity = now;
+
+    // ── Auto-redraw memos every 1s while recording (elapsed counter) ──
+    static unsigned long lastMemosRedraw = 0;
+    if (menuState == MENU_STATE_VOICE_MEMOS && nirvana_recorder_is_active()) {
+        if (now - lastMemosRedraw > 1000) {
+            lastMemosRedraw = now;
+            redraw = true;
+        }
+    }
 
     // ── Render current menu state ──
     if (redraw || needsRedraw) {
@@ -126,7 +160,9 @@ void loop(){
             nirvana_page_explorer(subCursor, sdFiles, sdFileCount, sdTotal, sdFree);
             break;
         case MENU_STATE_VOICE_MEMOS:
-            nirvana_page_memos(subCursor, sdFiles, sdFileCount);
+            nirvana_page_memos(subCursor, sdFiles, sdFileCount,
+                              nirvana_recorder_is_active(),
+                              nirvana_recorder_elapsed());
             break;
         case MENU_STATE_SETTINGS:
             nirvana_page_settings(subCursor);
@@ -137,14 +173,17 @@ void loop(){
         }
     }
 
-    // ── Orb rendering (continuous, only on Nirvana AI screen) ──
+    // ── Orb + recorder visual feedback ──
     if (menuState == MENU_STATE_NIRVANA_AI) {
-        // Feed simulated amplitude from NN activity (pulses when objects detected)
-        float amp = 0.0f;
-        if (odCount > 0 && odTopScore > 0) amp = odTopScore / 100.0f;
-        // Also react to face detection
-        if (faceCount > 0) amp = (amp > 0.3f + faceCount * 0.1f) ? amp : (0.3f + faceCount * 0.1f);
-        nirvana_orb_feed(amp);
+        if (nirvana_recorder_is_active()) {
+            // Recording active — orb pulses with steady wave
+            nirvana_orb_feed(0.4f + (sinf(now * 0.003f) * 0.15f));
+        } else {
+            float amp = 0.0f;
+            if (odCount > 0 && odTopScore > 0) amp = odTopScore / 100.0f;
+            if (faceCount > 0) amp = (amp > 0.3f + faceCount * 0.1f) ? amp : (0.3f + faceCount * 0.1f);
+            nirvana_orb_feed(amp);
+        }
         nirvana_orb_draw();
     }
 

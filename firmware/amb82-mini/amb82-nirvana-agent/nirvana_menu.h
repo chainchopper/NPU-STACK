@@ -115,6 +115,7 @@ bool nirvana_menu_handle(int btnAction) {
 }
 
 // ── Auto-return to home after timeout ──
+// Never timeout while voice recording is active
 bool nirvana_menu_timeout() {
     if (menuState != MENU_STATE_HOME &&
         millis() - lastMenuActivity > MENU_TIMEOUT_MS) {
