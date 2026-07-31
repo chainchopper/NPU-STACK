@@ -30,6 +30,9 @@ void nirvana_text(int16_t x,int16_t y,const char* t,uint16_t fg,uint8_t sz);
 void nirvana_center(const char* t,int16_t y,uint16_t fg,uint8_t sz);
 void nirvana_header(const char* t);
 
+void nirvana_page_fleet(bool mq,unsigned long up);
+void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int faceCount, bool cam, bool audio);
+
 bool nirvana_display_init() {
     // All GPIO — no SPI peripheral
     pinMode(MOSI,OUTPUT);pinMode(SCLK,OUTPUT);pinMode(TFT_CS,OUTPUT);
@@ -104,5 +107,30 @@ void nirvana_page_fleet(bool mq,unsigned long up){
     nirvana_text(4,74,"Status:",0x8410,1);nirvana_text(56,74,mq?"ONLINE":"OFFLINE",mq?0x07E0:0xF800,1);
     snprintf(b,sizeof(b),"%lu sec",up);nirvana_text(4,92,"Uptime:",0x8410,1);nirvana_text(56,92,b,0xFFFF,1);
     nirvana_text(4,130,"Nirvana Voice Ready",0x07E0,1);nirvana_text(4,144,"xiao zhi MQTT bridge",0x8410,1);
+}
+void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int fc, bool cam, bool aud){
+    nirvana_display_fill(NIRVANA_BLACK);nirvana_header("AI VISION + AUDIO");char b[32];
+    // Hardware status
+    nirvana_text(4,22,"Camera:",0x8410,1);nirvana_text(66,22,cam?"CSI OK":"OFF",cam?0x07E0:0xF800,1);
+    nirvana_text(4,36,"Audio:",0x8410,1);nirvana_text(66,36,aud?"I2S OK":"OFF",aud?0x07E0:0xF800,1);
+    // Object detection
+    nirvana_text(4,56,"YOLOv4 Tiny:",0x8410,1);
+    if(odCount>0 && topLabel[0]){
+        snprintf(b,sizeof(b),"%s (%d%%)",topLabel,topScore);
+        nirvana_text(66,56,b,0x07E0,1);
+        snprintf(b,sizeof(b),"%d objects",odCount);
+        nirvana_text(4,70,b,0x07FF,1);
+    } else {
+        nirvana_text(66,56,"Scanning...",0xFFFF,1);
+    }
+    // Face detection
+    nirvana_text(4,88,"Face Detect:",0x8410,1);
+    if(fc>0){snprintf(b,sizeof(b),"%d faces",fc);nirvana_text(88,88,b,0x07E0,1);}
+    else nirvana_text(88,88,"None",0x8410,1);
+    // Hardware
+    nirvana_text(4,110,"RTL8735B NN Engine",0x8410,1);
+    nirvana_text(4,124,"VIPLite Accel 500MHz",0x8410,1);
+    nirvana_text(4,142,"OV5647 5MP CSI MIPI",0x8410,1);
+    nirvana_text(4,158,"I2S 16kHz AMIC+SPK",0x8410,1);
 }
 #endif
