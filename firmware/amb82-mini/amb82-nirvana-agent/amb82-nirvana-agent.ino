@@ -23,6 +23,7 @@
 #include "nirvana_control.h"
 #include "nirvana_ble.h"
 #include "nirvana_ai.h"
+#include "nirvana_webserver.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -73,6 +74,9 @@ void setup(){
 
     // ── WebSocket audio stream (background, auto-reconnects) ──
     nirvana_stream_connect();
+
+    // ── Web server (device control panel at http://<ip>) ──
+    nirvana_webserver_start();
 
     // ── Camera ──
     nirvana_camera_init();
@@ -195,6 +199,9 @@ void loop(){
 
     // ── BLE keyboard/mouse scanning tick ──
     nirvana_ble_tick();
+
+    // ── Web server (device control panel) tick ──
+    nirvana_webserver_tick();
 
     // ── WebSocket audio stream tick ──
     nirvana_stream_tick();
