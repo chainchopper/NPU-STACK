@@ -26,12 +26,10 @@ String ipToString(IPAddress ip) {
 
 // ═══ WIFI ═══
 bool nirvana_wifi_connect() {
-    // Ameba SDK: softAP() auto-configures AP+STA mode, no explicit mode() needed
-    if (nvCfg.wifiAPMode) {
-        WiFi.softAP("Nirvana-AMB82", "nirvana123");
-        Serial.println("[WIFI] AP mode: Nirvana-AMB82 @ 192.168.4.1");
-        Serial.println("[WIFI] Connect your phone/PC to this network");
-    }
+    // Ameba SDK WiFiClass is minimal - no softAP(), no mode().
+    // AP mode available via direct SDK calls if needed, but for now
+    // the device connects to your existing WiFi network.
+    // Offline control works via BLE keyboard + Serial USB.
 
     Serial.print("[WIFI] Connecting to ");
     Serial.println(WIFI_SSID);
