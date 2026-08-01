@@ -22,6 +22,7 @@
 #include "nirvana_stream.h"
 #include "nirvana_control.h"
 #include "nirvana_ble.h"
+#include "nirvana_ai.h"
 
 unsigned long lastStatus=0, lastLed=0, lastRender=0;
 bool ledState=false, needsRedraw=true;
@@ -100,6 +101,12 @@ void setup(){
     // ── Config Storage (load from SD, apply brightness) ──
     nirvana_cfg_load();
     nirvana_cfg_apply_brightness();
+
+    // ── AI Providers + Voice Profiles ──
+    nirvana_ai_init_defaults();
+    if (WiFi.status() == WL_CONNECTED) {
+        nirvana_ai_fetch_voice_profiles();
+    }
 
     // ── Show home screen ──
     nirvana_home_screen(0);

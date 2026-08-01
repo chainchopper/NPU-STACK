@@ -19,14 +19,29 @@ typedef struct {
     uint8_t brightness;     // 0-100, PWM duty on TFT_BL pin
     uint8_t volume;         // 0-100, speaker gain
     bool    turbo;          // CPU performance profile
-    char    apiToken[64];   // AI backend key
+    uint8_t voiceProfile;   // Selected voice profile index
+    // Multi-provider API keys
+    char    openaiKey[96];
+    char    deepseekKey[96];
+    char    deepseekURL[64];
+    char    localLLMURL[64];
+    char    voiceboxHost[32];
+    uint16_t voiceboxPort;
+    bool    wifiAPMode;     // Enable AP fallback for offline
 } NirvanaSettings;
 
 NirvanaSettings nvCfg = {
     75,             // Default brightness
     70,             // Default volume
     false,          // Default turbo off
-    "nv-default"    // Default API token
+    0,              // Voice profile 0
+    "",             // openaiKey
+    "",             // deepseekKey
+    "https://api.deepseek.com/v1",
+    "",             // localLLMURL
+    "192.168.1.100", // voiceboxHost
+    7933,           // voiceboxPort
+    true,           // wifiAPMode
 };
 
 bool cfgLoaded = false;
@@ -61,11 +76,25 @@ void _cfg_serialize(char* buf, size_t maxLen) {
         "  \"brightness\": %u,\n"
         "  \"volume\": %u,\n"
         "  \"turbo\": %s,\n"
-        "  \"api_token\": \"%s\"\n"
+        "  \"voice_profile\": %u,\n"
+        "  \"openai_key\": \"%s\",\n"
+        "  \"deepseek_key\": \"%s\",\n"
+        "  \"deepseek_url\": \"%s\",\n"
+        "  \"local_llm_url\": \"%s\",\n"
+        "  \"voicebox_host\": \"%s\",\n"
+        "  \"voicebox_port\": %u,\n"
+        "  \"wifi_ap_mode\": %s\n"
         "}\n",
         nvCfg.brightness, nvCfg.volume,
         nvCfg.turbo ? "true" : "false",
-        nvCfg.apiToken);
+        nvCfg.voiceProfile,
+        nvCfg.openaiKey,
+        nvCfg.deepseekKey,
+        nvCfg.deepseekURL,
+        nvCfg.localLLMURL,
+        nvCfg.voiceboxHost,
+        nvCfg.voiceboxPort,
+        nvCfg.wifiAPMode ? "true" : "false");
 }
 
 // ── Simple JSON int parser: "key": 42  → extracts 42 ──
@@ -150,7 +179,14 @@ bool nirvana_cfg_load() {
     nvCfg.brightness = _cfg_parse_int(json, "\"brightness\"", 75);
     nvCfg.volume     = _cfg_parse_int(json, "\"volume\"", 70);
     nvCfg.turbo      = _cfg_parse_bool(json, "\"turbo\"", false);
-    _cfg_parse_str(json, "\"api_token\"", nvCfg.apiToken, 64, "nv-default");
+    nvCfg.voiceProfile = _cfg_parse_int(json, "\"voice_profile\"", 0);
+    nvCfg.voiceboxPort = _cfg_parse_int(json, "\"voicebox_port\"", 7933);
+    nvCfg.wifiAPMode   = _cfg_parse_bool(json, "\"wifi_ap_mode\"", true);
+    _cfg_parse_str(json, "\"openai_key\"", nvCfg.openaiKey, 96, "");
+    _cfg_parse_str(json, "\"deepseek_key\"", nvCfg.deepseekKey, 96, "");
+    _cfg_parse_str(json, "\"deepseek_url\"", nvCfg.deepseekURL, 64, "https://api.deepseek.com/v1");
+    _cfg_parse_str(json, "\"local_llm_url\"", nvCfg.localLLMURL, 64, "");
+    _cfg_parse_str(json, "\"voicebox_host\"", nvCfg.voiceboxHost, 32, "192.168.1.100");
 
     cfgLoaded = true;
     Serial.println("[CFG] Loaded from /config.json");
