@@ -124,7 +124,15 @@ void nirvana_page_fleet(bool mq,unsigned long up){
 void nirvana_page_nn(int odCount, const char* topLabel, int topScore, int fc, bool cam, bool aud){
     nirvana_display_fill(NIRVANA_BLACK);nirvana_header("NIRVANA AI");char b[32];
     nirvana_text(4,22,"Cam:",0x8410,1);nirvana_text(40,22,cam?"OK":"OFF",cam?0x07E0:0xF800,1);
-    nirvana_text(80,22,"Aud:",0x8410,1);nirvana_text(114,22,aud?"OK":"OFF",aud?0x07E0:0xF800,1);
+    nirvana_text(80,22,"Mic:",0x8410,1);
+    // Mic indicator pulses with audio activity
+    extern float orbSmoothed;  // from nirvana_orb.h
+    uint16_t micColor = (aud && orbSmoothed > 0.02f) ? 0x07E0 : (aud ? 0x07FF : 0xF800);
+    nirvana_text(114,22,orbSmoothed>0.02f?"LIVE":(aud?"ON":"OFF"),micColor,1);
+    // Blinking dot when live
+    if (aud && orbSmoothed > 0.02f && (millis()/500)%2) {
+        nirvana_display_fill_rect(212,24,12,8,micColor);
+    }
     if (!nnModelOk) {
         nirvana_text(4,40,"NN: OFFLINE (model err)",0xF800,1);
         nirvana_text(4,56,"VIPLite failed to load",0x8410,1);
@@ -240,17 +248,18 @@ void nirvana_page_memos(int cursor, char files[][32], int fileCount,
 // ══════════════════════════════════════════════════
 void nirvana_page_ota(const char* status) {
     nirvana_display_fill(NIRVANA_BLACK);nirvana_header("OTA UPDATE");
-    nirvana_text(4,30,"Firmware Update",NIRVANA_WHITE,2);
-    nirvana_text(4,60,"Current:",NIRVANA_GRAY,1);
-    nirvana_text(70,60,NIRVANA_VERSION,NIRVANA_CYAN,1);
-    nirvana_text(4,78,"Status:",NIRVANA_GRAY,1);
-    nirvana_text(70,78,status,NIRVANA_GREEN,1);
-    nirvana_text(4,100,"Source:",NIRVANA_GRAY,1);
-    nirvana_text(4,114,"NPU-STACK backend :8010",0x07FF,1);
-    nirvana_text(4,130,"Auto-check every 60 min",0x07FF,1);
-    nirvana_text(4,160,"Hold button to check now",NIRVANA_GRAY,1);
-    nirvana_text(4,176,"Device reboots after flash",NIRVANA_RED,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Hold: Check OTA  Tap: Back",NIRVANA_GRAY,1);
+    nirvana_text(4,28,"Firmware Update",NIRVANA_WHITE,2);
+    nirvana_text(4,54,"Current:",NIRVANA_GRAY,1);
+    nirvana_text(70,54,NIRVANA_VERSION,NIRVANA_CYAN,1);
+    nirvana_text(4,70,"Status:",NIRVANA_GRAY,1);
+    nirvana_text(70,70,status,NIRVANA_GREEN,1);
+    nirvana_text(4,92,"How to update:",NIRVANA_GRAY,1);
+    nirvana_text(4,106,"1. Compile in Arduino IDE",0x07FF,1);
+    nirvana_text(4,120,"2. Export compiled Binary",0x07FF,1);
+    nirvana_text(4,134,"3. POST to :8010/api/fleet/ota/upload",0x07FF,1);
+    nirvana_text(4,152,"4. Device auto-fetches+boots",0x07FF,1);
+    nirvana_text(4,176,"Auto-check every 60 min",NIRVANA_GRAY,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Hold: Check now  Tap: Back",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════
