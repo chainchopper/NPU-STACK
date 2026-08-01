@@ -1,12 +1,14 @@
 // NIRVANA AI — Multi-provider LLM + Vision + TTS
-// 7 providers: OpenAI, DeepSeek, LM Studio, Gemini, NGC, ElevenLabs, Voicebox
-// Voicebox TTS routed through NPU-STACK backend (tailnet bridge)
-// Keys loaded from /config.json on SD card at boot — never in source
+// GenAI.h (Ameba SDK): real base64 JPEG → OpenAI Vision / Gemini / Whisper
+// Chat: OAI-compatible HTTP POST → DeepSeek/LMStudio/OpenAI/NGC
+// Voicebox TTS via tailnet subnet router (NPU-STACK backend proxy)
 #ifndef NIRVANA_AI_H
 #define NIRVANA_AI_H
 
 #include <WiFi.h>
+#include <WiFiSSLClient.h>
 #include <ArduinoJson.h>
+#include "GenAI.h"
 #include "nirvana_config.h"
 #include "nirvana_config_storage.h"
 
@@ -210,6 +212,52 @@ int nirvana_ai_fetch_voices() {
 bool nirvana_ai_ask(const char* prompt) {
     return nirvana_ai_chat(nvCfg.aiProvider,
         "You are Nirvana, a helpful AI. Reply in 1-2 short sentences.", prompt);
+}
+
+// ══════════════════════════════════════════
+//  GenAI Vision — real base64 JPEG → cloud
+// ══════════════════════════════════════════
+
+GenAI _genai;  // Single global instance
+
+// ── Describe camera frame via OpenAI Vision ──
+bool nirvana_ai_vision_openai(uint32_t jpgAddr, uint32_t jpgLen, const char* prompt) {
+    if (!nvCfg.openaiKey[0]) { Serial.println("[AI-V] No OpenAI key"); return false; }
+    WiFiSSLClient ssl;
+    String resp = _genai.openaivision(nvCfg.openaiKey, "gpt-4o-mini", prompt, jpgAddr, jpgLen, ssl);
+    snprintf(aiResponse, sizeof(aiResponse), "%s", resp.c_str());
+    Serial.print("[AI-V] OpenAI: "); Serial.println(aiResponse);
+    return true;
+}
+
+// ── Describe camera frame via Gemini Vision ──
+bool nirvana_ai_vision_gemini(uint32_t jpgAddr, uint32_t jpgLen, const char* prompt) {
+    if (!nvCfg.geminiKey[0]) { Serial.println("[AI-V] No Gemini key"); return false; }
+    WiFiSSLClient ssl;
+    String resp = _genai.geminivision(nvCfg.geminiKey, "gemini-2.0-flash", prompt, jpgAddr, jpgLen, ssl);
+    snprintf(aiResponse, sizeof(aiResponse), "%s", resp.c_str());
+    Serial.print("[AI-V] Gemini: "); Serial.println(aiResponse);
+    return true;
+}
+
+// ── Transcribe WAV file via Whisper ──
+// filepath: path on SD card (e.g., "/recordings/memo_12345.wav")
+bool nirvana_ai_transcribe(const char* filepath) {
+    if (!nvCfg.openaiKey[0]) { Serial.println("[AI-W] No OpenAI key"); return false; }
+    WiFiSSLClient ssl;
+    String resp = _genai.whisperaudio(nvCfg.openaiKey, "api.openai.com",
+                                       "/v1/audio/transcriptions", "whisper-1",
+                                       (char*)filepath, ssl);
+    snprintf(aiResponse, sizeof(aiResponse), "%s", resp.c_str());
+    Serial.print("[AI-W] "); Serial.println(aiResponse);
+    return true;
+}
+
+// ── TTS via Google Cloud TTS (saves MP3 to SD) ──
+bool nirvana_ai_tts_google(const char* text, const char* lang) {
+    _genai.googletts("/tts_output.mp3", (char*)text, (char*)lang);
+    Serial.println("[AI-TTS-Google] Saved to /tts_output.mp3");
+    return true;
 }
 
 #endif
