@@ -26,10 +26,8 @@ String ipToString(IPAddress ip) {
 
 // ═══ WIFI ═══
 bool nirvana_wifi_connect() {
-    // Check if AP mode requested + existing WiFi failed
-    if (nvCfg.wifiAPMode && WiFi.status() != WL_CONNECTED) {
-        // Start Soft AP: "Nirvana-AMB82" — connect phone/PC to 192.168.4.1
-        WiFi.mode(WIFI_AP_STA);  // Simultaneous AP + STA
+    // Ameba SDK: softAP() auto-configures AP+STA mode, no explicit mode() needed
+    if (nvCfg.wifiAPMode) {
         WiFi.softAP("Nirvana-AMB82", "nirvana123");
         Serial.println("[WIFI] AP mode: Nirvana-AMB82 @ 192.168.4.1");
         Serial.println("[WIFI] Connect your phone/PC to this network");
