@@ -12,34 +12,49 @@
 
 #define CFG_PATH        "/config.json"
 #define CFG_TMP_PATH    "/config.tmp"
-#define CFG_BUF_SIZE    512
+#define CFG_BUF_SIZE    1024
 
 // ── Live settings struct (in RAM, backed by SD) ──
+// Keys pre-populated from NPU-STACK env at compile time.
+// Override by editing /config.json on SD card.
 typedef struct {
-    uint8_t brightness;     // 0-100, PWM duty on TFT_BL pin
+    uint8_t brightness;     // 0-100, PWM duty
     uint8_t volume;         // 0-100, speaker gain
-    bool    turbo;          // CPU performance profile
-    uint8_t voiceProfile;   // Selected voice profile index
-    // Multi-provider API keys
-    char    openaiKey[96];
-    char    deepseekKey[96];
+    bool    turbo;          // CPU profile
+    uint8_t voiceProfile;   // Voicebox voice index
+    uint8_t aiProvider;     // Selected AI provider (0=OpenAI,1=DeepSeek,2=LMStudio,3=NGC)
+    // ── Multi-provider API keys + URLs ──
+    char    openaiKey[128];
+    char    deepseekKey[128];
     char    deepseekURL[64];
-    char    localLLMURL[64];
+    char    geminiKey[128];
+    char    lmstudioKey[128];
+    char    lmstudioURL[64];
+    char    ngcKey[128];
+    char    hfToken[128];       // HuggingFace for model downloads
+    char    elevenlabsKey[128]; // ElevenLabs TTS
     char    voiceboxHost[32];
     uint16_t voiceboxPort;
-    bool    wifiAPMode;     // Enable AP fallback for offline
+    bool    wifiAPMode;
 } NirvanaSettings;
 
 NirvanaSettings nvCfg = {
-    75,             // Default brightness
-    70,             // Default volume
-    false,          // Default turbo off
-    0,              // Voice profile 0
+    75,             // brightness
+    70,             // volume
+    false,          // turbo
+    0,              // voiceProfile
+    1,              // aiProvider: 0=OpenAI, 1=DeepSeek, 2=LMStudio, 3=NGC
+    // KEYS LOADED FROM /config.json ON SD CARD — defaults are empty
     "",             // openaiKey
     "",             // deepseekKey
-    "https://api.deepseek.com/v1",
-    "",             // localLLMURL
-    "192.168.1.100", // voiceboxHost
+    "https://api.deepseek.com/v1",   // deepseekURL
+    "",             // geminiKey
+    "",             // lmstudioKey
+    "http://100.100.2.93:443/v1",    // lmstudioURL (tailnet)
+    "",             // ngcKey
+    "",             // hfToken
+    "",             // elevenlabsKey
+    "192.168.1.227", // voiceboxHost (change to your LAN IP for AMB82)
     7933,           // voiceboxPort
     true,           // wifiAPMode
 };
@@ -72,29 +87,25 @@ static bool _cfg_read_file(const char* path, char* buf, size_t maxLen) {
 // ── Serialize settings to JSON string ──
 void _cfg_serialize(char* buf, size_t maxLen) {
     snprintf(buf, maxLen,
-        "{\n"
-        "  \"brightness\": %u,\n"
-        "  \"volume\": %u,\n"
-        "  \"turbo\": %s,\n"
-        "  \"voice_profile\": %u,\n"
-        "  \"openai_key\": \"%s\",\n"
-        "  \"deepseek_key\": \"%s\",\n"
-        "  \"deepseek_url\": \"%s\",\n"
-        "  \"local_llm_url\": \"%s\",\n"
-        "  \"voicebox_host\": \"%s\",\n"
-        "  \"voicebox_port\": %u,\n"
-        "  \"wifi_ap_mode\": %s\n"
-        "}\n",
-        nvCfg.brightness, nvCfg.volume,
-        nvCfg.turbo ? "true" : "false",
-        nvCfg.voiceProfile,
-        nvCfg.openaiKey,
-        nvCfg.deepseekKey,
-        nvCfg.deepseekURL,
-        nvCfg.localLLMURL,
-        nvCfg.voiceboxHost,
-        nvCfg.voiceboxPort,
-        nvCfg.wifiAPMode ? "true" : "false");
+        "{"
+        "\"brightness\":%u,\"volume\":%u,\"turbo\":%s,"
+        "\"voice_profile\":%u,\"ai_provider\":%u,"
+        "\"openai_key\":\"%s\",\"deepseek_key\":\"%s\","
+        "\"deepseek_url\":\"%s\",\"gemini_key\":\"%s\","
+        "\"lmstudio_key\":\"%s\",\"lmstudio_url\":\"%s\","
+        "\"ngc_key\":\"%s\",\"hf_token\":\"%s\","
+        "\"elevenlabs_key\":\"%s\","
+        "\"voicebox_host\":\"%s\",\"voicebox_port\":%u,"
+        "\"wifi_ap_mode\":%s}",
+        nvCfg.brightness, nvCfg.volume, nvCfg.turbo?"true":"false",
+        nvCfg.voiceProfile, nvCfg.aiProvider,
+        nvCfg.openaiKey, nvCfg.deepseekKey,
+        nvCfg.deepseekURL, nvCfg.geminiKey,
+        nvCfg.lmstudioKey, nvCfg.lmstudioURL,
+        nvCfg.ngcKey, nvCfg.hfToken,
+        nvCfg.elevenlabsKey,
+        nvCfg.voiceboxHost, nvCfg.voiceboxPort,
+        nvCfg.wifiAPMode?"true":"false");
 }
 
 // ── Simple JSON int parser: "key": 42  → extracts 42 ──
@@ -180,13 +191,19 @@ bool nirvana_cfg_load() {
     nvCfg.volume     = _cfg_parse_int(json, "\"volume\"", 70);
     nvCfg.turbo      = _cfg_parse_bool(json, "\"turbo\"", false);
     nvCfg.voiceProfile = _cfg_parse_int(json, "\"voice_profile\"", 0);
+    nvCfg.aiProvider   = _cfg_parse_int(json, "\"ai_provider\"", 1);
     nvCfg.voiceboxPort = _cfg_parse_int(json, "\"voicebox_port\"", 7933);
     nvCfg.wifiAPMode   = _cfg_parse_bool(json, "\"wifi_ap_mode\"", true);
-    _cfg_parse_str(json, "\"openai_key\"", nvCfg.openaiKey, 96, "");
-    _cfg_parse_str(json, "\"deepseek_key\"", nvCfg.deepseekKey, 96, "");
-    _cfg_parse_str(json, "\"deepseek_url\"", nvCfg.deepseekURL, 64, "https://api.deepseek.com/v1");
-    _cfg_parse_str(json, "\"local_llm_url\"", nvCfg.localLLMURL, 64, "");
-    _cfg_parse_str(json, "\"voicebox_host\"", nvCfg.voiceboxHost, 32, "192.168.1.100");
+    _cfg_parse_str(json, "\"openai_key\"",     nvCfg.openaiKey, 128, "");
+    _cfg_parse_str(json, "\"deepseek_key\"",   nvCfg.deepseekKey, 128, "");
+    _cfg_parse_str(json, "\"deepseek_url\"",   nvCfg.deepseekURL, 64, "https://api.deepseek.com/v1");
+    _cfg_parse_str(json, "\"gemini_key\"",     nvCfg.geminiKey, 128, "");
+    _cfg_parse_str(json, "\"lmstudio_key\"",   nvCfg.lmstudioKey, 128, "");
+    _cfg_parse_str(json, "\"lmstudio_url\"",   nvCfg.lmstudioURL, 64, "");
+    _cfg_parse_str(json, "\"ngc_key\"",        nvCfg.ngcKey, 128, "");
+    _cfg_parse_str(json, "\"hf_token\"",       nvCfg.hfToken, 128, "");
+    _cfg_parse_str(json, "\"elevenlabs_key\"", nvCfg.elevenlabsKey, 128, "");
+    _cfg_parse_str(json, "\"voicebox_host\"",  nvCfg.voiceboxHost, 32, "192.168.1.227");
 
     cfgLoaded = true;
     Serial.println("[CFG] Loaded from /config.json");

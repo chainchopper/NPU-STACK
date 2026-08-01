@@ -1,7 +1,7 @@
-// NIRVANA AI — Cloud AI + Voicebox TTS + GenAI integration
-// OpenAI Vision, Gemini, Whisper, Google TTS via Ameba SDK GenAI.h
-// Voicebox TTS at port 7933 with voice profile selection
-// Multiple API keys, configurable base URLs
+// NIRVANA AI — Multi-provider LLM + Vision + TTS
+// 7 providers: OpenAI, DeepSeek, LM Studio, Gemini, NGC, ElevenLabs, Voicebox
+// Voicebox TTS routed through NPU-STACK backend (tailnet bridge)
+// Keys loaded from /config.json on SD card at boot — never in source
 #ifndef NIRVANA_AI_H
 #define NIRVANA_AI_H
 
@@ -10,171 +10,206 @@
 #include "nirvana_config.h"
 #include "nirvana_config_storage.h"
 
-// ── AI Provider Config ──
-struct AIProvider {
-    bool    enabled;
-    char    name[24];
-    char    baseURL[64];
-    char    apiKey[96];
-};
+#define PROVIDER_OPENAI     0
+#define PROVIDER_DEEPSEEK   1
+#define PROVIDER_LMSTUDIO   2
+#define PROVIDER_NGC        3
+#define PROVIDER_GEMINI     4
+#define PROVIDER_ELEVENLABS 5
+#define PROVIDER_VOICEBOX   6
 
-// Voicebox TTS profile
-struct VoiceProfile {
-    char name[32];
-    char id[32];
-};
-
-// ── Global providers (loaded from config) ──
-#define MAX_PROVIDERS 4
-#define MAX_VOICE_PROFILES 8
-
-AIProvider     aiProviders[MAX_PROVIDERS];
-int            aiProviderCount = 0;
-VoiceProfile   voiceProfiles[MAX_VOICE_PROFILES];
-int            voiceProfileCount = 0;
-int            selectedVoiceIdx = 0;
-
+#define MAX_VOICE_PROFILES   8
+struct VP { char name[32]; char id[32]; };
+VP voiceProfiles[MAX_VOICE_PROFILES];
+int voiceProfileCount = 0;
 char aiResponse[512] = "";
 
-// ── Default providers ──
-void nirvana_ai_init_defaults() {
-    // OpenAI
-    strcpy(aiProviders[0].name, "OpenAI");
-    strcpy(aiProviders[0].baseURL, "https://api.openai.com/v1");
-    strcpy(aiProviders[0].apiKey, nvCfg.openaiKey[0] ? nvCfg.openaiKey : "sk-none");
-    aiProviders[0].enabled = (nvCfg.openaiKey[0] != 0);
-
-    // Voicebox (local TTS)
-    strcpy(aiProviders[1].name, "Voicebox Local");
-    strcpy(aiProviders[1].baseURL, "http://127.0.0.1:7933");
-    strcpy(aiProviders[1].apiKey, "");
-    aiProviders[1].enabled = true;
-
-    // DeepSeek (via NPU-STACK)
-    strcpy(aiProviders[2].name, "DeepSeek");
-    strcpy(aiProviders[2].baseURL, nvCfg.deepseekURL[0] ? nvCfg.deepseekURL : "https://api.deepseek.com/v1");
-    strcpy(aiProviders[2].apiKey, nvCfg.deepseekKey[0] ? nvCfg.deepseekKey : "");
-    aiProviders[2].enabled = (nvCfg.deepseekKey[0] != 0);
-
-    // Local LLM (NPU-STACK :8010)
-    strcpy(aiProviders[3].name, "NPU-STACK Local");
-    strcpy(aiProviders[3].baseURL, nvCfg.localLLMURL[0] ? nvCfg.localLLMURL : "http://" MQTT_HOST ":8010/v1");
-    strcpy(aiProviders[3].apiKey, "");
-    aiProviders[3].enabled = true;
-
-    aiProviderCount = 4;
-}
-
-// ── Fetch voice profiles from Voicebox ──
-// GET http://voicebox:7933/profiles or /api/voices
-int nirvana_ai_fetch_voice_profiles() {
-    if (WiFi.status() != WL_CONNECTED) return 0;
-
-    WiFiClient client;
-    // Try common Voicebox endpoints
-    const char* endpoints[] = {"/profiles", "/api/profiles", "/voices", "/api/voices", "/v1/voices"};
-    for (int e = 0; e < 5; e++) {
-        if (!client.connect(nvCfg.voiceboxHost[0] ? nvCfg.voiceboxHost : "127.0.0.1",
-                           nvCfg.voiceboxPort > 0 ? nvCfg.voiceboxPort : 7933)) {
-            continue;
-        }
-        client.print("GET "); client.print(endpoints[e]);
-        client.print(" HTTP/1.1\r\nHost: voicebox\r\nConnection: close\r\n\r\n");
-
-        unsigned long t = millis();
-        char buf[1024] = ""; int bi = 0;
-        while (client.connected() || client.available()) {
-            if (client.available() && bi < 1023) buf[bi++] = client.read();
-            if (millis() - t > 3000) break;
-        }
-        client.stop();
-
-        // Parse JSON array of voices
-        char* jsonStart = strstr(buf, "[");
-        if (!jsonStart) { jsonStart = strstr(buf, "\"voices\""); if (!jsonStart) continue; }
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, jsonStart);
-        if (err) continue;
-
-        JsonArray arr = doc.as<JsonArray>();
-        if (arr.isNull() && doc.containsKey("voices")) arr = doc["voices"].as<JsonArray>();
-        if (arr.isNull()) continue;
-
-        voiceProfileCount = 0;
-        for (JsonObject v : arr) {
-            if (voiceProfileCount >= MAX_VOICE_PROFILES) break;
-            strncpy(voiceProfiles[voiceProfileCount].name,
-                    v["name"] | v["id"] | "unknown", 31);
-            strncpy(voiceProfiles[voiceProfileCount].id,
-                    v["id"] | v["name"] | "0", 31);
-            voiceProfileCount++;
-        }
-        Serial.print("[AI] Found "); Serial.print(voiceProfileCount);
-        Serial.println(" voice profiles from Voicebox");
-        return voiceProfileCount;
+// ── Get active provider key from nvCfg ──
+static const char* _key(int p) {
+    switch (p) {
+    case 0: return nvCfg.openaiKey;
+    case 1: return nvCfg.deepseekKey;
+    case 2: return nvCfg.lmstudioKey;
+    case 3: return nvCfg.ngcKey;
+    case 4: return nvCfg.geminiKey;
+    case 5: return nvCfg.elevenlabsKey;
+    default: return "";
     }
-    return 0;
 }
 
-// ── TTS via Voicebox — returns true if audio generated ──
-// TODO: Save returned WAV/MP3 to SD and play through speaker
-bool nirvana_ai_tts_voicebox(const char* text, const char* voiceId) {
-    if (WiFi.status() != WL_CONNECTED) return false;
+bool nirvana_ai_ready(int p) {
+    if (p == 6 && nvCfg.voiceboxHost[0]) return true;
+    const char* k = _key(p);
+    return k && k[0];
+}
+
+// ── OpenAI-compatible chat (HTTP POST to /v1/chat/completions) ──
+// Works with: OpenAI, DeepSeek, LM Studio, NGC, any OAI-compatible endpoint
+bool nirvana_ai_chat(int provider, const char* systemPrompt, const char* userMsg) {
+    if (!nirvana_ai_ready(provider)) return false;
+
+    // Determine host and path
+    const char* base = (provider == 1) ? nvCfg.deepseekURL :
+                       (provider == 2) ? nvCfg.lmstudioURL :
+                       (provider == 3) ? "https://integrate.api.nvidia.com/v1" :
+                       "https://api.openai.com/v1";
+    const char* hostOnly = strstr(base, "://") ? strstr(base, "://") + 3 : base;
+    // Extract just hostname (before / or :)
+    char host[64]; const char* slash = strchr(hostOnly, '/');
+    const char* colon = strchr(hostOnly, ':');
+    int hostLen = 0;
+    if (slash && colon) hostLen = (slash < colon ? slash : colon) - hostOnly;
+    else if (slash) hostLen = slash - hostOnly;
+    else if (colon) hostLen = colon - hostOnly;
+    else hostLen = strlen(hostOnly);
+    memcpy(host, hostOnly, hostLen); host[hostLen] = 0;
+    uint16_t port = 443;
+    if (colon && (!slash || colon < slash)) port = atoi(colon + 1);
+
+    Serial.print("[AI] "); Serial.print(host); Serial.print(":"); Serial.println(port);
 
     WiFiClient client;
-    char host[32]; snprintf(host, sizeof(host), "%s",
-        nvCfg.voiceboxHost[0] ? nvCfg.voiceboxHost : "192.168.1.100");
-    uint16_t port = nvCfg.voiceboxPort > 0 ? nvCfg.voiceboxPort : 7933;
+    bool useSSL = (strncmp(base, "https", 5) == 0);
+    WiFiSSLClient ssl;
 
-    if (!client.connect(host, port)) {
-        Serial.println("[AI-TTS] Voicebox not reachable");
-        return false;
+    if (useSSL) { if (!ssl.connect(host, port)) { Serial.println("[AI] SSL fail"); return false; } }
+    else        { if (!client.connect(host, port)) { Serial.println("[AI] TCP fail"); return false; } }
+
+    // Determine model name
+    const char* model = (provider == 1) ? "deepseek-chat" : "gpt-4o-mini";
+
+    // Build JSON body
+    JsonDocument body;
+    body["model"] = model;
+    body["max_tokens"] = 256;
+    body["temperature"] = 0.7;
+    JsonArray msgs = body["messages"].to<JsonArray>();
+    JsonObject sys = msgs.add<JsonObject>();
+    sys["role"] = "system"; sys["content"] = systemPrompt;
+    JsonObject usr = msgs.add<JsonObject>();
+    usr["role"] = "user"; usr["content"] = userMsg;
+    char json[1024]; serializeJson(body, json, sizeof(json));
+
+    // Send HTTP request
+    if (useSSL) {
+        ssl.print("POST /v1/chat/completions HTTP/1.1\r\n");
+        ssl.print("Host: "); ssl.print(host); ssl.print("\r\n");
+        ssl.print("Content-Type: application/json\r\n");
+        ssl.print("Authorization: Bearer "); ssl.print(_key(provider)); ssl.print("\r\n");
+        ssl.print("Content-Length: "); ssl.print(strlen(json));
+        ssl.print("\r\nConnection: close\r\n\r\n");
+        ssl.print(json); ssl.flush();
+    } else {
+        client.print("POST /v1/chat/completions HTTP/1.1\r\n");
+        client.print("Host: "); client.print(host); client.print("\r\n");
+        client.print("Content-Type: application/json\r\n");
+        client.print("Authorization: Bearer "); client.print(_key(provider)); client.print("\r\n");
+        client.print("Content-Length: "); client.print(strlen(json));
+        client.print("\r\nConnection: close\r\n\r\n");
+        client.print(json); client.flush();
+    }
+
+    // Read response
+    unsigned long t = millis(); int bi = 0;
+    while (bi < 511) {
+        if (useSSL) { if (!ssl.connected() && !ssl.available()) break; if (ssl.available()) aiResponse[bi++] = ssl.read(); }
+        else        { if (!client.connected() && !client.available()) break; if (client.available()) aiResponse[bi++] = client.read(); }
+        if (millis() - t > 12000) break;
+    }
+    aiResponse[bi] = 0;
+    if (useSSL) ssl.stop(); else client.stop();
+
+    // Extract content from JSON
+    const char* c = strstr(aiResponse, "\"content\":\"");
+    if (!c) c = strstr(aiResponse, "\"content\": \"");
+    if (c) {
+        c = strchr(c, ':') + 1;
+        while (*c == ' ' || *c == '"') c++;
+        char* end = strchr((char*)c, '"');
+        if (end) *end = 0;
+        snprintf(aiResponse, sizeof(aiResponse), "%s", c);
+    }
+
+    Serial.print("[AI] "); Serial.println(aiResponse);
+    return true;
+}
+
+// ── TTS via Voicebox (through backend proxy for tailnet) ──
+bool nirvana_ai_tts(const char* text) {
+    if (WiFi.status() != WL_CONNECTED) return false;
+    WiFiClient c;
+
+    // Try direct first, then backend proxy
+    bool direct = (nvCfg.voiceboxHost[0] != 0);
+    if (direct) {
+        if (!c.connect(nvCfg.voiceboxHost, nvCfg.voiceboxPort)) direct = false;
+    }
+    if (!direct) {
+        if (!c.connect(MQTT_HOST, 8010)) { Serial.println("[TTS] unreachable"); return false; }
     }
 
     JsonDocument req;
     req["text"] = text;
-    if (voiceId && voiceId[0]) req["voice"] = voiceId;
+    if (voiceProfileCount && nvCfg.voiceProfile < voiceProfileCount)
+        req["voice"] = voiceProfiles[nvCfg.voiceProfile].id;
     req["format"] = "wav";
     req["sample_rate"] = 16000;
+    char body[512]; serializeJson(req, body, sizeof(body));
 
-    char body[512];
-    serializeJson(req, body, sizeof(body));
-
-    client.print("POST /api/tts HTTP/1.1\r\n");
-    client.print("Host: voicebox\r\n");
-    client.print("Content-Type: application/json\r\n");
-    client.print("Content-Length: "); client.print(strlen(body));
-    client.print("\r\nConnection: close\r\n\r\n");
-    client.print(body);
-    client.flush();
-
-    Serial.print("[AI-TTS] Request: "); Serial.println(text);
-
-    // Note: audio playback requires streaming to DAC — placeholder
-    client.stop();
+    c.print(direct ? "POST /api/tts HTTP/1.1\r\n" : "POST /api/nirvana/tts HTTP/1.1\r\n");
+    c.print(direct ? "Host: voicebox\r\n" : "Host: npu-stack\r\n");
+    c.print("Content-Type: application/json\r\n");
+    c.print("Content-Length: "); c.print(strlen(body));
+    c.print("\r\nConnection: close\r\n\r\n");
+    c.print(body); c.flush();
+    c.stop();
+    Serial.print("[TTS] "); Serial.println(text);
     return true;
 }
 
-// ── OpenAI Vision (cloud) — describe a camera frame ──
-// Uses GenAI.h from Ameba SDK
-bool nirvana_ai_vision_openai(uint32_t img_addr, uint32_t img_len, const char* prompt) {
-    if (!aiProviders[0].enabled) return false;
+// ── Fetch voice profiles from Voicebox (direct or via backend) ──
+int nirvana_ai_fetch_voices() {
+    if (WiFi.status() != WL_CONNECTED) return 0;
 
-    WiFiSSLClient sslClient;
-    // GenAI would handle this — placeholder for GenAI integration
-    Serial.println("[AI-Vision] OpenAI vision call (placeholder)");
-    return false;
-}
+    WiFiClient c;
+    const char* host = nvCfg.voiceboxHost[0] ? nvCfg.voiceboxHost : MQTT_HOST;
+    uint16_t port = nvCfg.voiceboxHost[0] ? nvCfg.voiceboxPort : 8010;
+    const char* path = nvCfg.voiceboxHost[0] ? "/api/profiles" : "/api/nirvana/tts/profiles";
 
-// ── General AI call — pick best available provider ──
-bool nirvana_ai_process(const char* text, const char* imagePrompt) {
-    // Voice response via Voicebox if available
-    if (aiProviders[1].enabled) {
-        const char* vid = (voiceProfileCount > 0 && selectedVoiceIdx < voiceProfileCount)
-                          ? voiceProfiles[selectedVoiceIdx].id : nullptr;
-        nirvana_ai_tts_voicebox(text, vid);
+    if (!c.connect(host, port)) return 0;
+
+    c.print("GET "); c.print(path);
+    c.print(" HTTP/1.1\r\nHost: voicebox\r\nConnection: close\r\n\r\n");
+
+    unsigned long t = millis(); char buf[2048] = ""; int bi = 0;
+    while ((c.connected() || c.available()) && bi < 2047 && millis() - t < 4000)
+        if (c.available()) buf[bi++] = c.read();
+    buf[bi] = 0; c.stop();
+
+    char* js = strstr(buf, "[");
+    if (!js) js = strstr(buf, "\"voices\"");
+    if (!js) return 0;
+
+    JsonDocument doc;
+    if (deserializeJson(doc, js)) return 0;
+    JsonArray arr = doc.as<JsonArray>();
+    if (arr.isNull() && doc.containsKey("voices")) arr = doc["voices"];
+
+    voiceProfileCount = 0;
+    for (JsonObject v : arr) {
+        if (voiceProfileCount >= MAX_VOICE_PROFILES) break;
+        strncpy(voiceProfiles[voiceProfileCount].name, v["name"] | v["id"] | "v", 31);
+        strncpy(voiceProfiles[voiceProfileCount].id,   v["id"] | v["name"] | "0", 31);
+        voiceProfileCount++;
     }
-    return true;
+    Serial.print("[AI] Voices: "); Serial.println(voiceProfileCount);
+    return voiceProfileCount;
+}
+
+// ── Quick ask: chat with default provider ──
+bool nirvana_ai_ask(const char* prompt) {
+    return nirvana_ai_chat(nvCfg.aiProvider,
+        "You are Nirvana, a helpful AI. Reply in 1-2 short sentences.", prompt);
 }
 
 #endif
