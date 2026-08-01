@@ -75,7 +75,7 @@ void _ble_scan_cb(T_LE_CB_DATA* p_data) {
     for (uint8_t i = 0; i < n; i++) {
         if (svcs[i] == BLEUUID("1812")) {
             Serial.print("[BLE] Found HID: ");
-            Serial.println(dev.hasName() ? dev.getName().c_str() : dev.getAddr().str().c_str());
+            Serial.println(dev.hasName() ? dev.getName().c_str() : dev.getAddr().str());
             targetDevice = dev;
             BLE.configScan()->stopScan();
             bleConnecting = true;

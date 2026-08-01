@@ -107,9 +107,9 @@ void setup(){
     nirvana_cfg_apply_brightness();
 
     // ── AI Providers + Voice Profiles ──
-    nirvana_ai_init_defaults();
+    nirvana_ai_init();
     if (WiFi.status() == WL_CONNECTED) {
-        nirvana_ai_fetch_voice_profiles();
+        nirvana_ai_fetch_voices();
     }
 
     // ── Show home screen ──

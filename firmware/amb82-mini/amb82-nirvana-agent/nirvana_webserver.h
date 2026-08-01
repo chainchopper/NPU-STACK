@@ -26,8 +26,8 @@ void _web_send_status(WiFiClient& c) {
         "\"wifi_ssid\":\"%s\",\"wifi_rssi\":%d,\"ip\":\"%s\","
         "\"sd_ready\":%s,\"cam_ready\":%s,\"audio_ready\":%s,"
         "\"screen\":\"ili9341_bitbang\",\"ram_free\":\"n/a\"}",
-        NIRVANA_DEVICE_ID, NIRVANA_VERSION, millis()/1000,
-        WIFI_SSID, WiFi.RSSI(), ip,
+        NIRVANA_DEVICE_ID, NIRVANA_VERSION, (unsigned long)(millis()/1000),
+        WIFI_SSID, (int)WiFi.RSSI(), ip,
         sdReady?"true":"false", camReady?"true":"false", audioReady?"true":"false");
 
     c.print("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n");

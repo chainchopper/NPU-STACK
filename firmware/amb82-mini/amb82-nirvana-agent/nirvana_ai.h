@@ -26,6 +26,15 @@ VP voiceProfiles[MAX_VOICE_PROFILES];
 int voiceProfileCount = 0;
 char aiResponse[512] = "";
 
+// ── Init providers at boot (reads nvCfg keys from SD config) ──
+void nirvana_ai_init() {
+    Serial.println("[AI] Providers init");
+    Serial.print("  Default: ");
+    Serial.print((nvCfg.aiProvider==0)?"OpenAI":(nvCfg.aiProvider==1)?"DeepSeek":
+                 (nvCfg.aiProvider==2)?"LMStudio":"NGC");
+    Serial.print("  Voicebox: "); Serial.println(nvCfg.voiceboxHost);
+}
+
 // ── Get active provider key from nvCfg ──
 static const char* _key(int p) {
     switch (p) {
