@@ -16,6 +16,8 @@
 #include "nirvana_sd.h"
 #include "AudioStream.h"
 
+extern bool sdReady;
+
 #define REC_DIR         "/recordings/"
 #define REC_SAMPLE_RATE 16000
 #define REC_BITS        16

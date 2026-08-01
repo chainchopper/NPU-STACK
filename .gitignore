@@ -79,7 +79,10 @@ backend/_create_test_model.py
 # Web folder's own git repo (deployed separately to Vercel)
 web/.git
 
-# Local lab / media content pending an explicit ownership decision
+# Local-only config with real API keys (never push!)
+firmware/amb82-mini/sdcard-assets/config.real.json
+firmware/amb82-mini/sdcard-assets/config.local.json
+firmware/amb82-mini/keys*.json
 Fleet MCP - OTA - REMOTE BOOT - MGMT - SERVICE AND DEVICE DISOVERY.md
 assets/
 compositions/

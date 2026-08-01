@@ -10,6 +10,8 @@
 #include "ff.h"
 #include "nirvana_config.h"
 
+extern bool sdReady;  // from nirvana_sd.h — device boots without SD
+
 #define CFG_PATH        "/config.json"
 #define CFG_TMP_PATH    "/config.tmp"
 #define CFG_BUF_SIZE    1024
@@ -38,23 +40,24 @@ typedef struct {
     bool    wifiAPMode;
 } NirvanaSettings;
 
+// Compile-time defaults — overridden by /config.json on SD card if present.
+// No API keys in git. Keys loaded from SD config at boot.
 NirvanaSettings nvCfg = {
     75,             // brightness
     70,             // volume
     false,          // turbo
     0,              // voiceProfile
-    1,              // aiProvider: 0=OpenAI, 1=DeepSeek, 2=LMStudio, 3=NGC
-    // KEYS LOADED FROM /config.json ON SD CARD — defaults are empty
-    "",             // openaiKey
+    1,              // aiProvider: 0=OpenAI, 1=DeepSeek (default), 2=LMStudio, 3=NGC
+    "",             // openaiKey  — set via /config.json
     "",             // deepseekKey
     "https://api.deepseek.com/v1",   // deepseekURL
     "",             // geminiKey
     "",             // lmstudioKey
-    "http://100.100.2.93:443/v1",    // lmstudioURL (tailnet)
+    "http://100.100.2.93:443/v1",    // lmstudioURL
     "",             // ngcKey
     "",             // hfToken
     "",             // elevenlabsKey
-    "192.168.1.227", // voiceboxHost (change to your LAN IP for AMB82)
+    "flexvoice.fanalogy.com",  // voiceboxHost — Cloudflare Tunnel mapped
     7933,           // voiceboxPort
     true,           // wifiAPMode
 };

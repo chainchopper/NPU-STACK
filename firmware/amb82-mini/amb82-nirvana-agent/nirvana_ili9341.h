@@ -246,11 +246,11 @@ void nirvana_page_ota(const char* status) {
     nirvana_text(4,78,"Status:",NIRVANA_GRAY,1);
     nirvana_text(70,78,status,NIRVANA_GREEN,1);
     nirvana_text(4,100,"Source:",NIRVANA_GRAY,1);
-    nirvana_text(4,114,"http://" MQTT_HOST ":9000",0x07FF,1);
-    nirvana_text(4,130,"/firmware/npu-amb82-latest.bin",0x07FF,1);
-    nirvana_text(4,160,"Hold button to start OTA",NIRVANA_GRAY,1);
-    nirvana_text(4,176,"Device will reboot after flash",NIRVANA_RED,1);
-    nirvana_text(4,TFT_HEIGHT-14,"Hold: Start OTA  Tap: Back",NIRVANA_GRAY,1);
+    nirvana_text(4,114,"NPU-STACK backend :8010",0x07FF,1);
+    nirvana_text(4,130,"Auto-check every 60 min",0x07FF,1);
+    nirvana_text(4,160,"Hold button to check now",NIRVANA_GRAY,1);
+    nirvana_text(4,176,"Device reboots after flash",NIRVANA_RED,1);
+    nirvana_text(4,TFT_HEIGHT-14,"Hold: Check OTA  Tap: Back",NIRVANA_GRAY,1);
 }
 
 // ══════════════════════════════════════════════════

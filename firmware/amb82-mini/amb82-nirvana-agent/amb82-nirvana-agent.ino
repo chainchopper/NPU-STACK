@@ -129,6 +129,9 @@ void loop(){
     // ── Fleet heartbeat (30s) ──
     if (now - lastStatus > 30000) { lastStatus = now; nirvana_publish_status(); }
 
+    // ── OTA auto-check (every 60 min, WiFi required) ──
+    nirvana_ota_auto_check();
+
     // ── Blue LED pulse (1s) ──
     if (now - lastLed > 1000) {
         lastLed = now; ledState = !ledState;

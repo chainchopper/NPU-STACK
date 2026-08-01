@@ -7,37 +7,45 @@
 #include "OTA.h"
 #include "nirvana_config.h"
 
+// OTA: devices polls NPU-STACK backend for updates at boot + every 60 min.
+// Backend serves the compiled .bin at /api/fleet/ota/npu-amb82-latest.bin
 #define OTA_PORT         8080
-#define OTA_UPDATE_URL   "http://" MQTT_HOST ":9000/firmware/npu-amb82-latest.bin"
+#define OTA_HOST         MQTT_HOST
+#define OTA_UPDATE_PATH  "/api/fleet/ota/npu-amb82-latest.bin"
 
 OTA otaEngine;
 bool otaInProgress = false;
 char otaStatus[48] = "Idle";
 
 // ── Start OTA update check ──
-// This starts the Ameba OTA HTTP server + connects to the update server
-// The device will reboot after successful update.
-// Requires WiFi to be already connected.
+// Polls NPU-STACK backend for firmware update.
+// If newer .bin available, downloads, flashes, and reboots.
 bool nirvana_ota_start() {
     if (WiFi.status() != WL_CONNECTED) {
         snprintf(otaStatus, sizeof(otaStatus), "No WiFi");
-        Serial.println("[OTA] WiFi not connected");
         return false;
     }
 
-    Serial.println("[OTA] Starting firmware update...");
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d%s", OTA_HOST, 8010, OTA_UPDATE_PATH);
+    Serial.print("[OTA] Update check: "); Serial.println(url);
     snprintf(otaStatus, sizeof(otaStatus), "Checking...");
 
-    // OTA class spawns 2 FreeRTOS threads:
-    // Thread 1: HTTP server on device (serves current fw info)
-    // Thread 2: Connects to remote server, downloads .bin, flashes
-    otaEngine.start_OTA_threads(OTA_PORT, (char*)OTA_UPDATE_URL);
-
+    otaEngine.start_OTA_threads(OTA_PORT, url);
     otaInProgress = true;
-    snprintf(otaStatus, sizeof(otaStatus), "Downloading...");
-    Serial.print("[OTA] Fetching from: ");
-    Serial.println(OTA_UPDATE_URL);
+    snprintf(otaStatus, sizeof(otaStatus), "Download+flash...");
     return true;
+}
+
+// ── Background auto-check: call from loop every 60 minutes ──
+void nirvana_ota_auto_check() {
+    static unsigned long lastCheck = 0;
+    unsigned long now = millis();
+    if (otaInProgress) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (now - lastCheck < 3600000UL) return;  // 60 min
+    lastCheck = now;
+    nirvana_ota_start();
 }
 
 // ── Check OTA WiFi (called by OTA thread internally) ──
