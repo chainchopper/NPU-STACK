@@ -8,6 +8,20 @@
 - AGENTS.md files are binding work contracts for their subtrees
 - Work products, source materials, instructions, records, assets, and durable docs must stay understandable from the nearest applicable AGENTS.md plus every parent AGENTS.md above it
 
+## Working Directives
+
+### Verify Code Landed
+
+- "Code written" is not "code landed". Device/firmware work is only DONE when the change is proven to land: compiled clean, flashed, and (where possible) observed running on the device.
+- Every completion report must state exactly what happened — compiled ✓ / flashed ✓ / observed running ✓. If flashing or observation was not possible (no device attached, no control path), say so explicitly; never claim a feature works from code changes alone.
+- No feature on a device (AMB82, ESP32, CircuitPython, MicroPython, etc.) may be reported as "done" without evidence it landed.
+
+### Plan & Track
+
+- Break multi-step work into a todo list up front and keep it updated (in-progress → completed) as steps finish.
+- Mark one todo in-progress at a time; complete it before moving on.
+- For device/firmware tasks, the final todo must be the "verify it landed" step.
+
 ## Read Before Editing
 
 1. Read the root AGENTS.md
