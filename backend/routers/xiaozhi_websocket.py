@@ -94,9 +94,17 @@ def _parse_binary(data: bytes, version: int) -> Dict[str, Any]:
 # JSON message handlers
 # ═══════════════════════════════════════════════════════════
 
-async def _send_json(ws: WebSocket, payload: Dict[str, Any]) -> None:
-    """Send a JSON text frame to the device."""
-    await ws.send_text(json.dumps(payload, ensure_ascii=False))
+async def _send_json(ws: WebSocket, payload: Dict[str, Any]) -> bool:
+    """Send a JSON text frame to the device; returns False if the socket closed.
+
+    Devices can drop the connection mid-pipeline (wake-word abort, network loss),
+    so all sends must be safe against a closing WebSocket.
+    """
+    try:
+        await ws.send_text(json.dumps(payload, ensure_ascii=False))
+        return True
+    except (WebSocketDisconnect, RuntimeError):
+        return False
 
 
 async def _process_llm(ws: WebSocket, session: VoiceSession, text: str) -> None:
@@ -191,7 +199,7 @@ async def _handle_json(ws: WebSocket, raw: str, device_id: str) -> None:
                 "frame_duration": 60,
             },
         })
-        print(f"[XiaoZhi-WS] HELLO → {device_id} (session {session.session_id})")
+        print(f"[XiaoZhi-WS] HELLO -> {device_id} (session {session.session_id})")
 
     elif msg_type == "listen":
         state = payload.get("state", "")
@@ -199,7 +207,7 @@ async def _handle_json(ws: WebSocket, raw: str, device_id: str) -> None:
             if session:
                 session.listening = True
                 session.last_activity = time.time()
-            print(f"[XiaoZhi-WS] LISTEN START — {device_id}")
+            print(f"[XiaoZhi-WS] LISTEN START - {device_id}")
             if session:
                 await _send_json(ws, {
                     "session_id": session.session_id,
@@ -209,7 +217,7 @@ async def _handle_json(ws: WebSocket, raw: str, device_id: str) -> None:
         elif state == "stop":
             if session:
                 session.listening = False
-            print(f"[XiaoZhi-WS] LISTEN STOP — {device_id}")
+            print(f"[XiaoZhi-WS] LISTEN STOP - {device_id}")
         elif state == "detect":
             text = payload.get("text", "")
             print(f"[XiaoZhi-WS] LISTEN DETECT: '{text}' from {device_id}")
@@ -220,14 +228,14 @@ async def _handle_json(ws: WebSocket, raw: str, device_id: str) -> None:
         if session:
             session.listening = False
             session.speaking = False
-            print(f"[XiaoZhi-WS] ABORT — {device_id}")
+            print(f"[XiaoZhi-WS] ABORT - {device_id}")
 
     elif msg_type == "mcp":
         print(f"[XiaoZhi-WS] MCP from {device_id}: {payload.get('payload')}")
 
     elif msg_type == "goodbye":
         if session:
-            print(f"[XiaoZhi-WS] GOODBYE — {device_id}")
+            print(f"[XiaoZhi-WS] GOODBYE - {device_id}")
             close_session(session.session_id)
 
     else:

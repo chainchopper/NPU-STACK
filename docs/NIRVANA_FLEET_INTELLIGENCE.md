@@ -65,7 +65,7 @@ flowchart LR
 Build out `xiaozhi_server.py` / fleet services to full parity with the golang
 reference:
 
-- [ ] WebSocket transport (we have MQTT+UDP; add WS for non-UDP networks)
+- [x] WebSocket transport — `ws://:8010/api/fleet/voice/ws` (hello/listen/abort/mcp/goodbye + Opus v1/v2/v3 framing); verified with `scripts/xiaozhi_ws_probe.py`
 - [ ] VAD/ASR/LLM/TTS engine plugins (OpenAI-compatible, Ollama, EdgeTTS, CosyVoice)
 - [ ] Device management console (registry, live latency, message injection)
 - [ ] OTA channel with signed artifacts (we have fleet OTA; add channel/versioning)
