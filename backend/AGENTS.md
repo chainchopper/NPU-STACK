@@ -50,6 +50,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `vitis_compiler_router` | `routers/vitis_compiler.py` | Vitis AI compiler |
 | `espnow_router` | `routers/espnow_router.py` | ESP-NOW firmware discovery, build commands, binary listing |
 | `webcam_router` | `routers/webcam.py` | Webcam testing |
+| `xiaozhi_websocket_router` | `routers/xiaozhi_websocket.py` | XiaoZhi voice WebSocket transport — hello/listen/abort/mcp/goodbye JSON + Opus binary (v1/v2/v3) |
 
 ## Key Services
 

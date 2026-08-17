@@ -79,6 +79,7 @@ from routers.nirvana_webui import router as nirvana_webui_router
 from routers.lmstudio import router as lmstudio_router
 from routers.boards import router as boards_router
 from routers.xiaozhi_router import router as xiaozhi_router
+from routers.xiaozhi_websocket import router as xiaozhi_websocket_router
 from routers.nirvana_multimodal import router as nirvana_multimodal_router
 from routers.nirvana_stream import router as nirvana_stream_router
 from routers.fleet_device_control import router as fleet_device_control_router
@@ -283,6 +284,7 @@ app.include_router(nirvana_webui_router)
 app.include_router(lmstudio_router)
 app.include_router(boards_router)
 app.include_router(xiaozhi_router)
+app.include_router(xiaozhi_websocket_router)
 app.include_router(nirvana_multimodal_router)
 app.include_router(nirvana_stream_router)
 app.include_router(fleet_device_control_router)
