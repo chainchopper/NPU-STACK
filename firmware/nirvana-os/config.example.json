@@ -5,5 +5,6 @@
   "device_id": "xiao-sense-001",
   "update_channel": "",
   "ota_enabled": true,
-  "display_enabled": true
+  "display_enabled": true,
+  "sd_enabled": true
 }

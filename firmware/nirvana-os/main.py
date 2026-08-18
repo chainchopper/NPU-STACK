@@ -23,7 +23,7 @@ import ssl
 import sys
 import time
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 CONFIG_PATH = "/config.json"
 
 DEFAULTS = {
@@ -175,25 +175,77 @@ def setup_menu(cfg):
         save_config(cfg)
 
 
-# ── touch loop ──────────────────────────────────────────────────────────
-def run_touch_loop(cfg):
-    """Poll CHSC6X touch and show taps - foundation for the menu UI."""
+# ── menu ────────────────────────────────────────────────────────────────
+def run_menu(cfg):
+    """Touch-driven home menu: built-in actions + apps from the SD card."""
     import display
+    import menu as menu_mod
+    import sd
     import touch as touch_mod
+
     i2c = machine.I2C(0, scl=machine.Pin(5), sda=machine.Pin(4), freq=400000)
     t = touch_mod.Touch(i2c, int_pin=44)
-    log("touch ready - tap the screen")
-    last = None
-    while True:
-        p = t.read()
-        if p is not None and p != last:
-            last = p
-            log("touch at %d,%d" % p)
-            try:
-                display.status("%d,%d" % p, display.YELLOW)
-            except Exception:
-                pass
-        time.sleep_ms(50)
+    log("touch ready - menu active")
+
+    def _show(txt):
+        lcd = display.get()
+        lcd.fill(0)
+        lcd.center_text(txt, 110, display.YELLOW)
+        lcd.show()
+
+    def show_status():
+        ip = "no wifi"
+        try:
+            import network
+            w = network.WLAN(network.STA_IF)
+            if w.isconnected():
+                ip = w.ifconfig()[0]
+        except Exception:
+            pass
+        lcd = display.get()
+        lcd.fill(0)
+        lcd.center_text("STATUS", 40, display.GREEN)
+        lcd.center_text("ip " + ip, 80, display.WHITE)
+        lcd.center_text("free " + str(gc.mem_free()), 100, display.WHITE)
+        lcd.center_text("sd " + ("ok" if sd.is_mounted() else "none"), 120, display.WHITE)
+        lcd.show()
+        time.sleep(2)
+
+    def show_sd():
+        lcd = display.get()
+        apps = sd.list_apps()
+        lcd.fill(0)
+        lcd.center_text("SD CARD", 40, display.GREEN)
+        lcd.center_text("mounted " + str(sd.is_mounted()), 80, display.WHITE)
+        lcd.center_text("apps " + str(len(apps)), 100, display.WHITE)
+        lcd.show()
+        time.sleep(2)
+
+    def do_reboot():
+        _show("REBOOTING")
+        time.sleep(1)
+        machine.reset()
+
+    items = [("Status", show_status), ("SD Card", show_sd), ("Reboot", do_reboot)]
+
+    # Mount SD and discover apps (each app is /sd/apps/<name>.py with run())
+    if cfg.get("sd_enabled", True):
+        sd.mount()
+    for mod, name in sd.list_apps():
+        def make_runner(m=mod):
+            def runner():
+                try:
+                    sys.path.insert(0, "/sd/apps")
+                    app = __import__(m)
+                    if hasattr(app, "run"):
+                        app.run()
+                except Exception as e:
+                    log("app error: " + str(e))
+                    _show("APP ERR")
+            return runner
+        items.append((name, make_runner()))
+
+    menu_mod.Menu(t, display, items).run()
 
 
 # ── entry ───────────────────────────────────────────────────────────────
@@ -232,11 +284,11 @@ def main():
     log("boot complete")
     if cfg.get("display_enabled", True):
         try:
-            run_touch_loop(cfg)
+            run_menu(cfg)
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            log("touch loop error: " + str(e))
+            log("menu error: " + str(e))
     log("REPL active (Ctrl+C to interrupt)")
 
 main()

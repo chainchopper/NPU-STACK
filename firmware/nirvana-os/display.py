@@ -18,6 +18,7 @@ DC = 3
 BL = 43
 
 _lcd = None
+_spi = None
 
 GREEN = 0x07E0
 WHITE = 0xFFFF
@@ -25,13 +26,20 @@ BLUE = 0x001F
 YELLOW = 0xFFE0
 
 
+def get_spi():
+    """Return the shared HSPI bus (display + SD card share SCK/MOSI/MISO)."""
+    global _spi
+    if _spi is None:
+        _spi = SPI(SPI_BUS, baudrate=40_000_000, polarity=0, phase=0,
+                   sck=Pin(SCK), mosi=Pin(MOSI), miso=Pin(MISO))
+    return _spi
+
+
 def init():
     global _lcd
     if _lcd is not None:
         return _lcd
-    spi = SPI(SPI_BUS, baudrate=40_000_000, polarity=0, phase=0,
-              sck=Pin(SCK), mosi=Pin(MOSI), miso=Pin(MISO))
-    _lcd = gc9a01.GC9A01(spi, cs=CS, dc=DC, bl=BL)
+    _lcd = gc9a01.GC9A01(get_spi(), cs=CS, dc=DC, bl=BL)
     _lcd.backlight(True)
     return _lcd
 

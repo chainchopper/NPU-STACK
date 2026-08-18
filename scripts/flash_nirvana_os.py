@@ -64,6 +64,9 @@ def main():
                       (FW_DIR / "gc9a01.py", "gc9a01.py"),
                       (FW_DIR / "display.py", "display.py"),
                       (FW_DIR / "touch.py", "touch.py"),
+                      (FW_DIR / "sdcard.py", "sdcard.py"),
+                      (FW_DIR / "sd.py", "sd.py"),
+                      (FW_DIR / "menu.py", "menu.py"),
                       (cfg_src, "config.json")):
         run(mp + ["cp", str(src), ":" + dest])
 

@@ -45,6 +45,19 @@ Set `update_channel` in `config.json` to a URL that serves `version.json` +
 On boot, Nirvana OS fetches `version.json`; if `version` differs from the
 running `VERSION`, it downloads the new `main.py`, writes it to flash, and reboots.
 
+## SD card + apps
+
+The Round Display SD slot is auto-mounted at `/sd` (CS = GPIO2, shared SPI bus).
+
+- Format the card **FAT32** (32 GB max).
+- Create a folder `/sd/apps/` and drop app files there.
+- App convention: each app is `/sd/apps/<name>.py` with an optional `NAME`
+  constant and a `run()` function. See `apps/hello.py` for a template.
+- The home menu lists built-in items (Status / SD Card / Reboot) plus any apps
+  found on the SD card. Tap top = up, bottom = down, middle = run.
+
+Nothing else needs to be "flashed" to the card — it's plain FAT storage.
+
 ## Roadmap
 
 - [x] v0.1 — boot, WiFi, heartbeat, OTA scaffold, serial setup
