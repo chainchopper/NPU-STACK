@@ -181,21 +181,26 @@ def provision(cfg):
     try:
         import wifi_provision
         wifi_provision.start_ap()
+        time.sleep(1)
         ip = wifi_provision.ap_ip()
         log("SoftAP '" + wifi_provision.AP_SSID + "' at " + ip)
-        try:
-            import display
-            lcd = display.get()
-            lcd.fill(0)
-            lcd.center_text("NIRVANA SETUP", 10, display.GREEN)
-            lcd.center_text("scan QR or join:", 36, display.WHITE)
-            lcd.center_text(wifi_provision.AP_SSID, 52, display.WHITE)
-            wifi_provision.render_qr("http://" + ip + "/", lcd)
-            lcd.show()
-        except Exception as e:
-            log("QR render failed: " + str(e))
-        if wifi_provision.run_portal(cfg, save_config):
-            return
+        s = wifi_provision.start_portal_server()
+        if s is None:
+            log("portal server failed")
+        else:
+            try:
+                import display
+                lcd = display.get()
+                lcd.fill(0)
+                lcd.center_text("NIRVANA SETUP", 10, display.GREEN)
+                lcd.center_text("scan QR or join:", 36, display.WHITE)
+                lcd.center_text(wifi_provision.AP_SSID, 52, display.WHITE)
+                wifi_provision.render_qr("http://" + ip + "/", lcd)
+                lcd.show()
+            except Exception as e:
+                log("QR render failed: " + str(e))
+            if wifi_provision.serve_portal(s, cfg, save_config):
+                return
     except Exception as e:
         log("provisioning error: " + str(e))
     setup_menu(cfg)

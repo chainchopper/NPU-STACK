@@ -85,14 +85,31 @@ def render_qr(text, lcd, scale=4):
     return x0, y0, px
 
 
-def run_portal(cfg, save_cb, timeout=300):
-    """Serve the config portal until credentials are saved or timeout."""
+def start_portal_server():
+    """Create + bind + listen the portal socket. Returns socket or None."""
+    import gc
+    for attempt in range(5):
+        gc.collect()
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("0.0.0.0", PORT))
+            s.listen(1)
+            s.settimeout(1)
+            return s
+        except Exception as e:
+            print("[NIRVANA] socket attempt %d failed: %s" % (attempt, e))
+            try:
+                s.close()
+            except Exception:
+                pass
+            time.sleep(1)
+    return None
+
+
+def serve_portal(s, cfg, save_cb, timeout=300):
+    """Serve the config form on an already-bound socket."""
     ip = ap_ip()
-    s = socket.socket()
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("0.0.0.0", PORT))
-    s.listen(2)
-    s.settimeout(1)
     t0 = time.time()
     try:
         while time.time() - t0 < timeout:
@@ -130,5 +147,8 @@ def run_portal(cfg, save_cb, timeout=300):
                 except Exception:
                     pass
     finally:
-        s.close()
+        try:
+            s.close()
+        except Exception:
+            pass
     return False
