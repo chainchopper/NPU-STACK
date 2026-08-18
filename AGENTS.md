@@ -135,6 +135,7 @@ Default section order:
 | `firmware/circuitpython-agent/` | CircuitPython agent for microcontrollers |
 | `firmware/esp32-agent/` | ESP32 fleet agent firmware |
 | `firmware/linux-agent/` | Linux edge device agent (systemd, OTA, polling) |
+| `firmware/nirvana-os/` | Branded MicroPython firmware (Nirvana OS) for ESP32-S3 — XIAO Sense |
 
 ### Infrastructure & Build
 

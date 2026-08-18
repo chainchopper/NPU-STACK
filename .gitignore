@@ -83,6 +83,7 @@ web/.git
 firmware/amb82-mini/sdcard-assets/config.real.json
 firmware/amb82-mini/sdcard-assets/config.local.json
 firmware/amb82-mini/keys*.json
+firmware/nirvana-os/config.json
 Fleet MCP - OTA - REMOTE BOOT - MGMT - SERVICE AND DEVICE DISOVERY.md
 assets/
 compositions/
