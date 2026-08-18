@@ -61,6 +61,8 @@ def main():
 
     for src, dest in ((FW_DIR / "boot.py", "boot.py"),
                       (FW_DIR / "main.py", "main.py"),
+                      (FW_DIR / "gc9a01.py", "gc9a01.py"),
+                      (FW_DIR / "display.py", "display.py"),
                       (cfg_src, "config.json")):
         run(mp + ["cp", str(src), ":" + dest])
 

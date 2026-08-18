@@ -4,5 +4,6 @@
   "backend": "http://192.168.1.100:8010",
   "device_id": "xiao-sense-001",
   "update_channel": "",
-  "ota_enabled": true
+  "ota_enabled": true,
+  "display_enabled": true
 }

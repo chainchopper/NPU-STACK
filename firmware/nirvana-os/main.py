@@ -183,12 +183,28 @@ def main():
     log("free mem=" + str(gc.mem_free()))
 
     cfg = load_config()
+
+    # Round display (GC9A01) — optional, degrades gracefully without it
+    if cfg.get("display_enabled", True):
+        try:
+            import display
+            display.splash(VERSION)
+            log("display ready (GC9A01 240x240)")
+        except Exception as e:
+            log("display init failed: " + str(e))
+
     wlan = connect_wifi(cfg["wifi_ssid"], cfg["wifi_pass"])
     if wlan is None and not cfg["wifi_ssid"]:
         setup_menu(cfg)
         wlan = connect_wifi(cfg["wifi_ssid"], cfg["wifi_pass"])
 
     if wlan:
+        ip = wlan.ifconfig()[0]
+        try:
+            import display
+            display.status(ip, display.GREEN)
+        except Exception:
+            pass
         heartbeat(cfg)
         check_ota(cfg)
 
