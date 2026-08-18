@@ -29,6 +29,19 @@ def run(args):
     return subprocess.run([str(a) for a in args])
 
 
+def _wait_for_repl(mp, tries=20):
+    """Poll `mpremote ls` until the board's MicroPython REPL is reachable."""
+    for i in range(tries):
+        r = subprocess.run([str(a) for a in mp + ["ls"]],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            print("MicroPython REPL ready.")
+            return True
+        print("  waiting for REPL (%d/%d) ..." % (i + 1, tries))
+        time.sleep(2)
+    return False
+
+
 def main():
     ap = argparse.ArgumentParser(description="Flash NIRVANA OS to an ESP32-S3")
     ap.add_argument("--port", default=None, help="serial port (COM4) — auto-detect if omitted")
@@ -47,12 +60,18 @@ def main():
             run([VENV_PY, "-m", "esptool"] + port + ["erase_flash"])
         run([VENV_PY, "-m", "esptool"] + port +
             ["--baud", args.baud, "write_flash", "0", str(BIN)])
-        print("waiting for the board to reboot into MicroPython ...")
-        time.sleep(6)
 
     mp = [VENV_PY, "-m", "mpremote"]
     if args.port:
         mp += ["connect", args.port]
+
+    # The XIAO's native USB ignores esptool's software reset, so after flashing
+    # it needs a physical reset (RESET button or unplug/replug) to boot MicroPython.
+    if not _wait_for_repl(mp):
+        print("ERROR: could not reach the MicroPython REPL.")
+        print("Press RESET on the XIAO (or unplug/replug USB), then re-run:")
+        print("  python scripts/flash_nirvana_os.py --port " + (args.port or "COMx") + " --no-flash")
+        sys.exit(1)
 
     # config: use the user's real config.json if present, else the example template
     cfg_src = FW_DIR / "config.json"
