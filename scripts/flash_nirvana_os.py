@@ -67,6 +67,8 @@ def main():
                       (FW_DIR / "sdcard.py", "sdcard.py"),
                       (FW_DIR / "sd.py", "sd.py"),
                       (FW_DIR / "menu.py", "menu.py"),
+                      (FW_DIR / "uQR.py", "uQR.py"),
+                      (FW_DIR / "wifi_provision.py", "wifi_provision.py"),
                       (cfg_src, "config.json")):
         run(mp + ["cp", str(src), ":" + dest])
 

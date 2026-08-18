@@ -26,17 +26,18 @@ python scripts/flash_nirvana_os.py --port COM4
    then uploads `boot.py` / `main.py` / `config.json`.
 3. Reopen the serial REPL at 115200 baud — you should see the Nirvana OS banner.
 
-## First-run config
+## First-run config (QR provisioning)
 
-Without a saved `config.json`, the device drops to a serial setup prompt:
+On first boot (no saved WiFi), the device starts a **SoftAP** and draws a **QR
+code** on the round display:
 
-```
-SSID: <type your network>
-Password: <type your password>
-```
+1. Scan the QR with your phone (or join the `Nirvana-Setup` Wi-Fi network).
+2. The setup page opens - enter your Wi-Fi SSID + password.
+3. The device saves `config.json` and reboots onto your network.
 
-Or pre-create `firmware/nirvana-os/config.json` (copy the example) and re-run the
-flash script — it uploads the real `config.json` when present.
+Serial fallback: if the display isn't available, it drops to a serial prompt at
+115200 baud. Or pre-create `firmware/nirvana-os/config.json` (copy the example)
+and re-run the flash script - it uploads the real `config.json` when present.
 
 ## OTA
 

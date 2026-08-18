@@ -23,7 +23,7 @@ import ssl
 import sys
 import time
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 CONFIG_PATH = "/config.json"
 
 DEFAULTS = {
@@ -174,6 +174,31 @@ def setup_menu(cfg):
         cfg["wifi_pass"] = pwd
         save_config(cfg)
 
+# ── provisioning ────────────────────────────────────────────────────────
+def provision(cfg):
+    """QR + SoftAP + captive-portal provisioning, with serial fallback."""
+    log("=== NIRVANA OS provisioning ===")
+    try:
+        import wifi_provision
+        wifi_provision.start_ap()
+        ip = wifi_provision.ap_ip()
+        log("SoftAP '" + wifi_provision.AP_SSID + "' at " + ip)
+        try:
+            import display
+            lcd = display.get()
+            lcd.fill(0)
+            lcd.center_text("NIRVANA SETUP", 10, display.GREEN)
+            lcd.center_text("scan QR or join:", 36, display.WHITE)
+            lcd.center_text(wifi_provision.AP_SSID, 52, display.WHITE)
+            wifi_provision.render_qr("http://" + ip + "/", lcd)
+            lcd.show()
+        except Exception as e:
+            log("QR render failed: " + str(e))
+        if wifi_provision.run_portal(cfg, save_config):
+            return
+    except Exception as e:
+        log("provisioning error: " + str(e))
+    setup_menu(cfg)
 
 # ── menu ────────────────────────────────────────────────────────────────
 def run_menu(cfg):
@@ -267,8 +292,13 @@ def main():
             log("display init failed: " + str(e))
 
     wlan = connect_wifi(cfg["wifi_ssid"], cfg["wifi_pass"])
-    if wlan is None and not cfg["wifi_ssid"]:
-        setup_menu(cfg)
+    if wlan is None:
+        if cfg["wifi_ssid"]:
+            log("WiFi failed - re-provisioning")
+            cfg["wifi_ssid"] = ""
+            cfg["wifi_pass"] = ""
+            save_config(cfg)
+        provision(cfg)
         wlan = connect_wifi(cfg["wifi_ssid"], cfg["wifi_pass"])
 
     if wlan:
