@@ -175,6 +175,27 @@ def setup_menu(cfg):
         save_config(cfg)
 
 
+# ── touch loop ──────────────────────────────────────────────────────────
+def run_touch_loop(cfg):
+    """Poll CHSC6X touch and show taps - foundation for the menu UI."""
+    import display
+    import touch as touch_mod
+    i2c = machine.I2C(0, scl=machine.Pin(5), sda=machine.Pin(4), freq=400000)
+    t = touch_mod.Touch(i2c, int_pin=44)
+    log("touch ready - tap the screen")
+    last = None
+    while True:
+        p = t.read()
+        if p is not None and p != last:
+            last = p
+            log("touch at %d,%d" % p)
+            try:
+                display.status("%d,%d" % p, display.YELLOW)
+            except Exception:
+                pass
+        time.sleep_ms(50)
+
+
 # ── entry ───────────────────────────────────────────────────────────────
 def main():
     log("NIRVANA OS v" + VERSION + " booting")
@@ -208,6 +229,14 @@ def main():
         heartbeat(cfg)
         check_ota(cfg)
 
-    log("boot complete - REPL active (Ctrl+C to interrupt)")
+    log("boot complete")
+    if cfg.get("display_enabled", True):
+        try:
+            run_touch_loop(cfg)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            log("touch loop error: " + str(e))
+    log("REPL active (Ctrl+C to interrupt)")
 
 main()
