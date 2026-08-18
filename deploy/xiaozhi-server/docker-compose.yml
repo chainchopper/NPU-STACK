@@ -1,0 +1,82 @@
+# Self-hosted XiaoZhi voice server — branded for NPU-STACK / Nirvana.
+#
+# Runs the golang server + manager console entirely on our network.
+# No xiaozhi.me / tenclass.net calls: ASR/LLM/TTS engines are configured
+# against our own providers (DeepSeek, Ollama, etc.) via the web console.
+#
+# Usage:
+#   cp .env.example .env        # set MYSQL_PASSWORD (+ optional keys)
+#   docker compose up -d
+#   console: http://<host>:8080  (config wizard, device mgmt, OTA)
+#
+# Ports:
+#   8080 -> manager web console
+#   8081 -> manager API
+#   8989 -> WebSocket voice
+#   2882 -> MQTT (broker on :2883 in-container)
+#   8888 -> UDP audio
+#   23306 -> MySQL
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: nirvana-xiaozhi-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-changeme}
+      MYSQL_DATABASE: xiaozhi_admin
+    ports:
+      - "23306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_PASSWORD:-changeme}"]
+      interval: 10s
+      timeout: 20s
+      retries: 10
+      start_period: 30s
+    networks: [xiaozhi-network]
+
+  main-server:
+    image: hackers365/xiaozhi_server:${XIAOZHI_TAG:-0.6.4}
+    container_name: nirvana-xiaozhi-main
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8989:8989"        # WebSocket voice
+      - "2882:2883"        # MQTT
+      - "8888:8888/udp"    # UDP audio
+    volumes:
+      - ./config:/workspace/config
+      - ./logs:/workspace/logs
+    networks: [xiaozhi-network]
+
+  backend:
+    image: hackers365/xiaozhi_manager_backend:${XIAOZHI_TAG:-0.6.4}
+    container_name: nirvana-xiaozhi-backend
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./manager/backend/config:/root/config
+    networks: [xiaozhi-network]
+
+  frontend:
+    image: hackers365/xiaozhi_manager_frontend:${XIAOZHI_TAG:-0.6.4}
+    container_name: nirvana-xiaozhi-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    networks: [xiaozhi-network]
+
+volumes:
+  mysql_data:
+
+networks:
+  xiaozhi-network:
+    driver: bridge

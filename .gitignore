@@ -84,6 +84,13 @@ firmware/amb82-mini/sdcard-assets/config.real.json
 firmware/amb82-mini/sdcard-assets/config.local.json
 firmware/amb82-mini/keys*.json
 firmware/nirvana-os/config.json
+
+# XiaoZhi self-hosted server — local secrets + generated files
+deploy/xiaozhi-server/.env
+deploy/xiaozhi-server/config/*.yaml
+deploy/xiaozhi-server/config/*.json
+deploy/xiaozhi-server/manager/
+deploy/xiaozhi-server/logs/
 Fleet MCP - OTA - REMOTE BOOT - MGMT - SERVICE AND DEVICE DISOVERY.md
 assets/
 compositions/

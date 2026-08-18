@@ -143,6 +143,7 @@ Default section order:
 |------|---------|
 | `llama.cpp/` | Upstream llama.cpp (absorbed for GGUF inference backend) |
 | `libraries/` | Shared C/C++ libraries for inference runtimes |
+| `deploy/` | Self-hosted service deployment configs (xiaozhi voice server, etc.) |
 | `scripts/` | Utility scripts (pruning, testing, setup automation) |
 | `tests/` | Test suite |
 | `web/` | Static landing page and API reference |
