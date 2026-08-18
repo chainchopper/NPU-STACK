@@ -83,14 +83,17 @@ web/.git
 firmware/amb82-mini/sdcard-assets/config.real.json
 firmware/amb82-mini/sdcard-assets/config.local.json
 firmware/amb82-mini/keys*.json
-firmware/nirvana-os/config.json
 
-# XiaoZhi self-hosted server — local secrets + generated files
-deploy/xiaozhi-server/.env
-deploy/xiaozhi-server/config/*.yaml
-deploy/xiaozhi-server/config/*.json
-deploy/xiaozhi-server/manager/
-deploy/xiaozhi-server/logs/
+# ── Nirvana / device outputs — LOCAL ONLY, not part of base NPU-STACK ──
+# Branded firmware, board assets, and device tooling stay off public GitHub.
+firmware/nirvana-os/
+deploy/xiaozhi-server/
+scripts/flash_nirvana_os.py
+firmware/micropython-esp32/ESP32_GENERIC_S3-20260406-v1.28.0.bin
+firmware/micropython-esp32/XIAO-Sense-OV2640-wifi-ble-20230717.bin
+docs/references/Round-Display-XIAO-SCH-v1.1.pdf
+docs/references/xiao-sense-ov2640-scripts/
+internal/
 Fleet MCP - OTA - REMOTE BOOT - MGMT - SERVICE AND DEVICE DISOVERY.md
 assets/
 compositions/
