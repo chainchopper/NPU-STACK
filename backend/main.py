@@ -31,7 +31,7 @@ if not os.getenv("XET_TMP_DIR"):
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, WebSocket, Request, Query
 from fastapi.responses import StreamingResponse
 from starlette.responses import Response as StarletteResponse
 from starlette.background import BackgroundTask
@@ -297,13 +297,38 @@ app.mount("/nirvana", nirvana_frame_proxy, name="nirvana-frame-proxy")
 
 
 @app.get("/api/health")
-def health_check():
-    """Health check endpoint."""
-    return {
+def health_check(
+    device_id: str | None = Query(default=None, description="Optional Nirvana board unique id"),
+    ip: str | None = Query(default=None, description="Board IP address"),
+    firmware: str | None = Query(default=None, description="Board firmware version"),
+    machine: str | None = Query(default=None, description="Board machine string"),
+):
+    """Health check endpoint.
+
+    Nirvana boards phone home here on boot. When they include identity query
+    params, the board is registered/refreshed in the edge fleet registry.
+    """
+    heartbeat_info = None
+    if device_id:
+        try:
+            from services.edge_discovery import register_board_heartbeat
+            heartbeat_info = register_board_heartbeat(
+                device_id=device_id,
+                ip=ip or "",
+                firmware=firmware or "",
+                machine=machine or "",
+            )
+        except Exception:
+            heartbeat_info = None
+
+    response = {
         "status": "healthy",
         "service": "npu-stack-backend",
         "version": "1.0.0",
     }
+    if heartbeat_info:
+        response["board"] = heartbeat_info.get("status")
+    return response
 
 
 @app.get("/api/health/agent")

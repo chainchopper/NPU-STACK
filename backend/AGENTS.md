@@ -67,7 +67,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `cvedia_service` | `services/cvedia_service.py` | CVEDIA integration logic |
 | `dataset_builder` | `services/dataset_builder.py` | Dataset construction pipeline |
 | `data_extractor` | `services/data_extractor.py` | Dataset extraction utilities |
-| `edge_discovery` | `services/edge_discovery.py` | Edge device discovery |
+| `edge_discovery` | `services/edge_discovery.py` | Edge device discovery — USB/PnP/mDNS/network + MicroPython/Nirvana OS serial probe (stable unique-id registration) |
 | `flm_service` | `services/flm_service.py` | FastFlowLM integration |
 | `gguf_pipeline` | `services/gguf_pipeline.py` | GGUF conversion pipeline |
 | `hub_publisher` | `services/hub_publisher.py` | HuggingFace publishing |
@@ -89,6 +89,8 @@ This is an active development boundary. All changes to API routes, services, or 
 - The proxy middleware protects `/api/nirvana/*` from being forwarded to `:8789`
 - When adding a new router, register it in `main.py` before any catch-all proxy routes
 - The OpenAI-compatible endpoint at `/v1` must remain ABI-compatible with the OpenAI client SDK
+- `GET /api/devices/scan` probes connected USB serial ports for live MicroPython/Nirvana boards and registers them by stable unique id (`nirvana-<uid>`); the background auto-poll probes only ports not yet identified
+- `GET /api/health` doubles as the Nirvana board phone-home: when called with `device_id`/`ip`/`firmware`/`machine` query params it registers/refreshes the board in the edge registry
 
 ## Verification
 

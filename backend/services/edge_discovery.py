@@ -55,7 +55,9 @@ USB_DEVICE_MAP = {
     (0x303A, 0x0003): {"family": "esp32-c3", "chip": "ESP32-C3", "npu": False, "flash_mb": 4},
     (0x303A, 0x1003): {"family": "esp32-c3", "chip": "ESP32-C3", "npu": False, "flash_mb": 4},
     (0x303A, 0x1004): {"family": "esp32-c6", "chip": "ESP32-C6", "npu": False, "flash_mb": 4},
-    (0x303A, 0x4001): {"family": "esp32-p4", "chip": "ESP32-P4", "npu": True, "flash_mb": 16},
+    # 0x4001 is the MicroPython/TinyUSB REPL descriptor for ESP32-S3 (verified
+    # on a Seeed XIAO ESP32-S3 Sense running Nirvana OS).
+    (0x303A, 0x4001): {"family": "esp32-s3", "chip": "ESP32-S3", "npu": False, "flash_mb": 8},
     (0x303A, 0x0010): {"family": "esp32-h2", "chip": "ESP32-H2", "npu": False, "flash_mb": 4},
     # ── UART bridge chips ──
     (0x10C4, 0xEA60): {"family": "uart-bridge", "chip": "Silicon Labs CP210x", "npu": False, "flash_mb": 0},
@@ -248,6 +250,20 @@ _VIRTUAL_INTERFACE_TOKENS = (
     "bluetooth",
 )
 
+# Serial ports worth probing for a live MicroPython REPL. We deliberately
+# exclude mass-storage and radio bridges so a probe never disturbs them.
+_MICROPYTHON_PROBE_FAMILIES = {
+    "esp32", "esp32-s2", "esp32-s3", "esp32-c3", "esp32-c6", "esp32-h2", "esp32-p4",
+    "esp8266", "seeed-xiao", "rp2040", "rp2350", "arduino", "nrf", "teensy", "stm32",
+    "microchip", "unknown", "serial", "uart-bridge",
+}
+
+# Marker emitted by the raw-REPL introspection snippet (see _probe_micropython_serial).
+_MICROPYTHON_PROBE_MARKER = "NIRVANA_PROBE|"
+_MICROPYTHON_PROBE_RE = re.compile(
+    rb"NIRVANA_PROBE\|([0-9a-fA-F]+)\|([^|]*)\|([^|]*)\|([^|\r\n]*)\|([01])\|([^|\r\n]*)"
+)
+
 
 # ── Profile catalog ──────────────────────────────────────────────
 
@@ -361,6 +377,41 @@ def _classify_chip_identity(chip_name: str, manufacturer: str = "", description:
 
 def _is_generic_serial_family(family: str) -> bool:
     return family in {"unknown", "serial", "uart-bridge"}
+
+
+def _classify_micropython_machine(machine: str) -> dict:
+    """Map a MicroPython ``os.uname().machine`` string to a family/chip.
+
+    These strings are the ground truth for silicon identity (USB VID/PID can be
+    a generic Espressif/TinyUSB descriptor that misidentifies the chip).
+    """
+    m = (machine or "").lower()
+    if "s3" in m:
+        return {"family": "esp32-s3", "chip": "ESP32-S3", "npu": False, "flash_mb": 8}
+    if "s2" in m:
+        return {"family": "esp32-s2", "chip": "ESP32-S2", "npu": False, "flash_mb": 4}
+    if "c6" in m:
+        return {"family": "esp32-c6", "chip": "ESP32-C6", "npu": False, "flash_mb": 4}
+    if "c3" in m:
+        return {"family": "esp32-c3", "chip": "ESP32-C3", "npu": False, "flash_mb": 4}
+    if "h2" in m:
+        return {"family": "esp32-h2", "chip": "ESP32-H2", "npu": False, "flash_mb": 4}
+    if "p4" in m:
+        return {"family": "esp32-p4", "chip": "ESP32-P4", "npu": True, "flash_mb": 16}
+    if "8266" in m:
+        return {"family": "esp8266", "chip": "ESP8266", "npu": False, "flash_mb": 0}
+    if "rp2350" in m:
+        return {"family": "rp2350", "chip": "RP2350", "npu": False, "flash_mb": 4}
+    if "rp2040" in m:
+        return {"family": "rp2040", "chip": "RP2040", "npu": False, "flash_mb": 2}
+    if "esp32" in m:
+        return {"family": "esp32", "chip": "ESP32", "npu": False, "flash_mb": 4}
+    if "stm32" in m:
+        return {"family": "stm32", "chip": "STM32", "npu": False, "flash_mb": 0}
+    if "nrf52" in m or "nrf53" in m or "nrf91" in m:
+        return {"family": "nrf", "chip": "Nordic nRF", "npu": False, "flash_mb": 1}
+    return {}
+
 
 
 def _should_preserve_existing_identity(existing: dict, discovered: dict) -> bool:
@@ -1053,6 +1104,225 @@ def scan_usb_devices() -> list[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  MicroPython / Nirvana OS Serial Probe
+# ═══════════════════════════════════════════════════════════════════
+
+def _should_probe_port(family: str) -> bool:
+    return family in _MICROPYTHON_PROBE_FAMILIES
+
+
+def _probe_micropython_serial(port: str, timeout: float = 2.5) -> Optional[dict]:
+    """Probe a serial port for a live MicroPython REPL.
+
+    Interrupts any running program, enters raw REPL, evaluates a small
+    introspection snippet, then soft-resets the board so it returns to its
+    normal program. Returns identity fields on success, ``None`` otherwise.
+    """
+    import serial
+
+    try:
+        ser = serial.Serial(port, baudrate=115200, timeout=0.2, write_timeout=1.0)
+    except Exception as exc:
+        logger.debug("MicroPython probe: cannot open %s (%s)", port, exc)
+        return None
+
+    snippet = (
+        "import machine, os\r\n"
+        "uid = machine.unique_id().hex()\r\n"
+        "ip = ''\r\n"
+        "try:\r\n"
+        "    import network\r\n"
+        "    w = network.WLAN(network.STA_IF)\r\n"
+        "    if w.isconnected():\r\n"
+        "        ip = w.ifconfig()[0]\r\n"
+        "except Exception:\r\n"
+        "    pass\r\n"
+        "nirvana = '0'\r\n"
+        "version = ''\r\n"
+        "try:\r\n"
+        "    if 'config.json' in os.listdir('/'):\r\n"
+        "        nirvana = '1'\r\n"
+        "except Exception:\r\n"
+        "    pass\r\n"
+        "try:\r\n"
+        "    import sys\r\n"
+        "    _main = sys.modules.get('main') or sys.modules.get('__main__')\r\n"
+        "    if _main is not None and hasattr(_main, 'VERSION'):\r\n"
+        "        version = str(_main.VERSION)\r\n"
+        "except Exception:\r\n"
+        "    pass\r\n"
+        "if not version:\r\n"
+        "    try:\r\n"
+        "        with open('/main.py') as f:\r\n"
+        "            _content = f.read()\r\n"
+        "        import re as _re\r\n"
+        "        _m = _re.search(r'VERSION\\s*=\\s*[\"\\']([^\"\\']+)[\"\\']', _content)\r\n"
+        "        if _m:\r\n"
+        "            version = _m.group(1)\r\n"
+        "    except Exception:\r\n"
+        "        pass\r\n"
+        "if not version:\r\n"
+        "    try:\r\n"
+        "        with open('/version.json') as f:\r\n"
+        "            import json\r\n"
+        "            version = json.load(f).get('version', '')\r\n"
+        "    except Exception:\r\n"
+        "        pass\r\n"
+        "print('NIRVANA_PROBE|%s|%s|%s|%s|%s|%s' % (uid, os.uname().machine, os.uname().release, ip, nirvana, version))\r\n"
+    )
+
+    try:
+        # Interrupt any running program, then enter raw REPL.
+        ser.write(b"\x03\x03")
+        time.sleep(0.3)
+        ser.reset_input_buffer()
+        ser.write(b"\x01")
+        time.sleep(0.15)
+        ser.reset_input_buffer()
+
+        ser.write(snippet.encode("utf-8") + b"\x04")
+
+        out = b""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            chunk = ser.read(256)
+            if not chunk:
+                continue
+            out += chunk
+            if _MICROPYTHON_PROBE_MARKER.encode() in out and b"\r\n" in out:
+                break
+
+        # Restore the board to its normal program via soft reset.
+        try:
+            ser.write(b"import machine\r\nmachine.soft_reset()\r\n\x04")
+        except Exception:
+            pass
+        time.sleep(0.2)
+    except Exception as exc:
+        logger.debug("MicroPython probe on %s failed: %s", port, exc)
+        out = b""
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+    if not out:
+        return None
+
+    match = _MICROPYTHON_PROBE_RE.search(out)
+    if not match:
+        return None
+
+    uid = match.group(1).decode("ascii", "replace").strip().lower()
+    if not uid:
+        return None
+
+    return {
+        "device_id": uid,
+        "machine": match.group(2).decode("ascii", "replace").strip(),
+        "release": match.group(3).decode("ascii", "replace").strip(),
+        "ip": match.group(4).decode("ascii", "replace").strip(),
+        "nirvana": match.group(5) == b"1",
+        "version": match.group(6).decode("ascii", "replace").strip(),
+    }
+
+
+def scan_micropython_boards(usb_devices: Optional[list[dict]] = None, skip_known: bool = True) -> list[dict]:
+    """Probe candidate serial ports for live MicroPython/Nirvana boards.
+
+    Returns registry-ready device dicts keyed by the board's stable unique id
+    (``nirvana-<uid>`` for our firmware, ``mp-<uid>`` for stock MicroPython).
+    Callers should drop the matching generic ``usb-*`` entries to avoid dupes.
+    """
+    try:
+        import serial.tools.list_ports
+    except ImportError:
+        logger.warning("pyserial not installed — MicroPython board probe disabled")
+        return []
+
+    if usb_devices is None:
+        usb_devices = scan_usb_devices()
+
+    port_map: dict[str, dict] = {}
+    for device in usb_devices:
+        port = device.get("port")
+        if port:
+            port_map[port] = device
+
+    known_ports: set[str] = set()
+    if skip_known:
+        registry = load_registry()
+        for device in registry.get("devices", {}).values():
+            if device.get("board_id") and device.get("port"):
+                known_ports.add(str(device["port"]))
+
+    boards: list[dict] = []
+    for port in serial.tools.list_ports.comports():
+        usb = port_map.get(port.device, {})
+        family = str(usb.get("family") or "unknown")
+        if not _should_probe_port(family):
+            continue
+        if skip_known and port.device in known_ports:
+            continue
+
+        probe = _probe_micropython_serial(port.device)
+        if not probe:
+            continue
+
+        uid = probe["device_id"]
+        is_nirvana = bool(probe["nirvana"])
+        machine = probe["machine"]
+
+        # The MicroPython machine string is the ground truth for silicon.
+        # Seeed XIAO boards expose a specific Seeed VID only in bootloader
+        # mode; in MicroPython mode the descriptor is a generic Espressif one.
+        machine_identity = _classify_micropython_machine(machine) or {}
+        usb_family = str(usb.get("family") or "")
+        if usb_family == "seeed-xiao":
+            family = "seeed-xiao"
+        elif machine_identity:
+            family = machine_identity["family"]
+        else:
+            family = "micropython"
+
+        chip = machine_identity.get("chip") or str(usb.get("chip") or "").strip() or machine
+        has_npu = bool(machine_identity.get("npu", usb.get("has_npu", _family_has_npu(family))))
+        flash_mb = machine_identity.get("flash_mb") or usb.get("flash_mb", 0)
+
+        boards.append({
+            "id": f"{'nirvana' if is_nirvana else 'mp'}-{uid}",
+            "board_id": uid,
+            "port": port.device,
+            "description": usb.get("description") or port.description or "",
+            "manufacturer": usb.get("manufacturer") or port.manufacturer or "",
+            "serial_number": usb.get("serial_number") or port.serial_number or "",
+            "hwid": usb.get("hwid") or port.hwid or "",
+            "vid": usb.get("vid", port.vid),
+            "pid": usb.get("pid", port.pid),
+            "connection": "usb",
+            "runtime": "micropython",
+            "firmware": "nirvana-os" if is_nirvana else "micropython",
+            "firmware_version": probe["version"],
+            "machine": machine,
+            "release": probe["release"],
+            "ip": probe["ip"],
+            "status": "online" if probe["ip"] else "detected",
+            "agent_installed": is_nirvana,
+            "family": family,
+            "chip": chip,
+            "has_npu": has_npu,
+            "flash_mb": flash_mb,
+            "discovered_at": _utcnow_iso(),
+        })
+
+    if boards:
+        logger.info("MicroPython probe identified %s board(s): %s",
+                    len(boards), [b["id"] for b in boards])
+    return boards
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  mDNS / Zeroconf Discovery
 # ═══════════════════════════════════════════════════════════════════
 
@@ -1701,8 +1971,8 @@ def merge_into_registry(discovered: list[dict]) -> dict:
             "last_seen": now,
             "nickname": existing.get("nickname", ""),
             "notes": existing.get("notes", ""),
-            "firmware_version": existing.get("firmware_version", ""),
-            "agent_installed": existing.get("agent_installed", False),
+            "firmware_version": discovered_device.get("firmware_version") or existing.get("firmware_version", ""),
+            "agent_installed": bool(discovered_device.get("agent_installed") or existing.get("agent_installed", False)),
             "paired": preserve_pairing,
             "management_state": existing.get("management_state", "paired" if preserve_pairing else "detected"),
             "preferred_profile_id": existing.get("preferred_profile_id"),
@@ -1721,6 +1991,60 @@ def merge_into_registry(discovered: list[dict]) -> dict:
     registry["last_scan"] = now
     save_registry(registry)
     return registry
+
+
+def register_board_heartbeat(
+    device_id: str,
+    ip: str = "",
+    firmware: str = "",
+    machine: str = "",
+    family: str = "",
+    chip: str = "",
+) -> dict:
+    """Upsert a Nirvana board that phoned home over WiFi.
+
+    Keys the device by its stable unique id so a heartbeat and a later USB
+    scan resolve to the same registry entry.
+    """
+    if not device_id:
+        return {"status": "ignored", "reason": "missing device_id"}
+
+    device_id = str(device_id).strip().lower()
+    registry = load_registry()
+    devices = registry.setdefault("devices", {})
+    existing = devices.get(f"nirvana-{device_id}", {})
+    now = _utcnow_iso()
+
+    machine = machine or existing.get("machine") or ""
+    chip_identity = _classify_micropython_machine(machine) or {}
+    family = family or existing.get("family") or chip_identity.get("family") or "seeed-xiao"
+    chip = chip or existing.get("chip") or chip_identity.get("chip") or "Nirvana Board"
+
+    merged = {
+        **existing,
+        "id": f"nirvana-{device_id}",
+        "board_id": device_id,
+        "connection": existing.get("connection") or "wifi",
+        "status": "online",
+        "ip": ip or existing.get("ip", ""),
+        "agent_installed": True,
+        "firmware": "nirvana-os",
+        "firmware_version": firmware or existing.get("firmware_version", ""),
+        "machine": machine,
+        "family": family,
+        "chip": chip,
+        "first_seen": existing.get("first_seen") or now,
+        "last_seen": now,
+        "nickname": existing.get("nickname", ""),
+        "notes": existing.get("notes", ""),
+        "paired": existing.get("paired", False),
+        "management_state": existing.get("management_state", "detected"),
+        "preferred_profile_id": existing.get("preferred_profile_id"),
+    }
+    devices[f"nirvana-{device_id}"] = merged
+    registry["last_scan"] = now
+    save_registry(registry)
+    return {"status": "registered", "device": _enrich_device(dict(merged))}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2067,8 +2391,20 @@ async def run_full_discovery(
 
     if usb:
         scan_methods.append("usb")
-        all_devices.extend(scan_usb_devices())
+        usb_devices = scan_usb_devices()
+        all_devices.extend(usb_devices)
         all_devices.extend(scan_usb_mass_storage_devices())
+
+        mp_boards = scan_micropython_boards(usb_devices=usb_devices)
+        if mp_boards:
+            scan_methods.append("micropython")
+            identified_ports = {board["port"] for board in mp_boards}
+            # Drop generic usb-* entries for ports we identified as live boards.
+            all_devices = [
+                device for device in all_devices
+                if not (device.get("port") and device["port"] in identified_ports)
+            ]
+            all_devices.extend(mp_boards)
 
     if mdns:
         scan_methods.append("mdns")
@@ -2118,11 +2454,23 @@ def _poll_worker():
     while not _poll_stop:
         try:
             # Always run USB scan (cheap and reliable)
-            devices = scan_usb_devices()
-            devices.extend(scan_usb_mass_storage_devices())
+            usb_devices = scan_usb_devices()
+            usb_devices.extend(scan_usb_mass_storage_devices())
+
+            # Probe for live MicroPython/Nirvana boards only on ports that are
+            # not yet identified (skip_known=True), so we never reboot a board
+            # that is already registered with a stable unique id.
+            mp_boards = scan_micropython_boards(usb_devices=usb_devices, skip_known=True)
+            if mp_boards:
+                identified_ports = {board["port"] for board in mp_boards}
+                usb_devices = [
+                    device for device in usb_devices
+                    if not (device.get("port") and device["port"] in identified_ports)
+                ]
+            devices = usb_devices + mp_boards
             if devices:
                 merge_into_registry(devices)
-                logger.debug("Auto-poll: %d USB devices merged", len(devices))
+                logger.debug("Auto-poll: %d USB device(s) merged", len(devices))
         except Exception as e:
             logger.warning("Auto-poll error: %s", e)
         time.sleep(_poll_interval_seconds)
