@@ -1228,6 +1228,20 @@ def _probe_micropython_serial(port: str, timeout: float = 2.5) -> Optional[dict]
     }
 
 
+def _known_board_ports() -> set[str]:
+    """Serial ports already tied to a stable unique id in the registry.
+
+    Generic ``usb-*`` entries for these ports must be dropped from scan
+    results so they never duplicate the identified ``nirvana-``/``mp-`` entry.
+    """
+    registry = load_registry()
+    ports: set[str] = set()
+    for device in registry.get("devices", {}).values():
+        if device.get("board_id") and device.get("port"):
+            ports.add(str(device["port"]))
+    return ports
+
+
 def scan_micropython_boards(usb_devices: Optional[list[dict]] = None, skip_known: bool = True) -> list[dict]:
     """Probe candidate serial ports for live MicroPython/Nirvana boards.
 
@@ -1250,12 +1264,7 @@ def scan_micropython_boards(usb_devices: Optional[list[dict]] = None, skip_known
         if port:
             port_map[port] = device
 
-    known_ports: set[str] = set()
-    if skip_known:
-        registry = load_registry()
-        for device in registry.get("devices", {}).values():
-            if device.get("board_id") and device.get("port"):
-                known_ports.add(str(device["port"]))
+    known_ports: set[str] = _known_board_ports() if skip_known else set()
 
     boards: list[dict] = []
     for port in serial.tools.list_ports.comports():
@@ -1987,6 +1996,19 @@ def merge_into_registry(discovered: list[dict]) -> dict:
 
         devices[device_id] = merged
 
+    # Dedup: drop generic usb-* entries that share a port with a board that has
+    # a stable unique id (board_id). A single physical board must never appear
+    # as both `usb-COMx` and `nirvana-<uid>` / `mp-<uid>`.
+    identified_ports = {
+        str(device.get("port"))
+        for device in devices.values()
+        if device.get("board_id") and device.get("port")
+    }
+    if identified_ports:
+        for existing_id, existing_device in list(devices.items()):
+            if str(existing_id).startswith("usb-") and str(existing_device.get("port") or "") in identified_ports:
+                devices.pop(existing_id, None)
+
     registry["devices"] = devices
     registry["last_scan"] = now
     save_registry(registry)
@@ -2396,14 +2418,16 @@ async def run_full_discovery(
         all_devices.extend(scan_usb_mass_storage_devices())
 
         mp_boards = scan_micropython_boards(usb_devices=usb_devices)
-        if mp_boards:
-            scan_methods.append("micropython")
-            identified_ports = {board["port"] for board in mp_boards}
-            # Drop generic usb-* entries for ports we identified as live boards.
+        # Drop generic usb-* entries for ports that are already identified as
+        # stable boards (registry board_id) or were identified in this scan.
+        identified_ports = _known_board_ports() | {board["port"] for board in mp_boards}
+        if identified_ports:
             all_devices = [
                 device for device in all_devices
                 if not (device.get("port") and device["port"] in identified_ports)
             ]
+        if mp_boards:
+            scan_methods.append("micropython")
             all_devices.extend(mp_boards)
 
     if mdns:
@@ -2461,8 +2485,10 @@ def _poll_worker():
             # not yet identified (skip_known=True), so we never reboot a board
             # that is already registered with a stable unique id.
             mp_boards = scan_micropython_boards(usb_devices=usb_devices, skip_known=True)
-            if mp_boards:
-                identified_ports = {board["port"] for board in mp_boards}
+            # Drop generic usb-* entries for ports already tied to a stable id
+            # (or identified in this pass) so they never duplicate the entry.
+            identified_ports = _known_board_ports() | {board["port"] for board in mp_boards}
+            if identified_ports:
                 usb_devices = [
                     device for device in usb_devices
                     if not (device.get("port") and device["port"] in identified_ports)
