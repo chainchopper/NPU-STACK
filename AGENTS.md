@@ -143,6 +143,7 @@ Default section order:
 |------|---------|
 | `llama.cpp/` | Upstream llama.cpp (absorbed for GGUF inference backend) |
 | `libraries/` | Shared C/C++ libraries for inference runtimes |
+| `tools/` | Baked-in board toolchains — arduino-cli + Realtek AmebaPro2 core (offline AMB82 flash), local-only |
 | `deploy/` | Self-hosted service deployment configs (xiaozhi voice server, etc.) |
 | `scripts/` | Utility scripts (pruning, testing, setup automation) |
 | `tests/` | Test suite |

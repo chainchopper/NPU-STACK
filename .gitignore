@@ -104,6 +104,14 @@ test_escape.bat
 test_hardware.py
 test_quote.bat
 
+# ── Baked-in board toolchains — LOCAL ONLY (offline deps, hundreds of MB) ──
+# arduino-cli binary + Realtek AmebaPro2 core/toolchain live here so flashing
+# works without internet or the Arduino IDE. config.yaml + README.md are kept.
+tools/arduino/arduino-cli.exe
+tools/arduino/data/
+tools/arduino/downloads/
+tools/arduino/user/
+
 # Local reference clones / generated doc worktrees
 hermes-agent/
 gitbook-clone/

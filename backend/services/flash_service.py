@@ -84,26 +84,40 @@ def flash_esptool(bundle_dir: Path, port: str = "COM3") -> Dict[str, Any]:
     except Exception as e: return {"success": False, "error": str(e)}
 
 
+# ── Baked-in Arduino toolchain (self-contained, no internet) ──────────────
+
+ARDUINO_CLI = REPO / "tools" / "arduino" / "arduino-cli.exe"
+ARDUINO_CONFIG = REPO / "tools" / "arduino" / "config.yaml"
+ARDUINO_ENV = {**os.environ, "LC_ALL": "C", "LANG": "C"}  # avoid std::locale crash on Windows
+
+
+def _arduino_cli_prefix() -> Optional[list]:
+    """Resolve arduino-cli: the repo-vendored binary first, then system PATH."""
+    if ARDUINO_CLI.exists():
+        return [str(ARDUINO_CLI), "--config-file", str(ARDUINO_CONFIG)]
+    cli = shutil.which("arduino-cli")
+    return [cli] if cli else None
+
+
 def flash_arduino_cli(sketch_dir: str, port: str = "", fqbn: str = "") -> Dict[str, Any]:
     """Compile + upload an Arduino sketch (e.g. AMB82-Mini) via arduino-cli.
 
-    Requires arduino-cli on PATH and the Realtek Ameba Pro2 board package
-    installed. Falls back to step-by-step instructions when the tool is absent
-    so the control panel can always show a clear path.
+    Prefers the repo-vendored arduino-cli + Realtek AmebaPro2 core/toolchain
+    (tools/arduino/) so flashing works fully offline. Falls back to system
+    arduino-cli, then to step-by-step instructions when neither is available.
     """
-    cli = shutil.which("arduino-cli")
-    fqbn = fqbn or os.getenv("AMB82_FQBN", "realtek:AmebaPro2:Ameba_AMB82_mini")
+    cli_prefix = _arduino_cli_prefix()
+    fqbn = fqbn or os.getenv("AMB82_FQBN", "realtek:AmebaPro2:Ameba_AMB82-MINI")
     sketch = Path(sketch_dir)
 
-    if not cli:
+    if not cli_prefix:
         return {
             "success": False,
             "tool": "arduino-cli",
             "fqbn": fqbn,
-            "error": "arduino-cli not found on PATH. Install it and add the Realtek Ameba Pro2 board package, or flash via Arduino IDE.",
+            "error": "arduino-cli not found (vendored tools/arduino/arduino-cli.exe missing and not on PATH).",
             "instructions": [
-                "arduino-cli core update-index",
-                "arduino-cli core install realtek:AmebaPro2",
+                f"arduino-cli core install realtek:AmebaPro2",
                 f"arduino-cli compile --fqbn {fqbn} {sketch_dir}",
                 f"arduino-cli upload -p <port> --fqbn {fqbn} {sketch_dir}",
             ],
@@ -113,8 +127,8 @@ def flash_arduino_cli(sketch_dir: str, port: str = "", fqbn: str = "") -> Dict[s
 
     results = []
     try:
-        compile_cmd = [cli, "compile", "--fqbn", fqbn, str(sketch)]
-        r = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=900)
+        compile_cmd = cli_prefix + ["compile", "--fqbn", fqbn, str(sketch)]
+        r = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=900, env=ARDUINO_ENV)
         results.append({
             "stage": "compile", "returncode": r.returncode,
             "stdout": (r.stdout or "")[-4000:], "stderr": (r.stderr or "")[-4000:],
@@ -123,11 +137,11 @@ def flash_arduino_cli(sketch_dir: str, port: str = "", fqbn: str = "") -> Dict[s
             return {"success": False, "tool": "arduino-cli", "fqbn": fqbn,
                     "results": results, "error": "compile failed"}
 
-        upload_cmd = [cli, "upload", "--fqbn", fqbn]
+        upload_cmd = cli_prefix + ["upload", "--fqbn", fqbn]
         if port:
             upload_cmd += ["-p", port]
         upload_cmd.append(str(sketch))
-        r2 = subprocess.run(upload_cmd, capture_output=True, text=True, timeout=900)
+        r2 = subprocess.run(upload_cmd, capture_output=True, text=True, timeout=900, env=ARDUINO_ENV)
         results.append({
             "stage": "upload", "returncode": r2.returncode,
             "stdout": (r2.stdout or "")[-4000:], "stderr": (r2.stderr or "")[-4000:],

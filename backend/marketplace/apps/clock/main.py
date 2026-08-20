@@ -10,7 +10,7 @@ def run():
     lcd.center_text("CLOCK", 60, display.GREEN)
     try:
         from machine import I2C, Pin
-        i2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=400000)
+        i2c = I2C(0, scl=Pin(6), sda=Pin(5), freq=400000)
         data = i2c.readfrom_mem(0x51, 0x02, 7)
 
         def _bcd(v):

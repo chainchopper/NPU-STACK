@@ -1,0 +1,19 @@
+# NPU-STACK — repo-local arduino-cli configuration (self-contained, no internet)
+#
+# Points arduino-cli at the vendored Realtek AmebaPro2 core + toolchain that
+# ship inside this repository under tools/arduino/data, so NPU-STACK can flash
+# AMB82-Mini boards with zero external downloads.
+#
+# Usage:
+#   tools\arduino\arduino-cli.exe core list --config-file tools\arduino\config.yaml
+#   tools\arduino\arduino-cli.exe compile --config-file tools\arduino\config.yaml \
+#       --fqbn realtek:AmebaPro2:Ameba_AMB82_mini firmware\amb82-mini\amb82-nirvana-agent
+
+board_manager:
+  additional_urls:
+    - file:///J:/NPU-STACK/tools/arduino/data/package_realtek_amebapro2_index.json
+
+directories:
+  data: J:\NPU-STACK\tools\arduino\data
+  downloads: J:\NPU-STACK\tools\arduino\downloads
+  user: J:\NPU-STACK\tools\arduino\user

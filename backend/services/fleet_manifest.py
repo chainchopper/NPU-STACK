@@ -84,11 +84,12 @@ PLATFORMS = {
         "agent_dir": "amb82-mini/amb82-nirvana-agent",
         "main_file": "amb82-nirvana-agent.ino",
         "flash": {
-            "tool": "arduino-ide",
+            "tool": "arduino-cli",
             "method": "arduino_sketch",
             "sdk_url": "https://github.com/Ameba-AIoT/ameba-arduino-pro2",
             "board_package": "https://github.com/Ameba-AIoT/ameba-arduino-pro2/raw/main/Arduino_package/package_realtek_amebapro2_early_index.json",
             "board_name": "Ameba ARDUINO with AMB82-mini (RTL8735B)",
+            "fqbn": "realtek:AmebaPro2:Ameba_AMB82-MINI",
         },
         "backup": {"tool": "none", "method": "manual", "note": "AMB82 uses Arduino IDE flashing — backup not supported"},
         "deploy": {"tool": "arduino-ide", "method": "upload_sketch"},

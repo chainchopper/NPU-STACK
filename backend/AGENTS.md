@@ -95,7 +95,7 @@ This is an active development boundary. All changes to API routes, services, or 
 - `GET /api/health` doubles as the Nirvana board phone-home: when called with `device_id`/`ip`/`firmware`/`machine` query params it registers/refreshes the board in the edge registry
 - The Nirvana app marketplace is served from `backend/marketplace/` (catalog.json + apps/{id}/); device apps are installed on-device via `appstore.py` in the local-only firmware
 - `backend/emulator/` runs Nirvana OS app code in plain CPython with a virtual display; the runner uses a length-prefixed stdout protocol (`FRAME:<len>\n<bytes>`, `LOG:<text>`), consumed by `/api/emulator/ws`
-- `GET /api/devices/flash-tools` reports which flash tools are on the host; `POST /api/devices/{id}/flash-arduino` compiles+uploads the AMB82 sketch via arduino-cli (falls back to instructions if the Realtek core/tool is missing)
+- `GET /api/devices/flash-tools` reports which flash tools are on the host; `POST /api/devices/{id}/flash-arduino` compiles+uploads the AMB82 sketch via the repo-vendored arduino-cli + Realtek core (`tools/arduino/`, FQBN `realtek:AmebaPro2:Ameba_AMB82-MINI`, fully offline)
 - `GET /api/fleet/ota/nirvana-os/{version.json|file}` serves the Nirvana OS app layer as a flash-once OTA channel (whitelisted files from `firmware/nirvana-os/`)
 
 ## Verification
