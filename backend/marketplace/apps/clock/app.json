@@ -1,0 +1,8 @@
+{
+  "id": "clock",
+  "name": "Clock",
+  "version": "1.0.0",
+  "author": "NPU-STACK",
+  "description": "Reads the PCF8563 RTC when the carrier is wired.",
+  "entry": "main.py"
+}

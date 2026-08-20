@@ -1,0 +1,8 @@
+{
+  "id": "demo",
+  "name": "Demo",
+  "version": "1.0.0",
+  "author": "NPU-STACK",
+  "description": "Manifest-format example app.",
+  "entry": "main.py"
+}

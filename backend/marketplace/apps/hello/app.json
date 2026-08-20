@@ -1,0 +1,8 @@
+{
+  "id": "hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "author": "NPU-STACK",
+  "description": "Prints HELLO on the round display.",
+  "entry": "main.py"
+}

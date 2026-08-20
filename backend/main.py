@@ -84,6 +84,7 @@ from routers.nirvana_multimodal import router as nirvana_multimodal_router
 from routers.nirvana_stream import router as nirvana_stream_router
 from routers.fleet_device_control import router as fleet_device_control_router
 from routers.fleet_ota import router as fleet_ota_router
+from routers.emulator import router as emulator_router
 from services.docs_index_service import ensure_docs_index
 from services.docs_index_service import sync_project_docs_to_gitbook
 from services.edge_discovery import start_auto_poll, stop_auto_poll
@@ -289,6 +290,7 @@ app.include_router(nirvana_multimodal_router)
 app.include_router(nirvana_stream_router)
 app.include_router(fleet_device_control_router)
 app.include_router(fleet_ota_router)
+app.include_router(emulator_router)
 
 # ── Mount Nirvana WebUI proxy for iframe embedding ──
 # Strips CSP/X-Frame-Options headers so the WebUI can be embedded in NPU-STACK

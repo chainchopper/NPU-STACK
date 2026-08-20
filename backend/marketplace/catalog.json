@@ -1,0 +1,37 @@
+{
+  "apps": [
+    {
+      "id": "hello",
+      "name": "Hello",
+      "version": "1.0.0",
+      "author": "NPU-STACK",
+      "description": "Prints HELLO on the round display.",
+      "files": [
+        {"path": "app.json", "url": "/api/devices/apps/hello/app.json"},
+        {"path": "main.py", "url": "/api/devices/apps/hello/main.py"}
+      ]
+    },
+    {
+      "id": "clock",
+      "name": "Clock",
+      "version": "1.0.0",
+      "author": "NPU-STACK",
+      "description": "Reads the PCF8563 RTC when the carrier is wired.",
+      "files": [
+        {"path": "app.json", "url": "/api/devices/apps/clock/app.json"},
+        {"path": "main.py", "url": "/api/devices/apps/clock/main.py"}
+      ]
+    },
+    {
+      "id": "demo",
+      "name": "Demo",
+      "version": "1.0.0",
+      "author": "NPU-STACK",
+      "description": "Manifest-format example app.",
+      "files": [
+        {"path": "app.json", "url": "/api/devices/apps/demo/app.json"},
+        {"path": "main.py", "url": "/api/devices/apps/demo/main.py"}
+      ]
+    }
+  ]
+}

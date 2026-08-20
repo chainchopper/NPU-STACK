@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, MessageSquare, ChevronDown, ChevronRight, Antenna } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, MessageSquare, ChevronDown, ChevronRight, Antenna, Smartphone } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { API_BASE } from './api/client';
 const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
@@ -37,6 +37,7 @@ const NirvanaInsights = lazy(() => import('./pages/NirvanaInsights'));
 const BoardExplorer = lazy(() => import('./pages/BoardExplorer'));
 const EspNowDeploy = lazy(() => import('./pages/EspNowDeploy'));
 const EspDevConsole = lazy(() => import('./pages/EspDevConsole'));
+const DevicePlayground = lazy(() => import('./pages/DevicePlayground'));
 
 const managementItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -56,6 +57,7 @@ const managementItems = [
     { path: '/fleet-command', icon: Radio, label: 'Fleet Command' },
     { path: '/esp-dev', icon: Cpu, label: 'ESP Dev' },
     { path: '/boards', icon: Cpu, label: 'Boards' },
+    { path: '/device-playground', icon: Smartphone, label: 'Device Playground' },
 ];
 
 const nirvanaItems = [
@@ -265,6 +267,7 @@ function AppInner() {
                             <Route path="/espnow-deploy" element={<Navigate to="/esp-dev" replace />} />
                             <Route path="/esp-dev" element={<EspDevConsole />} />
                             <Route path="/boards" element={<BoardExplorer />} />
+                            <Route path="/device-playground" element={<DevicePlayground />} />
                             <Route path="/nirvana-chat" element={<NirvanaChat />} />
                             <Route path="/nirvana-todos" element={<NirvanaTodos />} />
                             <Route path="/nirvana-insights" element={<NirvanaInsights />} />

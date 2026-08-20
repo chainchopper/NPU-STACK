@@ -359,6 +359,33 @@ def reboot_device(device_id: str, req: DeviceRebootRequest):
     return run_device_control_action(device_id, "reboot", {}, dry_run=req.dry_run)
 
 
+# ── Nirvana app marketplace ────────────────────────────────────────
+
+MARKETPLACE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "marketplace")
+
+
+@router.get("/apps/catalog")
+def apps_catalog():
+    """Serve the Nirvana app catalog (installed on devices via the Store)."""
+    catalog_path = os.path.join(MARKETPLACE_DIR, "catalog.json")
+    if not os.path.exists(catalog_path):
+        return {"apps": []}
+    import json
+    with open(catalog_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+@router.get("/apps/{app_id}/{filename}")
+def apps_file(app_id: str, filename: str):
+    """Serve a single app file from the marketplace."""
+    safe_id = "".join(c for c in app_id if c.isalnum() or c in "-_")
+    safe_name = "".join(c for c in filename if c.isalnum() or c in "-_.")
+    path = os.path.join(MARKETPLACE_DIR, "apps", safe_id, safe_name)
+    if not os.path.isfile(path):
+        raise HTTPException(404, f"App file '{app_id}/{filename}' not found")
+    return FileResponse(path)
+
+
 # ── Individual device CRUD (MUST BE LAST — /{device_id} is greedy) ─
 
 @router.get("/{device_id}")
