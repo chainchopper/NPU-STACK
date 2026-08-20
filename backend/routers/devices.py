@@ -43,6 +43,7 @@ from services.edge_discovery import (
     FIRMWARE_DIR,
 )
 from services.fleet_orchestrator import query_device_telemetry, run_device_control_action
+from services import flash_service
 
 router = APIRouter(prefix="/api/devices", tags=["edge-fleet"])
 
@@ -75,6 +76,11 @@ class ESPFlashRequest(BaseModel):
 class RP2040FlashRequest(BaseModel):
     drive: str  # e.g., "E:\\"
     uf2_path: str
+
+
+class FlashArduinoRequest(BaseModel):
+    port: Optional[str] = None   # e.g. "COM34"
+    fqbn: Optional[str] = None   # default: realtek:AmebaPro2:Ameba_AMB82_mini
 
 
 class PrepareFirmwareRequest(BaseModel):
@@ -359,8 +365,30 @@ def reboot_device(device_id: str, req: DeviceRebootRequest):
     return run_device_control_action(device_id, "reboot", {}, dry_run=req.dry_run)
 
 
-# ── Nirvana app marketplace ────────────────────────────────────────
+# ── Flashing tools + AMB82 (Arduino) ──────────────────────────────
 
+@router.get("/flash-tools")
+def flash_tools():
+    """Report which flashing tools are available on this host."""
+    return {"tools": flash_service.flash_tools_available()}
+
+
+@router.post("/{device_id}/flash-arduino")
+def flash_arduino_device(device_id: str, req: FlashArduinoRequest):
+    """Compile + upload the AMB82-Mini Nirvana sketch via arduino-cli."""
+    if not get_device_from_registry(device_id):
+        raise HTTPException(404, f"Device '{device_id}' not found")
+
+    sketch_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "firmware", "amb82-mini", "amb82-nirvana-agent",
+    )
+    return flash_service.flash_arduino_cli(
+        sketch_dir, port=req.port or "", fqbn=req.fqbn or ""
+    )
+
+
+# ── Nirvana app marketplace ────────────────────────────────────────
 MARKETPLACE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "marketplace")
 
 

@@ -83,6 +83,64 @@ def flash_esptool(bundle_dir: Path, port: str = "COM3") -> Dict[str, Any]:
         return {"success": True, "output": f"Flashed to {port}"}
     except Exception as e: return {"success": False, "error": str(e)}
 
+
+def flash_arduino_cli(sketch_dir: str, port: str = "", fqbn: str = "") -> Dict[str, Any]:
+    """Compile + upload an Arduino sketch (e.g. AMB82-Mini) via arduino-cli.
+
+    Requires arduino-cli on PATH and the Realtek Ameba Pro2 board package
+    installed. Falls back to step-by-step instructions when the tool is absent
+    so the control panel can always show a clear path.
+    """
+    cli = shutil.which("arduino-cli")
+    fqbn = fqbn or os.getenv("AMB82_FQBN", "realtek:AmebaPro2:Ameba_AMB82_mini")
+    sketch = Path(sketch_dir)
+
+    if not cli:
+        return {
+            "success": False,
+            "tool": "arduino-cli",
+            "fqbn": fqbn,
+            "error": "arduino-cli not found on PATH. Install it and add the Realtek Ameba Pro2 board package, or flash via Arduino IDE.",
+            "instructions": [
+                "arduino-cli core update-index",
+                "arduino-cli core install realtek:AmebaPro2",
+                f"arduino-cli compile --fqbn {fqbn} {sketch_dir}",
+                f"arduino-cli upload -p <port> --fqbn {fqbn} {sketch_dir}",
+            ],
+        }
+    if not sketch.exists():
+        return {"success": False, "tool": "arduino-cli", "error": f"Sketch not found: {sketch_dir}"}
+
+    results = []
+    try:
+        compile_cmd = [cli, "compile", "--fqbn", fqbn, str(sketch)]
+        r = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=900)
+        results.append({
+            "stage": "compile", "returncode": r.returncode,
+            "stdout": (r.stdout or "")[-4000:], "stderr": (r.stderr or "")[-4000:],
+        })
+        if r.returncode != 0:
+            return {"success": False, "tool": "arduino-cli", "fqbn": fqbn,
+                    "results": results, "error": "compile failed"}
+
+        upload_cmd = [cli, "upload", "--fqbn", fqbn]
+        if port:
+            upload_cmd += ["-p", port]
+        upload_cmd.append(str(sketch))
+        r2 = subprocess.run(upload_cmd, capture_output=True, text=True, timeout=900)
+        results.append({
+            "stage": "upload", "returncode": r2.returncode,
+            "stdout": (r2.stdout or "")[-4000:], "stderr": (r2.stderr or "")[-4000:],
+        })
+        if r2.returncode != 0:
+            return {"success": False, "tool": "arduino-cli", "fqbn": fqbn,
+                    "results": results, "error": "upload failed"}
+        return {"success": True, "tool": "arduino-cli", "fqbn": fqbn,
+                "port": port or "auto", "results": results}
+    except Exception as e:
+        return {"success": False, "tool": "arduino-cli", "fqbn": fqbn,
+                "results": results, "error": str(e)}
+
 def list_bundles() -> list:
     bundles = []
     for d in sorted(PREPARED_DIR.glob("*"), reverse=True):
@@ -279,7 +337,7 @@ def firmware_flash_workflow(device_id: str, port: str = "", profile_id: str = "c
 def flash_tools_available() -> dict:
     """Check which flashing tools are available on this system."""
     tools = {}
-    for tool in ["esptool.py", "esptool", "mpremote", "ampy", "rkdeveloptool", "upgrade_tool"]:
+    for tool in ["esptool.py", "esptool", "mpremote", "ampy", "arduino-cli", "rkdeveloptool", "upgrade_tool"]:
         tools[tool] = bool(__import__("shutil").which(tool))
     return tools
 

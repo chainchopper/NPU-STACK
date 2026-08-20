@@ -113,3 +113,34 @@ async def ota_list():
         files.append({"device_type": dt, "version": m.get("version", "?"),
                       "size_kb": m.get("size_kb", 0)})
     return {"firmware": files, "count": len(files)}
+
+
+# ── Nirvana OS app-layer OTA channel (flash once, update forever) ──
+
+NIRVANA_OS_DIR = Path(__file__).resolve().parents[2] / "firmware" / "nirvana-os"
+_NIRVANA_OS_FILES = {
+    "boot.py", "main.py", "board.py", "gc9a01.py", "display.py", "touch.py",
+    "sdcard.py", "sd.py", "menu.py", "uQR.py", "wifi_provision.py",
+    "net.py", "settings.py", "apps.py", "appstore.py", "control.py",
+    "version.json", "config.example.json",
+}
+
+
+@router.get("/nirvana-os/version.json")
+async def nirvana_os_manifest():
+    """Serve the Nirvana OS app-layer manifest (version + file to fetch)."""
+    path = NIRVANA_OS_DIR / "version.json"
+    if not path.exists():
+        raise HTTPException(404, "Nirvana OS manifest not found")
+    return FileResponse(path, media_type="application/json")
+
+
+@router.get("/nirvana-os/{filename}")
+async def nirvana_os_file(filename: str):
+    """Serve a Nirvana OS app-layer file for on-device OTA (whitelisted)."""
+    if filename not in _NIRVANA_OS_FILES:
+        raise HTTPException(404, f"File '{filename}' is not part of the Nirvana OS app layer")
+    path = NIRVANA_OS_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, f"File '{filename}' not found")
+    return FileResponse(path)
