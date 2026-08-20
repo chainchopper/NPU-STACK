@@ -40,6 +40,7 @@ This is an active development boundary. All UI changes go here.
 | Orchestration | `Orchestration.jsx` | Nirvana identity, MCP config, runtime settings |
 | EdgeFleet | `EdgeFleet.jsx` | Fleet device management |
 | FleetCommand | `FleetCommand.jsx` | Fleet command dispatch |
+| DevicePlayground | `DevicePlayground.jsx` | **Nirvana OS MicroPython emulator** — side-by-side code + virtual round-display preview with touch (`/api/emulator/ws`) |
 | FastFlowLM | `FastFlowLM.jsx` | FastFlowLM inference UI |
 | AdvancedTraining | `AdvancedTraining.jsx` | Advanced training configuration |
 | AutoResearch | `AutoResearch.jsx` | Automated research tools |

@@ -36,7 +36,8 @@ This is an active development boundary. All changes to API routes, services, or 
 | `nirvana_webui_router` | `routers/nirvana_webui.py` | Native Nirvana management — settings, sessions, skills, config read directly from shared state files |
 | `fleet_command_router` | `routers/fleet_command.py` | Fleet command dispatch |
 | `fleet_agent_router` | `routers/fleet_agent.py` | Fleet agent polling/registration |
-| `devices_router` | `routers/devices.py` | Device discovery and inventory |
+| `devices_router` | `routers/devices.py` | Device discovery, inventory, Nirvana app marketplace |
+| `emulator_router` | `routers/emulator.py` | Nirvana OS MicroPython emulator — WS `/api/emulator/ws` + `/api/emulator/examples` |
 | `docs_index_router` | `routers/docs_index.py` | Documentation search/index |
 | `assets_router` | `routers/assets.py` | Static asset serving |
 | `civitai_router` | `routers/civitai.py` | CivitAI model integration |
@@ -68,6 +69,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `dataset_builder` | `services/dataset_builder.py` | Dataset construction pipeline |
 | `data_extractor` | `services/data_extractor.py` | Dataset extraction utilities |
 | `edge_discovery` | `services/edge_discovery.py` | Edge device discovery — USB/PnP/mDNS/network + MicroPython/Nirvana OS serial probe (stable unique-id registration) |
+| `emulator` | `emulator/shim.py` | Host-side MicroPython shim — virtual GC9A01 framebuffer + machine/network/display/touch stubs for browser preview |
 | `flm_service` | `services/flm_service.py` | FastFlowLM integration |
 | `gguf_pipeline` | `services/gguf_pipeline.py` | GGUF conversion pipeline |
 | `hub_publisher` | `services/hub_publisher.py` | HuggingFace publishing |
@@ -91,6 +93,8 @@ This is an active development boundary. All changes to API routes, services, or 
 - The OpenAI-compatible endpoint at `/v1` must remain ABI-compatible with the OpenAI client SDK
 - `GET /api/devices/scan` probes connected USB serial ports for live MicroPython/Nirvana boards and registers them by stable unique id (`nirvana-<uid>`); the background auto-poll probes only ports not yet identified
 - `GET /api/health` doubles as the Nirvana board phone-home: when called with `device_id`/`ip`/`firmware`/`machine` query params it registers/refreshes the board in the edge registry
+- The Nirvana app marketplace is served from `backend/marketplace/` (catalog.json + apps/{id}/); device apps are installed on-device via `appstore.py` in the local-only firmware
+- `backend/emulator/` runs Nirvana OS app code in plain CPython with a virtual display; the runner uses a length-prefixed stdout protocol (`FRAME:<len>\n<bytes>`, `LOG:<text>`), consumed by `/api/emulator/ws`
 
 ## Verification
 

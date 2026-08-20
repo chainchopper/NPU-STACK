@@ -2,31 +2,15 @@
 
 stdin/stdout framed protocol (used by the /ws/emulator WebSocket endpoint):
 
-  stdout:  FRAME:<base64 RGB565>   — a virtual display frame after each show()
-           LOG:<text>              — app print() output
-  stdin:   TOUCH:x,y               — inject a touch point into the touch shim
-           STOP                    — end the session
+  stdout:  FRAME:<len>\n<len raw RGB565 bytes>  — one frame per display.show()
+           LOG:<text>\n                        — app print() output
+  stdin:   TOUCH:x,y                           — inject a touch point
+           STOP                                — end the session
 """
-import base64
 import sys
 import threading
 
 from backend.emulator import shim
-
-
-class _LogWriter:
-    def __init__(self, real):
-        self.real = real
-
-    def write(self, s):
-        if s:
-            for line in s.splitlines():
-                if line:
-                    self.real.write("LOG:" + line + "\n")
-            self.real.flush()
-
-    def flush(self):
-        self.real.flush()
 
 
 def main():
@@ -35,13 +19,26 @@ def main():
         return
 
     src_path = sys.argv[1]
-    real_stdout = sys.__stdout__
+    out = sys.__stdout__.buffer  # binary stdout (length-prefixed protocol)
+
+    def emit_log(text):
+        out.write(b"LOG:" + text.encode("utf-8", "replace") + b"\n")
+        out.flush()
 
     def frame_sink(rgb565):
-        real_stdout.write("FRAME:" + base64.b64encode(rgb565).decode() + "\n")
-        real_stdout.flush()
+        out.write(b"FRAME:%d\n" % len(rgb565))
+        out.write(rgb565)
+        out.flush()
 
-    sys.stdout = _LogWriter(real_stdout)
+    class _LogWriter:
+        def write(self, s):
+            if s:
+                emit_log(s)
+
+        def flush(self):
+            pass
+
+    sys.stdout = _LogWriter()
     shim.install(frame_sink)
 
     # stdin thread — inject touch coordinates from the browser.
@@ -69,7 +66,7 @@ def main():
         with open(src_path, encoding="utf-8") as f:
             src = f.read()
     except Exception as e:
-        real_stdout.write("LOG:cannot read app: %s\n" % e)
+        emit_log("cannot read app: %s" % e)
         return
 
     ns = {"__name__": "app"}
@@ -78,7 +75,7 @@ def main():
     except SystemExit:
         return
     except Exception as e:
-        real_stdout.write("LOG:app error: %s\n" % e)
+        emit_log("app error: %s" % e)
         return
 
     run = ns.get("run")
@@ -88,7 +85,7 @@ def main():
         except SystemExit:
             return
         except Exception as e:
-            real_stdout.write("LOG:app error: %s\n" % e)
+            emit_log("app error: %s" % e)
 
 
 if __name__ == "__main__":

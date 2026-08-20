@@ -5,7 +5,6 @@ touch points back; the app code runs on the host through the MicroPython shim
 in ``backend/emulator``. No device needed — same code, same pixels.
 """
 import asyncio
-import base64
 import json
 import os
 import tempfile
@@ -89,7 +88,14 @@ async def emulator_ws(ws: WebSocket):
                 text = line.decode("utf-8", "replace").rstrip("\n")
                 if text.startswith("FRAME:"):
                     try:
-                        data = base64.b64decode(text[6:])
+                        length = int(text[6:])
+                    except Exception:
+                        continue
+                    try:
+                        data = await p.stdout.readexactly(length)
+                    except Exception:
+                        break
+                    try:
                         await wsock.send_bytes(data)
                     except Exception:
                         pass
