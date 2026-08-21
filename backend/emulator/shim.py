@@ -11,10 +11,15 @@ sink the runner registered.
 """
 from __future__ import annotations
 
+import builtins
+import json
 import os
+import os.path
+import shutil
 import sys
 import threading
 import time as _time
+from datetime import datetime, timezone
 
 WIDTH = 240
 HEIGHT = 240
@@ -192,6 +197,194 @@ def push_touch(x, y):
         _touch_queue.append((int(x), int(y)))
 
 
+# ── Virtual SD card + sensors ───────────────────────────────────────
+
+# Host directory backing the virtual /sd mount. The emulator router points
+# this at backend/data/emulator_sd via NIRVANA_EMULATOR_SD so files persist
+# and can be browsed from the playground UI.
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SD_ROOT = os.environ.get("NIRVANA_EMULATOR_SD") or os.path.join(
+    _BACKEND_DIR, "data", "emulator_sd")
+
+_sensor_state = {
+    "rtc": "",                 # ISO datetime; empty -> use host clock
+    "mic": 512,                # 0..65535 PDM mic level
+    "battery_mv": 4200,        # mV
+    "temp_c": 24.0,            # deg C
+    "light": 400,              # lux
+    "adc0": 2048, "adc1": 2048, "adc2": 2048, "adc3": 2048,
+    # 6-axis IMU (LSM6DS3-style, mG + milli-deg/s)
+    "accel_x": 0, "accel_y": 0, "accel_z": 1000,
+    "gyro_x": 0, "gyro_y": 0, "gyro_z": 0,
+    # camera (OV2640) mock
+    "camera": {"present": True, "w": 320, "h": 240, "frames": 0},
+}
+_sensor_lock = threading.Lock()
+
+SENSOR_SCHEMA = [
+    {"name": "rtc", "label": "RTC (ISO datetime)", "type": "text", "default": ""},
+    {"name": "mic", "label": "Mic level", "type": "range", "min": 0, "max": 65535, "step": 1},
+    {"name": "battery_mv", "label": "Battery (mV)", "type": "range", "min": 0, "max": 5000, "step": 10},
+    {"name": "temp_c", "label": "Temp (°C)", "type": "range", "min": -40, "max": 125, "step": 1},
+    {"name": "light", "label": "Light (lux)", "type": "range", "min": 0, "max": 100000, "step": 10},
+    {"name": "adc0", "label": "ADC 0", "type": "range", "min": 0, "max": 4095, "step": 1},
+    {"name": "adc1", "label": "ADC 1", "type": "range", "min": 0, "max": 4095, "step": 1},
+    {"name": "adc2", "label": "ADC 2", "type": "range", "min": 0, "max": 4095, "step": 1},
+    {"name": "adc3", "label": "ADC 3", "type": "range", "min": 0, "max": 4095, "step": 1},
+    {"name": "accel_x", "label": "Accel X (mG)", "type": "range", "min": -4000, "max": 4000, "step": 10},
+    {"name": "accel_y", "label": "Accel Y (mG)", "type": "range", "min": -4000, "max": 4000, "step": 10},
+    {"name": "accel_z", "label": "Accel Z (mG)", "type": "range", "min": -4000, "max": 4000, "step": 10},
+    {"name": "gyro_x", "label": "Gyro X (mdps)", "type": "range", "min": -2000, "max": 2000, "step": 10},
+    {"name": "gyro_y", "label": "Gyro Y (mdps)", "type": "range", "min": -2000, "max": 2000, "step": 10},
+    {"name": "gyro_z", "label": "Gyro Z (mdps)", "type": "range", "min": -2000, "max": 2000, "step": 10},
+]
+
+
+def get_sensor_schema():
+    return list(SENSOR_SCHEMA)
+
+
+def set_sensor(name, value):
+    with _sensor_lock:
+        _sensor_state[name] = value
+
+
+def get_sensors():
+    with _sensor_lock:
+        return dict(_sensor_state)
+
+
+def _map_path(path):
+    """Map a device /sd/... path onto the host SD directory."""
+    if path == "/sd":
+        return SD_ROOT
+    if path.startswith("/sd/"):
+        return os.path.join(SD_ROOT, path[4:].lstrip("/"))
+    return path
+
+
+def _parse_rtc(iso):
+    if iso:
+        try:
+            return datetime.fromisoformat(iso)
+        except Exception:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def _rtc_bcd_regs(iso):
+    """PCF8563 register dump (0x00..0x0F) as a bytearray, BCD encoded."""
+    t = _parse_rtc(iso)
+    regs = bytearray(16)
+
+    def bcd(v):
+        return ((v // 10) << 4) | (v % 10)
+
+    regs[0x02] = bcd(t.second) & 0x7F        # seconds
+    regs[0x03] = bcd(t.minute) & 0x7F        # minutes
+    regs[0x04] = bcd(t.hour) & 0x3F          # hours (24h)
+    regs[0x05] = bcd(t.day) & 0x3F           # day of month
+    regs[0x06] = bcd(t.isoweekday()) & 0x07  # weekday
+    regs[0x07] = bcd(t.month) & 0x1F         # month (bit7 = century, clear)
+    regs[0x08] = bcd(t.year % 100)           # year
+    return regs
+
+
+class _Sd:
+    """Virtual SD card backed by SD_ROOT on the host filesystem."""
+
+    def __init__(self):
+        self._mounted = False
+
+    def mount(self):
+        try:
+            os.makedirs(SD_ROOT, exist_ok=True)
+            _seed_sd()
+            self._mounted = True
+            return True
+        except Exception as e:
+            print("[EMU] SD mount failed: %s" % e)
+            return False
+
+    def is_mounted(self):
+        return self._mounted
+
+    def list_dir(self, path="/sd"):
+        p = _map_path(path)
+        try:
+            return sorted(os.listdir(p))
+        except Exception:
+            return []
+
+    def read_text(self, path):
+        try:
+            with builtins.open(_map_path(path), "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return None
+
+    def write_text(self, path, text):
+        try:
+            p = _map_path(path)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with builtins.open(p, "w", encoding="utf-8") as f:
+                f.write(text)
+            return True
+        except Exception:
+            return False
+
+    def list_apps(self):
+        """Discover installed apps: flat .py files and manifest dirs."""
+        apps = []
+        if not self._mounted:
+            return apps
+        for entry in self.list_dir("/sd/apps"):
+            p = "/sd/apps/" + entry
+            if entry.endswith(".py"):
+                mod = entry[:-3]
+                name = mod
+                txt = self.read_text(p)
+                if txt:
+                    for line in txt.splitlines():
+                        line = line.strip()
+                        if line.startswith("NAME") and "=" in line:
+                            try:
+                                name = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            except Exception:
+                                pass
+                            break
+                apps.append((mod, name))
+            else:
+                name = entry
+                appjson = self.read_text(p + "/app.json")
+                if appjson:
+                    try:
+                        name = json.loads(appjson).get("name", entry)
+                    except Exception:
+                        pass
+                apps.append((entry, name))
+        return apps
+
+
+def _seed_sd():
+    """Copy marketplace apps into /sd/apps on first use (idempotent)."""
+    apps_dir = os.path.join(SD_ROOT, "apps")
+    src = os.path.join(_BACKEND_DIR, "marketplace", "apps")
+    try:
+        os.makedirs(apps_dir, exist_ok=True)
+        if os.path.isdir(src):
+            for app_id in os.listdir(src):
+                src_app = os.path.join(src, app_id)
+                if not os.path.isdir(src_app):
+                    continue
+                dst_app = os.path.join(apps_dir, app_id)
+                if os.path.isdir(dst_app):
+                    continue  # user may have edited; don't clobber
+                shutil.copytree(src_app, dst_app)
+    except Exception as e:
+        print("[EMU] seed SD failed: %s" % e)
+
+
 # ── machine / network / misc stubs ──────────────────────────────────
 
 class _Pin:
@@ -236,16 +429,25 @@ class _I2C:
         self.bus = bus
 
     def scan(self):
-        return []
+        # RTC (PCF8563), touch (CHSC6X), camera (OV2640 SCCB) on the carrier.
+        return [0x51, 0x2E, 0x30]
 
     def readfrom(self, addr, n):
         return b"\x00" * n
 
     def readfrom_mem(self, addr, reg, n):
+        if addr == 0x51:  # PCF8563 RTC
+            regs = _rtc_bcd_regs(_sensor_value("rtc", ""))
+            return bytes(regs[reg:reg + n])
         return b"\x00" * n
 
     def writeto(self, addr, buf):
         return len(buf)
+
+
+def _sensor_value(name, default=None):
+    with _sensor_lock:
+        return _sensor_state.get(name, default)
 
 
 class _PWM:
@@ -261,10 +463,11 @@ class _ADC:
         self.pin = pin
 
     def read(self):
-        return 0
+        # Map the pin to a settable adcN sensor value (12-bit).
+        return int(_sensor_value("adc%d" % (self.pin % 4), 2048))
 
     def read_uv(self):
-        return 0
+        return self.read() * 805  # ~3.3V full-scale in microvolts
 
 
 class _Machine:
@@ -353,9 +556,9 @@ class _Board:
         return "d83bda8931e4"
 
     def detect(self):
-        return {"display": True, "touch": True, "sd": False, "rtc": False,
+        return {"display": True, "touch": True, "sd": True, "rtc": True,
                 "camera": True, "mic": True, "wifi": True, "bt": True,
-                "board_profile": "xiao-sense", "i2c_addrs": []}
+                "board_profile": "xiao-sense", "i2c_addrs": [0x51, 0x2E, 0x30]}
 
     def summary(self, caps):
         return ("display=%s touch=%s sd=%s rtc=%s camera=%s mic=%s wifi=%s bt=%s" % (
@@ -363,15 +566,45 @@ class _Board:
             caps["camera"], caps["mic"], caps["wifi"], caps["bt"]))
 
 
-class _Sd:
-    def is_mounted(self):
-        return False
+class _SensorsModule:
+    """``import sensors`` — read/write the emulated sensor values."""
 
-    def mount(self):
-        return False
+    def get(self, name, default=None):
+        return _sensor_value(name, default)
 
-    def list_apps(self):
-        return []
+    def set(self, name, value):
+        set_sensor(name, value)
+
+    def state(self):
+        return get_sensors()
+
+    def rtc(self):
+        return _parse_rtc(_sensor_value("rtc", "")).isoformat()
+
+    def mic(self):
+        return int(_sensor_value("mic", 0))
+
+    def battery_mv(self):
+        return int(_sensor_value("battery_mv", 4200))
+
+    def temp_c(self):
+        return float(_sensor_value("temp_c", 24.0))
+
+    def light(self):
+        return int(_sensor_value("light", 0))
+
+    def imu(self):
+        """6-axis IMU reading: (ax, ay, az) mG + (gx, gy, gz) milli-deg/s."""
+        return {
+            "accel": (int(_sensor_value("accel_x", 0)), int(_sensor_value("accel_y", 0)),
+                      int(_sensor_value("accel_z", 1000))),
+            "gyro": (int(_sensor_value("gyro_x", 0)), int(_sensor_value("gyro_y", 0)),
+                     int(_sensor_value("gyro_z", 0))),
+        }
+
+    def camera(self):
+        """Mock OV2640 camera state."""
+        return dict(_sensor_value("camera", {}))
 
 
 # ── Install ─────────────────────────────────────────────────────────
@@ -392,12 +625,14 @@ def install(frame_sink=None):
         "touch": _TouchModule(),
         "board": _Board(),
         "sd": _Sd(),
+        "sensors": _SensorsModule(),
         "framebuf": FrameBuffer,
     }
     for name, mod in shims.items():
         sys.modules[name] = mod
 
-    # os: stdlib os, patched with the MicroPython surface apps rely on.
+    # os: stdlib os, patched with the MicroPython surface apps rely on, plus
+    # /sd path mapping so the virtual SD card behaves like a real VFS mount.
     import types
     if not hasattr(os, "uname"):
         def uname():
@@ -411,7 +646,59 @@ def install(frame_sink=None):
         os.mount = lambda *a, **k: None
     if not hasattr(os, "umount"):
         os.umount = lambda *a, **k: None
-    if not hasattr(os, "statvfs"):
-        os.statvfs = lambda path: (4096, 4096, 65536, 65536, 65536, 0, 0, 0, 0, 4096)
+
+    _orig_listdir = os.listdir
+    _orig_stat = os.stat
+    _orig_remove = os.remove
+    _orig_rmdir = os.rmdir
+    _orig_mkdir = os.mkdir
+    _orig_rename = os.rename
+
+    def listdir(path="."):
+        return _orig_listdir(_map_path(path))
+
+    def stat(path, *a, **k):
+        return _orig_stat(_map_path(path), *a, **k)
+
+    def remove(path):
+        return _orig_remove(_map_path(path))
+
+    def rmdir(path):
+        return _orig_rmdir(_map_path(path))
+
+    def mkdir(path, *a, **k):
+        return _orig_mkdir(_map_path(path), *a, **k)
+
+    def rename(a, b):
+        return _orig_rename(_map_path(a), _map_path(b))
+
+    def ilistdir(path="."):
+        # MicroPython-style (name, type, inode, size) iterator.
+        p = _map_path(path)
+        for name in _orig_listdir(p):
+            st = _orig_stat(os.path.join(p, name))
+            typ = 0x4000 if (st.st_mode & 0xF000) == 0x4000 else 0x8000
+            yield name, typ, st.st_ino, st.st_size
+
+    def statvfs(path="/"):
+        return (4096, 4096, 65536, 65536, 65536, 65536, 0, 0, 0, 4096)
+
+    os.listdir = listdir
+    os.stat = stat
+    os.remove = remove
+    os.rmdir = rmdir
+    os.mkdir = mkdir
+    os.rename = rename
+    os.ilistdir = ilistdir
+    os.statvfs = statvfs
+
+    # Map open('/sd/...') onto the virtual SD card too.
+    _orig_open = builtins.open
+
+    def open(file, *a, **k):
+        return _orig_open(_map_path(file), *a, **k)
+
+    builtins.open = open
+    _SD_OPEN = _orig_open  # keep the real open for internal host-file use
 
     return display

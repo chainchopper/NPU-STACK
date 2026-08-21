@@ -44,9 +44,54 @@ export default function DevicePlayground() {
     const [connected, setConnected] = useState(false);
     const [logs, setLogs] = useState([]);
     const [selectedId, setSelectedId] = useState('hello');
+    const [sdTree, setSdTree] = useState([]);
+    const [sdLoading, setSdLoading] = useState(false);
+    const [sdFile, setSdFile] = useState({ path: '', content: '', editing: false });
+    const [sensorSchema, setSensorSchema] = useState([]);
+    const [sensorValues, setSensorValues] = useState({});
 
     const pushLog = useCallback((text) => {
         setLogs((prev) => [...prev.slice(-200), text]);
+    }, []);
+
+    const loadSd = useCallback(() => {
+        setSdLoading(true);
+        fetch(`${API_BASE}/emulator/sd`)
+            .then((r) => r.json())
+            .then((d) => setSdTree(d.tree || []))
+            .catch(() => pushLog('could not load virtual SD card'))
+            .finally(() => setSdLoading(false));
+    }, [pushLog]);
+
+    const sdMutate = useCallback((action, path, content) => {
+        fetch(`${API_BASE}/emulator/sd`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, path, content }),
+        })
+            .then((r) => r.json())
+            .then((d) => {
+                if (d.error) { pushLog('SD: ' + d.error); return; }
+                setSdTree(d.tree || []);
+            })
+            .catch(() => pushLog('SD write failed'));
+    }, [pushLog]);
+
+    const loadSensors = useCallback(() => {
+        fetch(`${API_BASE}/emulator/sensors`)
+            .then((r) => r.json())
+            .then((d) => {
+                setSensorSchema(d.sensors || []);
+                setSensorValues(d.values || {});
+            })
+            .catch(() => pushLog('could not load sensors'));
+    }, [pushLog]);
+
+    const sendSensorValue = useCallback((name, value) => {
+        setSensorValues((prev) => ({ ...prev, [name]: value }));
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'sensor', values: { [name]: value } }));
+        }
     }, []);
 
     const stop = useCallback(() => {
@@ -113,6 +158,12 @@ export default function DevicePlayground() {
                 if (sel) setCode(sel.code);
             })
             .catch(() => pushLog('could not load example apps'));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        loadSd();
+        loadSensors();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -226,6 +277,152 @@ export default function DevicePlayground() {
                     </div>
                 </div>
             </div>
+
+            {/* Bottom: virtual SD card + sensors */}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                {/* Virtual SD card browser */}
+                <div style={{ flex: '1 1 380px', minWidth: 320, background: '#0d1117', border: '1px solid #2d3748', borderRadius: 8, padding: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>Virtual SD Card</span>
+                        <span style={{ fontSize: 11, color: '#718096' }}>(/sd)</span>
+                        <button onClick={loadSd} style={smallBtn()} title="Refresh">
+                            <RefreshCw size={12} />
+                        </button>
+                        <button onClick={() => setSdFile({ path: '', content: '', editing: true })} style={smallBtn('#38a169')} title="New file">
+                            + file
+                        </button>
+                    </div>
+                    {sdLoading ? (
+                        <div style={{ color: '#718096', fontSize: 12 }}>loading…</div>
+                    ) : (
+                        <SdTreeView entries={sdTree} depth={0}
+                            onOpen={(p) => {
+                                fetch(`${API_BASE}/emulator/sd/file?path=${encodeURIComponent(p)}`)
+                                    .then((r) => r.json())
+                                    .then((d) => setSdFile({ path: p, content: d.content ?? '', editing: true }))
+                                    .catch(() => setSdFile({ path: p, content: '', editing: true }));
+                            }}
+                            onDelete={(p) => sdMutate('delete', p)} />
+                    )}
+                    {sdFile.editing && (
+                        <div style={{ marginTop: 8, borderTop: '1px solid #2d3748', paddingTop: 8 }}>
+                            <input
+                                value={sdFile.path}
+                                onChange={(e) => setSdFile((s) => ({ ...s, path: e.target.value }))}
+                                placeholder="/file.py"
+                                style={inputStyle()}
+                            />
+                            <textarea
+                                value={sdFile.content}
+                                onChange={(e) => setSdFile((s) => ({ ...s, content: e.target.value }))}
+                                spellCheck={false}
+                                style={{ width: '100%', minHeight: 90, marginTop: 6, background: '#0b0f19', color: '#e6edf3', border: '1px solid #2d3748', borderRadius: 6, padding: 8, fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
+                            />
+                            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                                <button onClick={() => { sdMutate('write', sdFile.path, sdFile.content); setSdFile({ path: '', content: '', editing: false }); }} style={smallBtn('#667eea')}>Save</button>
+                                <button onClick={() => setSdFile({ path: '', content: '', editing: false })} style={smallBtn()}>Cancel</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Sensor panel */}
+                <div style={{ flex: '1 1 380px', minWidth: 320, background: '#0d1117', border: '1px solid #2d3748', borderRadius: 8, padding: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>Sensors</span>
+                        <span style={{ fontSize: 11, color: '#718096' }}>live-inject into the running app</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                        {sensorSchema.map((s) => (
+                            <SensorRow key={s.name} schema={s}
+                                value={sensorValues[s.name] !== undefined ? sensorValues[s.name] : s.default}
+                                onChange={(v) => sendSensorValue(s.name, v)} />
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function smallBtn(bg) {
+    return {
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        background: bg || '#1a202c', color: '#e2e8f0', border: '1px solid #2d3748',
+        borderRadius: 6, padding: '4px 8px', fontSize: 12, cursor: 'pointer',
+    };
+}
+
+function inputStyle() {
+    return {
+        width: '100%', background: '#0b0f19', color: '#e2e8f0',
+        border: '1px solid #2d3748', borderRadius: 6, padding: '6px 8px', fontSize: 12,
+        fontFamily: 'ui-monospace, monospace',
+    };
+}
+
+function SdTreeView({ entries, depth, onOpen, onDelete }) {
+    if (!entries || entries.length === 0) {
+        return <div style={{ fontSize: 12, color: '#4a5568', padding: '4px 0' }}>(empty)</div>;
+    }
+    return (
+        <div style={{ maxHeight: 220, overflowY: 'auto', fontSize: 12 }}>
+            {entries.map((e) => (
+                <div key={e.path}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}>
+                        <span style={{ width: depth * 12 }} />
+                        <span style={{ color: e.type === 'dir' ? '#d29922' : '#9ca3af' }}>
+                            {e.type === 'dir' ? '▸ ' : '· '}
+                        </span>
+                        <span
+                            onClick={e.type === 'file' ? () => onOpen(e.path) : undefined}
+                            style={{
+                                color: e.type === 'file' ? '#e6edf3' : '#e2e8f0',
+                                cursor: e.type === 'file' ? 'pointer' : 'default',
+                                flex: 1,
+                            }}
+                        >
+                            {e.name}
+                            {e.type === 'file' && e.size !== undefined ? ` (${e.size}b)` : ''}
+                        </span>
+                        <button onClick={() => onDelete(e.path)} style={{ background: 'none', border: 'none', color: '#718096', cursor: 'pointer', fontSize: 11 }} title="delete">✕</button>
+                    </div>
+                    {e.type === 'dir' && e.children && e.children.length > 0 && (
+                        <SdTreeView entries={e.children} depth={depth + 1} onOpen={onOpen} onDelete={onDelete} />
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function SensorRow({ schema, value, onChange }) {
+    if (schema.type === 'text') {
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#9ca3af', minWidth: 140 }}>{schema.label}</span>
+                <input
+                    type="text"
+                    value={value ?? ''}
+                    onChange={(e) => onChange(e.target.value)}
+                    style={inputStyle()}
+                />
+            </div>
+        );
+    }
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#9ca3af', minWidth: 140 }}>{schema.label}</span>
+            <input
+                type="range"
+                min={schema.min}
+                max={schema.max}
+                step={schema.step}
+                value={value ?? schema.default}
+                onChange={(e) => onChange(Number(e.target.value))}
+                style={{ flex: 1 }}
+            />
+            <span style={{ fontSize: 11, color: '#e6edf3', minWidth: 46, textAlign: 'right' }}>{value ?? schema.default}</span>
         </div>
     );
 }

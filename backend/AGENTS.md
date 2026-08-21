@@ -38,7 +38,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `fleet_agent_router` | `routers/fleet_agent.py` | Fleet agent polling/registration |
 | `devices_router` | `routers/devices.py` | Device discovery, inventory, Nirvana app marketplace |
 | `boards_router` | `routers/boards.py` | Board catalog CRUD + **board full view** — `GET /{board_id}` returns metadata + matched fleet devices + status + asset manifest; `GET /{board_id}/assets/{path}` serves downloaded pinouts/PDFs/STLs |
-| `emulator_router` | `routers/emulator.py` | Nirvana OS MicroPython emulator — WS `/api/emulator/ws` + `/api/emulator/examples` |
+| `emulator_router` | `routers/emulator.py` | Nirvana OS MicroPython emulator — WS `/api/emulator/ws` + `/api/emulator/examples` + virtual SD `/api/emulator/sd` (+`/sd/file`) + sensors `/api/emulator/sensors` |
 | `docs_index_router` | `routers/docs_index.py` | Documentation search/index |
 | `assets_router` | `routers/assets.py` | Static asset serving |
 | `civitai_router` | `routers/civitai.py` | CivitAI model integration |
@@ -96,7 +96,7 @@ This is an active development boundary. All changes to API routes, services, or 
 - `GET /api/devices/scan` probes connected USB serial ports for live MicroPython/Nirvana boards and registers them by stable unique id (`nirvana-<uid>`); the background auto-poll probes only ports not yet identified
 - `GET /api/health` doubles as the Nirvana board phone-home: when called with `device_id`/`ip`/`firmware`/`machine` query params it registers/refreshes the board in the edge registry
 - The Nirvana app marketplace is served from `backend/marketplace/` (catalog.json + apps/{id}/); device apps are installed on-device via `appstore.py` in the local-only firmware
-- `backend/emulator/` runs Nirvana OS app code in plain CPython with a virtual display; the runner uses a length-prefixed stdout protocol (`FRAME:<len>\n<bytes>`, `LOG:<text>`), consumed by `/api/emulator/ws`
+- `backend/emulator/` runs Nirvana OS app code in plain CPython with a virtual display; the runner uses a length-prefixed stdout protocol (`FRAME:<len>\n<bytes>`, `LOG:<text>`), consumed by `/api/emulator/ws`. The shim also emulates a virtual SD card (host dir `backend/data/emulator_sd`, `/sd` path-mapped in `os`/`builtins.open`, seeded from `backend/marketplace/apps`) and live-injectable sensors (RTC/mic/battery/temp/light/ADC/IMU/camera) via `shim.set_sensor()` from the WS `sensor` message.
 - `GET /api/devices/flash-tools` reports which flash tools are on the host; `POST /api/devices/{id}/flash-arduino` compiles+uploads the AMB82 sketch via the repo-vendored arduino-cli + Realtek core (`tools/arduino/`, FQBN `realtek:AmebaPro2:Ameba_AMB82-MINI`, fully offline)
 - `GET /api/fleet/ota/nirvana-os/{version.json|file}` serves the Nirvana OS app layer as a flash-once OTA channel (whitelisted files from `firmware/nirvana-os/`)
 

@@ -7,6 +7,7 @@ stdin/stdout framed protocol (used by the /ws/emulator WebSocket endpoint):
   stdin:   TOUCH:x,y                           — inject a touch point
            STOP                                — end the session
 """
+import json
 import sys
 import threading
 
@@ -41,7 +42,7 @@ def main():
     sys.stdout = _LogWriter()
     shim.install(frame_sink)
 
-    # stdin thread — inject touch coordinates from the browser.
+    # stdin thread — inject touch + sensor updates from the browser.
     def stdin_reader():
         try:
             for line in sys.stdin:
@@ -55,6 +56,15 @@ def main():
                     x, _, y = xy.partition(",")
                     try:
                         shim.push_touch(int(x), int(y))
+                    except Exception:
+                        pass
+                elif line.startswith("SENSOR:"):
+                    _, _, payload = line.partition(":")
+                    try:
+                        data = json.loads(payload)
+                        if isinstance(data, dict):
+                            for k, v in data.items():
+                                shim.set_sensor(k, v)
                     except Exception:
                         pass
         except Exception:
