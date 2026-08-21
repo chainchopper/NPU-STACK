@@ -264,6 +264,82 @@ def fleet_command_history(limit: int = 20) -> dict:
     return _api(f"/api/fleet/command/history?limit={limit}")
 
 
+# ── MicroPython emulator ────────────────────────────────────────────────
+
+@mcp.tool()
+def emulator_examples() -> dict:
+    """List Nirvana OS device apps available to preview in the MicroPython emulator."""
+    return _api("/api/emulator/examples")
+
+
+@mcp.tool()
+def emulator_run_app(app_id: str) -> dict:
+    """Run a Nirvana OS app through the host MicroPython emulator (virtual
+    round display) and report what rendered: non-black pixel count + app logs.
+    Lets Nirvana verify device UI code before flashing any board."""
+    import base64
+    import subprocess
+    import tempfile
+
+    examples = _api("/api/emulator/examples")
+    apps = examples.get("apps", []) if isinstance(examples, dict) else []
+    app = next((a for a in apps if a.get("id") == app_id), None)
+    if not app or not app.get("code"):
+        return {"error": f"app '{app_id}' not found", "available": [a["id"] for a in apps]}
+
+    fd, tmp = tempfile.mkstemp(suffix=".py", prefix="nirvana_app_")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(app["code"])
+
+    py = sys.executable
+    try:
+        proc = subprocess.run(
+            [py, "-m", "backend.emulator.runner", tmp],
+            capture_output=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return {"app_id": app_id, "error": "app timed out"}
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+
+    logs = []
+    frame_bytes = None
+    out = proc.stdout
+    pos = 0
+    while pos < len(out):
+        nl = out.find(b"\n", pos)
+        if nl < 0:
+            break
+        line = out[pos:nl]
+        pos = nl + 1
+        if line.startswith(b"LOG:"):
+            logs.append(line[4:].decode("utf-8", "replace"))
+        elif line.startswith(b"FRAME:"):
+            try:
+                length = int(line[6:])
+            except Exception:
+                continue
+            frame_bytes = out[pos:pos + length]
+            pos += length
+
+    rendered = None
+    if frame_bytes:
+        nonzero = sum(1 for b in frame_bytes if b != 0)
+        rendered = {"size": len(frame_bytes), "nonzero_pixels_bytes": nonzero}
+
+    return {
+        "app_id": app_id,
+        "name": app.get("name"),
+        "returncode": proc.returncode,
+        "rendered": rendered,
+        "logs": logs[-20:],
+        "ok": proc.returncode == 0,
+    }
+
+
 # ── Resources ────────────────────────────────────────────────────────────
 
 @mcp.resource("info://welcome")

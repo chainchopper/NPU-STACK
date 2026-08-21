@@ -129,13 +129,17 @@ This is an active development boundary. All changes to API routes, services, or 
 | GET | `/logs/{name}?tail=N` | `logs/{name}` |
 | GET | `/workspace?path=` | File system (J:\NPU-STACK) |
 
-### MCP Tools (13 via stdio)
+### MCP Tools (stdio)
 
 `backend/mcp_server.py` — discovered by Nirvana via `config.yaml` `mcp_servers.npu-stack`.
 
-detect_hardware, system_health, system_status, list_models, get_model_info,
+Core: detect_hardware, system_health, system_status, list_models, get_model_info,
 list_devices, fleet_status, run_fleet_command, list_training_jobs,
-list_conversion_paths, nirvana_overview, nirvana_settings, nirvana_sessions
+list_conversion_paths, nirvana_overview, nirvana_settings, nirvana_sessions.
+Fleet/ESP: espnow_status/modules/examples/build_info/binaries/deploy,
+fleet_flash, fleet_command_job_status, fleet_command_history.
+MicroPython emulator: emulator_examples, emulator_run_app (runs a device app
+through the host shim and reports the rendered frame + logs).
 
 ## Child DOX Index
 
