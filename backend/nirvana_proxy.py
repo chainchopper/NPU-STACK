@@ -52,6 +52,7 @@ NATIVE_PREFIXES: tuple[str, ...] = (
     "/api/fleet-agent",
     "/api/civitai",
     "/api/flm",
+    "/api/lmstudio",
     "/api/docs",
     "/api/redoc",
     "/api/openapi.json",

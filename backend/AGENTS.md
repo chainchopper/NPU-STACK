@@ -44,6 +44,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `cvedia_router` | `routers/cvedia.py` | CVEDIA integration |
 | `filebrowser_router` | `routers/filebrowser.py` | File system browser |
 | `flm_router` | `routers/flm.py` | FastFlowLM inference |
+| `lmstudio_router` | `routers/lmstudio.py` | LM Studio (lmlink multi-instance) — list/link instances, native `/api/v1/*` + OpenAI-compat `/v1/*` chat, model load |
 | `gguf_pipeline_router` | `routers/gguf_pipeline.py` | GGUF quantization pipeline |
 | `ingest_router` | `routers/ingest.py` | Data ingestion |
 | `nim_router` | `routers/nim.py` | NVIDIA NIM integration |
