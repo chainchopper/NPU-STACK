@@ -158,6 +158,10 @@ class FrameBuffer:
         """Flush the virtual framebuffer to the emulator (no-op SPI write)."""
         _emit_frame()
 
+    def show_region(self, y0, y1):
+        """Partial push — the emulator always sends the full frame."""
+        self.show()
+
     def backlight(self, on=True):
         return None
 

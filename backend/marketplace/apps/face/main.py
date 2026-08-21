@@ -20,9 +20,7 @@ def run():
         blink = 1.0 if (t % 3.0) < 0.12 else 0.0
         name = names[int(t) % len(names)]
         mouth = (0.5 + 0.5 * math.sin(t * 8)) if name in ("talking", "listening") else 0.0
-        f.draw(name, blink=blink, mouth=mouth)
-        f.lcd.show()
+        f.draw(name, blink=blink, mouth=mouth)  # draw() pushes the frame itself
         time.sleep(0.06)
     # settle on a happy face
     f.draw("happy")
-    f.lcd.show()
