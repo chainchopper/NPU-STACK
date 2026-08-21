@@ -16,6 +16,18 @@ import httpx
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BOARDS_DIR = REPO_ROOT / "backend" / "data" / "boards"
+BOARD_ASSETS_DIR = REPO_ROOT / "backend" / "data" / "boards" / "assets"
+
+# Manufacturer -> family hints used to match a board catalog entry to live
+# fleet devices (the registry stores a `family`, not a board id).
+MANUFACTURER_FAMILIES = {
+    "seedstudio": "seeed-xiao",
+    "espressif": "esp32-s3",
+    "raspberrypi": "rp2350",
+    "arduino": "arduino",
+    "adafruit": "circuitpython",
+    "waveshare": "esp32-s3",
+}
 
 BOARD_MANUFACTURERS: Dict[str, Dict[str, Any]] = {
     "adafruit": {
@@ -176,16 +188,29 @@ CANONICAL_BOARDS: List[Dict[str, Any]] = [
     # ── Seeed Studio ──
     {
         "id": "seeed-xiao-esp32-s3",
-        "name": "Seeed Studio XIAO ESP32S3",
+        "name": "Seeed Studio XIAO ESP32-S3 Sense",
         "manufacturer": "seedstudio",
         "chip": "ESP32-S3",
         "architecture": "xtensa",
         "specs": {"cpu": "Dual Xtensa LX7 @ 240MHz", "ram": "8 MB PSRAM", "flash": "8 MB", "wifi": "802.11b/g/n", "bt": "5.0/BLE"},
-        "features": ["GPIO 11-pin", "USB-C", "Battery support", "MicroSD", "Camera Sensor interface"],
+        "features": ["GPIO 11-pin", "USB-C", "Battery support", "MicroSD", "Camera + PDM mic", "U.FL antenna"],
         "npu_stack_ops": ["pair", "terminal", "flash-esptool", "fleet-enroll", "blink", "nirvana-chat"],
-        "docs_url": "https://wiki.seeedstudio.com/XIAO_ESP32S3",
+        "docs_url": "https://wiki.seeedstudio.com/xiao_esp32s3_pin_multiplexing/",
+        "product_url": "https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/",
         "image_urls": [],
-        "tags": ["seeed", "xiao", "esp32", "tiny", "camera"],
+        "compatibility": [
+            "Seeed 1.28\" Round Touch Display for XIAO",
+            "Seeed Studio Expansion Base for XIAO",
+            "All Seeed XIAO-series expansion boards",
+            "MicroPython / Nirvana OS / Arduino ESP32 core / ESP-IDF",
+        ],
+        "requirements": [
+            "Power: 5V USB-C or 3.7V LiPo",
+            "Firmware: MicroPython ESP32_GENERIC_S3 + Nirvana OS app layer",
+            "Toolchain: baked in (Arduino core + ESP-IDF)",
+            "Soldered headers for D0-D10 pin use",
+        ],
+        "tags": ["seeed", "xiao", "esp32", "tiny", "camera", "mic"],
     },
     # ── Waveshare ──
     {
@@ -274,6 +299,78 @@ def delete_board(board_id: str) -> bool:
         path.unlink()
         return True
     return False
+
+
+def _chip_tokens(chip: str) -> set:
+    """Normalize a chip label into matching tokens (e.g. ESP32-S3 -> esp32-s3)."""
+    norm = (chip or "").lower().replace("_", "-").replace(" ", "-")
+    tokens = {norm}
+    # also allow the "s3"/"c3"/"c6" suffix without the hyphen and the bare family
+    core = norm.split("-")[0] if "-" in norm else norm
+    if core:
+        tokens.add(core)
+    return {t for t in tokens if t}
+
+
+def related_devices(board: Dict[str, Any], limit: int = 12) -> List[Dict[str, Any]]:
+    """Match live fleet devices to a board catalog entry.
+
+    The edge registry keys devices by stable unique id and does not store a
+    board catalog id, so this is a heuristic match on chip/family/name/tags.
+    """
+    try:
+        from services.edge_discovery import list_registry_devices
+        listing = list_registry_devices(include_low_confidence=True)
+    except Exception:
+        return []
+
+    board_chip_tokens = _chip_tokens(str(board.get("chip") or ""))
+    board_name = (board.get("name") or "").lower()
+    board_tags = [str(t).lower() for t in board.get("tags") or []]
+    family_hint = MANUFACTURER_FAMILIES.get(board.get("manufacturer"), "")
+    # brand name of the manufacturer (e.g. "seeed") for loose matching
+    brand = (board.get("manufacturer") or "").replace("seedstudio", "seeed")
+
+    scored = []
+    for device in listing.get("devices", []):
+        hay = " ".join(str(v).lower() for v in (
+            device.get("chip"), device.get("family"), device.get("machine"),
+            device.get("nickname"), device.get("name"), device.get("board_id"),
+            device.get("preferred_profile_id"),
+        ) if v)
+
+        score = 0
+        if board_chip_tokens and any(t in hay for t in board_chip_tokens):
+            score += 10
+        if family_hint and family_hint == device.get("family"):
+            score += 10
+        if any(t in hay for t in board_tags if len(t) >= 4):
+            score += 5
+        if brand and brand in hay:
+            score += 3
+        if board_name and any(word in hay for word in board_name.split() if len(word) >= 4):
+            score += 2
+
+        if score > 0:
+            scored.append((score, device))
+
+    scored.sort(key=lambda sd: (
+        0 if sd[1].get("paired") else 1,
+        0 if sd[1].get("available") else 1,
+        -sd[0],
+    ))
+    return [d for _s, d in scored[:limit]]
+
+
+def board_assets(board_id: str) -> Optional[Dict[str, Any]]:
+    """Read the downloaded asset manifest for a board, if present."""
+    manifest_path = BOARD_ASSETS_DIR / board_id / "assets.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 async def scrape_manufacturer_pages(query: str = "") -> List[Dict[str, Any]]:

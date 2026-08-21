@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Search, Zap, Terminal, Wifi, FlaskConical, MessageSquare, RefreshCw, ExternalLink, Filter, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Cpu, Search, Zap, Terminal, Wifi, FlaskConical, MessageSquare, RefreshCw, ExternalLink, Filter, X, Maximize2 } from 'lucide-react';
 import { API_BASE } from '../api/client';
 
 const MANUFACTURER_COLORS = {
@@ -9,6 +10,7 @@ const MANUFACTURER_COLORS = {
 };
 
 export default function BoardExplorer() {
+  const navigate = useNavigate();
   const [boards, setBoards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -90,8 +92,9 @@ export default function BoardExplorer() {
                 <div key={board.id} style={{
                   padding: 20, borderRadius: 12, background: 'var(--bg-card)',
                   border: `1px solid ${color}33`, transition: 'box-shadow 0.2s',
-                  cursor: 'default',
-                }} onMouseEnter={e => e.currentTarget.style.boxShadow = `0 0 20px ${color}22`}
+                  cursor: 'pointer',
+                }} onClick={() => navigate(`/boards/${board.id}`)}
+                   onMouseEnter={e => e.currentTarget.style.boxShadow = `0 0 20px ${color}22`}
                    onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
                   {/* Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
@@ -101,9 +104,14 @@ export default function BoardExplorer() {
                         {board.manufacturer} · {board.chip}
                       </div>
                     </div>
-                    <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, background: `${color}18`, color, fontWeight: 600 }}>
-                      {board.architecture}
-                    </span>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, background: `${color}18`, color, fontWeight: 600 }}>
+                        {board.architecture}
+                      </span>
+                      <span title="Open full view" style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, background: 'var(--bg-input)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Maximize2 size={11} /> View
+                      </span>
+                    </div>
                   </div>
 
                   {/* Specs */}
@@ -119,7 +127,7 @@ export default function BoardExplorer() {
                   {/* Tags */}
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
                     {(board.tags || []).slice(0, 6).map(t => (
-                      <span key={t} onClick={() => setTagFilter(t)} style={{
+                      <span key={t} onClick={(e) => { e.stopPropagation(); setTagFilter(t); }} style={{
                         fontSize: 10, padding: '2px 8px', borderRadius: 10,
                         background: 'var(--bg-input)', color: 'var(--text-muted)',
                         cursor: 'pointer', border: '1px solid var(--border-color)',
@@ -133,6 +141,7 @@ export default function BoardExplorer() {
                       const Icon = opIcons[op] || Zap;
                       return (
                         <button key={op} onClick={async (e) => {
+                          e.stopPropagation();
                           const btn = e.target.closest('button');
                           const origText = btn.textContent;
                           btn.textContent = '...';
@@ -164,7 +173,7 @@ export default function BoardExplorer() {
 
                   {/* Docs link */}
                   {board.docs_url && (
-                    <a href={board.docs_url} target="_blank" rel="noopener noreferrer"
+                    <a href={board.docs_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                       style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
                       <ExternalLink size={12} /> Documentation
                     </a>

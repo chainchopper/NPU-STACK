@@ -41,6 +41,8 @@ This is an active development boundary. All UI changes go here.
 | EdgeFleet | `EdgeFleet.jsx` | Fleet device management |
 | FleetCommand | `FleetCommand.jsx` | Fleet command dispatch |
 | DevicePlayground | `DevicePlayground.jsx` | **Nirvana OS MicroPython emulator** — side-by-side code + virtual round-display preview with touch (`/api/emulator/ws`) |
+| BoardExplorer | `BoardExplorer.jsx` | Supported-board catalog (cards → full view) |
+| BoardDetail | `BoardDetail.jsx` | **Board full-view template** — tabbable (Overview/Features/Compatibility/Connection/Requirements/Pinouts/Photos/Agent), reused by every `/boards/:boardId` route |
 | FastFlowLM | `FastFlowLM.jsx` | FastFlowLM inference UI |
 | AdvancedTraining | `AdvancedTraining.jsx` | Advanced training configuration |
 | AutoResearch | `AutoResearch.jsx` | Automated research tools |

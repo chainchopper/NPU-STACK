@@ -1,9 +1,11 @@
 """Board Explorer Router — CRUD for supported NPU-STACK boards."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Body
+from fastapi.responses import FileResponse
 
 from services.board_scraper import (
     list_boards,
@@ -11,6 +13,10 @@ from services.board_scraper import (
     save_board,
     delete_board,
     scrape_manufacturer_pages,
+    related_devices,
+    board_assets,
+    BOARD_ASSETS_DIR,
+    BOARDS_DIR,
 )
 
 router = APIRouter(prefix="/api/boards", tags=["boards"])
@@ -32,11 +38,55 @@ def api_list_manufacturers():
 
 @router.get("/{board_id}")
 def api_get_board(board_id: str):
-    """Get a single board by ID with full metadata."""
+    """Get a single board by ID with full metadata + live fleet status."""
     board = get_board(board_id)
     if not board:
         raise HTTPException(404, f"Board '{board_id}' not found")
-    return {"board": board}
+
+    devices = related_devices(board)
+    paired = [d for d in devices if d.get("paired")]
+    online = [d for d in devices if d.get("available")]
+    return {
+        "board": board,
+        "devices": devices,
+        "paired_devices": paired,
+        "status": {
+            "paired": bool(paired),
+            "paired_count": len(paired),
+            "online_count": len(online),
+            "device_count": len(devices),
+        },
+        "assets": board_assets(board_id),
+    }
+
+
+@router.get("/{board_id}/assets/{path:path}")
+def api_board_asset(board_id: str, path: str):
+    """Serve a board reference asset (pinout image, PDF, STL, scraped photo...).
+
+    Looks first under backend/data/boards/assets/<board_id>/ (organized
+    downloads), then under backend/data/boards/<board_id>/ (legacy scraped
+    screenshots/diagrams).
+    """
+    board = get_board(board_id)
+    if not board:
+        raise HTTPException(404, f"Board '{board_id}' not found")
+
+    # Prevent path traversal.
+    safe = Path(path)
+    if safe.is_absolute() or ".." in safe.parts:
+        raise HTTPException(400, "Invalid asset path")
+
+    for root in (BOARD_ASSETS_DIR / board_id, BOARDS_DIR / board_id):
+        try:
+            candidate = (root / safe).resolve()
+            candidate.relative_to(root.resolve())
+        except ValueError:
+            continue
+        if candidate.is_file():
+            return FileResponse(candidate)
+
+    raise HTTPException(404, f"Asset '{path}' not found for board '{board_id}'")
 
 
 @router.post("")

@@ -35,6 +35,7 @@ const NirvanaChat = lazy(() => import('./pages/NirvanaChat'));
 const NirvanaTodos = lazy(() => import('./pages/NirvanaTodos'));
 const NirvanaInsights = lazy(() => import('./pages/NirvanaInsights'));
 const BoardExplorer = lazy(() => import('./pages/BoardExplorer'));
+const BoardDetail = lazy(() => import('./pages/BoardDetail'));
 const EspNowDeploy = lazy(() => import('./pages/EspNowDeploy'));
 const EspDevConsole = lazy(() => import('./pages/EspDevConsole'));
 const DevicePlayground = lazy(() => import('./pages/DevicePlayground'));
@@ -267,6 +268,7 @@ function AppInner() {
                             <Route path="/espnow-deploy" element={<Navigate to="/esp-dev" replace />} />
                             <Route path="/esp-dev" element={<EspDevConsole />} />
                             <Route path="/boards" element={<BoardExplorer />} />
+                            <Route path="/boards/:boardId" element={<BoardDetail />} />
                             <Route path="/device-playground" element={<DevicePlayground />} />
                             <Route path="/nirvana-chat" element={<NirvanaChat />} />
                             <Route path="/nirvana-todos" element={<NirvanaTodos />} />

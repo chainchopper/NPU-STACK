@@ -37,6 +37,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `fleet_command_router` | `routers/fleet_command.py` | Fleet command dispatch |
 | `fleet_agent_router` | `routers/fleet_agent.py` | Fleet agent polling/registration |
 | `devices_router` | `routers/devices.py` | Device discovery, inventory, Nirvana app marketplace |
+| `boards_router` | `routers/boards.py` | Board catalog CRUD + **board full view** — `GET /{board_id}` returns metadata + matched fleet devices + status + asset manifest; `GET /{board_id}/assets/{path}` serves downloaded pinouts/PDFs/STLs |
 | `emulator_router` | `routers/emulator.py` | Nirvana OS MicroPython emulator — WS `/api/emulator/ws` + `/api/emulator/examples` |
 | `docs_index_router` | `routers/docs_index.py` | Documentation search/index |
 | `assets_router` | `routers/assets.py` | Static asset serving |
