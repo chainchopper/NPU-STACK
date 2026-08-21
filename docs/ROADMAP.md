@@ -46,14 +46,16 @@ Reference: <https://wiki.seeedstudio.com/round_display_animation_workshop/>
 
 ## 2. Agent face / eyes ("always alive")
 
-**Status:** Core built. `face.py` (in `firmware/nirvana-os/`) renders a parametric
+**Status:** Done (v1). `face.py` (in `firmware/nirvana-os/`) renders a parametric
 face with 11 emotions (neutral, happy, sad, angry, surprised, sleepy, wink, love,
 thinking, listening, talking) plus blink, gaze tracking and mouth openness. Runs
-on-device and in the emulator; registered as the `face` marketplace app.
+on-device and in the emulator; registered as the `face` marketplace app. The menu
+now enters an idle screensaver (`face.alive()`) after 8 s of no activity — it
+blinks, drifts its gaze, and talks when the mic level rises (emulator), then
+returns to the menu on tap.
 
-**Pending:** the "always-alive" idle integration — face appears full-screen after
-an idle timeout, driven by mic level (talking), touch (reaction), and IMU/gaze.
-Also: add `arc`-based expressive brows and per-emotion gaze defaults (partly done).
+**Pending:** wire a real on-device mic level (PDM read), per-emotion gaze/brow
+polish, and physical IMU gaze tracking when hardware is added.
 
 References (fetch + adapt when we build this):
 
