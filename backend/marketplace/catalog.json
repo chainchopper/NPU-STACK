@@ -32,6 +32,17 @@
         {"path": "app.json", "url": "/api/devices/apps/demo/app.json"},
         {"path": "main.py", "url": "/api/devices/apps/demo/main.py"}
       ]
+    },
+    {
+      "id": "face",
+      "name": "Nirvana Face",
+      "version": "1.0.0",
+      "author": "NPU-STACK",
+      "description": "Animated agent face — full emotion gamut with blinking.",
+      "files": [
+        {"path": "app.json", "url": "/api/devices/apps/face/app.json"},
+        {"path": "main.py", "url": "/api/devices/apps/face/main.py"}
+      ]
     }
   ]
 }

@@ -24,22 +24,21 @@ MicroPython reality:
 | P4 PSRAM octal + `__builtin_bswap16` | ~25 FPS | ✅ Equivalent: we store **big-endian directly** — no swap loop at all |
 | P5 internal SRAM + 32-bit SWAR + SIMD | ~30 FPS | ❌ N/A (no Xtensa SIMD intrinsics from MicroPython) |
 
-**Our actual numbers** (benchmarked on-device): full frame 25 ms @ 40 MHz,
-menu band 10 ms, overlay 4 ms.
+**Our actual numbers** (benchmarked on-device @ 80 MHz): full frame 13 ms,
+menu band 5 ms, overlay 2 ms.
 
 Key techniques we adopted from the workshop:
 
 - Byte-order: store RGB565 big-endian in the framebuffer → SPI push needs no swap
   (strictly better than their `bswap16`/SWAR, which still swap).
 - Incremental redraw: only push the dirty band (`show_region`).
-- SPI overclock: 20 → 40 MHz (user-verified clean). **80 MHz is the S3 bus ceiling.**
+- SPI overclock: 20 → 40 → **80 MHz** (the S3 bus ceiling, per the workshop).
 
 Remaining levers (ordered):
 
-1. **80 MHz SPI** — the workshop's ceiling; stresses the carrier traces, needs a
-   visual check. Full frame would drop to ~12 ms.
-2. Skip redundant CASET/RASET window setup on full-screen `show()` (~1 ms).
-3. Batch window commands into one CS assertion (~1 ms).
+1. Skip redundant CASET/RASET window setup on full-screen `show()` (~1 ms).
+2. Batch window commands into one CS assertion (~1 ms).
+3. Touch debounce: fixed (edge-triggered, no blocking 250 ms sleep — instant nav).
 
 Reference: <https://wiki.seeedstudio.com/round_display_animation_workshop/>
 
@@ -47,12 +46,14 @@ Reference: <https://wiki.seeedstudio.com/round_display_animation_workshop/>
 
 ## 2. Agent face / eyes ("always alive")
 
-**Status:** Planned — the big next feature. Full-screen animated eyes/face that
-is always alive, reacting to movement, sound and other stimuli; goes full-screen
-when idle.
+**Status:** Core built. `face.py` (in `firmware/nirvana-os/`) renders a parametric
+face with 11 emotions (neutral, happy, sad, angry, surprised, sleepy, wink, love,
+thinking, listening, talking) plus blink, gaze tracking and mouth openness. Runs
+on-device and in the emulator; registered as the `face` marketplace app.
 
-Goal: the agent's "presence" on the round display — expressions for different
-moods and modalities.
+**Pending:** the "always-alive" idle integration — face appears full-screen after
+an idle timeout, driven by mic level (talking), touch (reaction), and IMU/gaze.
+Also: add `arc`-based expressive brows and per-emotion gaze defaults (partly done).
 
 References (fetch + adapt when we build this):
 

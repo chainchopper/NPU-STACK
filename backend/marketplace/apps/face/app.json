@@ -1,0 +1,8 @@
+{
+  "id": "face",
+  "name": "Nirvana Face",
+  "version": "1.0.0",
+  "author": "NPU-STACK",
+  "description": "Animated agent face — full emotion gamut (happy, sad, angry, surprised, love, wink, sleepy, thinking, listening, talking) with blinking.",
+  "entry": "main.py"
+}

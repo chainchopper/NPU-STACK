@@ -99,6 +99,11 @@ class FrameBuffer:
         from PIL import ImageDraw
         ImageDraw.Draw(self._img).line([x, y, x, y + h - 1], fill=(r, g, b))
 
+    def line(self, x0, y0, x1, y1, c):
+        r, g, b = _unpack_rgb565(c)
+        from PIL import ImageDraw
+        ImageDraw.Draw(self._img).line([x0, y0, x1, y1], fill=(r, g, b))
+
     def fill_rect(self, x, y, w, h, c):
         r, g, b = _unpack_rgb565(c)
         from PIL import ImageDraw
@@ -108,6 +113,26 @@ class FrameBuffer:
         r, g, b = _unpack_rgb565(c)
         from PIL import ImageDraw
         ImageDraw.Draw(self._img).rectangle([x, y, x + w - 1, y + h - 1], outline=(r, g, b))
+
+    def fill_circle(self, x, y, r, c):
+        rgb = _unpack_rgb565(c)
+        from PIL import ImageDraw
+        ImageDraw.Draw(self._img).ellipse([x - r, y - r, x + r, y + r], fill=rgb)
+
+    def circle(self, x, y, r, c):
+        rgb = _unpack_rgb565(c)
+        from PIL import ImageDraw
+        ImageDraw.Draw(self._img).ellipse([x - r, y - r, x + r, y + r], outline=rgb)
+
+    def fill_ellipse(self, x, y, rx, ry, c):
+        rgb = _unpack_rgb565(c)
+        from PIL import ImageDraw
+        ImageDraw.Draw(self._img).ellipse([x - rx, y - ry, x + rx, y + ry], fill=rgb)
+
+    def arc(self, x, y, r, a0, a1, c):
+        rgb = _unpack_rgb565(c)
+        from PIL import ImageDraw
+        ImageDraw.Draw(self._img).arc([x - r, y - r, x + r, y + r], start=a0, end=a1, fill=rgb)
 
     def text(self, s, x, y, c=WHITE):
         r, g, b = _unpack_rgb565(c)

@@ -8,6 +8,7 @@ stdin/stdout framed protocol (used by the /ws/emulator WebSocket endpoint):
            STOP                                — end the session
 """
 import json
+import os
 import sys
 import threading
 
@@ -18,6 +19,13 @@ def main():
     if len(sys.argv) < 2:
         sys.stderr.write("usage: runner.py <app_source.py>\n")
         return
+
+    # Make real device modules (face, apps, etc.) importable in the emulator so
+    # app code can `import face` unchanged.
+    _repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _fw = os.path.join(_repo, "firmware", "nirvana-os")
+    if os.path.isdir(_fw) and _fw not in sys.path:
+        sys.path.insert(0, _fw)
 
     src_path = sys.argv[1]
     out = sys.__stdout__.buffer  # binary stdout (length-prefixed protocol)
