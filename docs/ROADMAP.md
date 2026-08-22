@@ -130,9 +130,14 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
 **Status:** Planned. Per the Nirvana Fleet Intelligence plan, boards onboard via:
 
 - **IMPROV WiFi** provisioning (QR-code based, <https://www.improv-wifi.com/>) —
-  scan a QR, phone sends SSID/pass, board joins. We already have SoftAP + QR
-  provisioning (`wifi_provision.py`); adopt the IMPROV protocol for
-  compatibility with generic tools (ESP Web Tools, Home Assistant).
+  scan a QR, phone sends SSID/pass, board joins. **Landed (HTTP + menu):**
+  `wifi_provision.py` now serves the IMPROV-HTTP flow (`GET /redirect` 302,
+  `POST /provison` + `/provision` JSON `{ssid,password}` → save → 303 + result
+  fragment), and the home menu gained a **"WiFi Setup"** item that re-runs the
+  SoftAP + QR + portal wizard for already-paired devices. Verified on-device:
+  JSON parser + portal routes load; full browser/BLE handshake needs a phone test.
+  **Remaining:** IMPROV **BLE GATT** service (`ubluetooth`, service UUID
+  `00467768-...`) for ESP Web Tools / Home Assistant, and the ESP-NOW beacon.
 - **ESP-NOW** zero-config pairing via a beacon device on this machine, or the
   `portal-1` webserver for special cases — beacon broadcasts board identity and
   a pairing token; backend `/api/esp/...` + `espnow_service` already exist.
