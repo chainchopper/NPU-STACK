@@ -89,22 +89,25 @@ Adaptation plan for our MicroPython driver (no LVGL/SVG):
 
 ## 3. Audio output (voicebox / TTS relay feedback)
 
-**Status:** Firmware landed (audio.py); amp wiring is the only remaining step.
-The XIAO ESP32-S3 Sense has a **PDM mic (input only)** and **no audio DAC**. To
-hear the agent's voice / TTS:
+**Status:** Firmware landed (audio.py + IMA-ADPCM); amp wiring OR Home Assistant
+routing. The XIAO ESP32-S3 Sense has a **PDM mic (input only)** and **no audio
+DAC**.
 
-- Add an external **I2S DAC + class-D amp + speaker** (e.g., MAX98357A).
-- `firmware/nirvana-os/audio.py` implements `init/tone/beep/play_wav/say` over
-  `machine.I2S` TX on BCLK=GPIO11, LRC=GPIO12, DIN=GPIO13. Verified on-device:
-  I2S TX initialises and `audio.tone(440, 20)` writes PCM cleanly (sound plays
-  once the amp is wired). Emulator stubs `machine.I2S` for playground testing.
-- The xiaozhi voice server is already in `deploy/xiaozhi-server/` (MQTT+UDP) —
-  audio relay plumbing exists; next is wiring TTS output (backend WAV) into
-  `audio.play_wav`/`say`.
+Two ways the agent talks:
 
-Pin availability resolved — free GPIOs for I2S: 10–18, 33–37, 39, 40, 45–48
-(and 0 with strapping care); note these are B2B/camera pads, not the D0–D10
-headers (all consumed by the carrier). Full map in `docs/SENSORS.md`.
+1. **Home Assistant / ESPHome routing (no XIAO hardware).** The backend already
+   has TTS (ElevenLabs key in `.env`); generate TTS, POST to HA
+   `media_player.play_media` (or an ESPHome `speaker`) and a room device plays
+   it. The XIAO just triggers "say X". Needs the HA URL + long-lived token.
+2. **Local I2S amp.** `audio.py` (`init/tone/beep/play_wav/play_samples/
+   play_adpcm`) over `machine.I2S` TX on BCLK=GPIO11, LRC=GPIO12, DIN=GPIO13.
+   `adpcm.py` is a pure-MicroPython **IMA ADPCM** codec (4:1, ~1.9% error,
+   verified round-trip) — the backend can encode TTS to ADPCM and stream it
+   compactly (same codec the XIAO nRF52840 reference uses for BLE audio).
+
+Also: `ble_scan.py` (BLE central scanner) is landed — the XIAO scans nearby BLE
+devices (verified: 34 devices incl. a Nanoleaf), for presence/HomeKit discovery.
+Bluetooth is the under-used radio the fleet should lean on more.
 
 ---
 
