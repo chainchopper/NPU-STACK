@@ -154,9 +154,18 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
   offer every 3s; flash onto the spare Matrix Portal S3 / any ESP32). Wired into
   `provision()` alongside the SoftAP portal (`serve_portal` polls ESP-NOW each
   accept timeout). Verified on-device: receiver activates + polls cleanly.
-  **Pending:** live end-to-end needs the beacon ESP32 free (COM36 was held by
-  another program); backend `/api/esp/...` + `espnow_service` still to wire for
-  portal-1-based pairing.
+  **Pending:** live end-to-end needs the beacon ESP32 free; backend
+  `/api/esp/...` + `espnow_service` still to wire for portal-1-based pairing.
+- **ESP-NOW fleet messaging (master/slave)** — landed: `firmware/nirvana-os/
+  espnow_msg.py` (`Link` class) lets screen devices pass short commands without
+  a router. Frame = `NPUMSG1|{json}`; types `text` (s + optional RGB565 c),
+  `color`, `power` (on/off), `ping`→`pong`, `img`. Role from `config.json`
+  `espnow_role` = `master` (sends) / `slave` (applies to display via
+  `apply_to_display`) / `off`. Wired into `main.py` (starts the link at boot,
+  `espnow_master`/`espnow_slave`/`espnow_off` control commands) and the menu loop
+  (slave polls each tick). Verified in the emulator (slave text dispatch,
+  ping/pong, master send). This is the transport for the Matrix Portal S3 +
+  Waveshare round-display fleet apps below.
 
 Xiaozhi is the base we're rebranding/customizing from — we're not far off;
 reuse its onboarding flow (AP + QR + web portal) and layer IMPROV on top.
