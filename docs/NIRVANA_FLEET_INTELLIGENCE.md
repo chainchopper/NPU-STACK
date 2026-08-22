@@ -99,3 +99,15 @@ reference:
 2. Primary MicroPython board: XIAO ESP32-S3 Sense vs alternatives (ESP32-S3-BOX-3,
    M5Stack CoreS3, XIAO Round Display).
 3. Update channel access-key model: per-fleet key vs per-device key.
+
+## Future Ideas
+
+- **ESP-NOW daisy-chain:** two XIAOs (one seated in the Round Display, one pressed
+  into a Grove Vision AI V2 kit) + the Grove Vision V2 can link over ESP-NOW
+  (no AP/router needed) for a multi-node sensor+display mesh. Note: Grove Vision
+  AI V2 is a WiseEye2 HX6538 (not an ESP32) — bridge it from the XIAO over I2C
+  rather than flashing it directly; ESP-NOW runs XIAO↔XIAO.
+- **Camera on XIAO Sense:** use the prebuilt OV2640 MicroPython firmware
+  (`firmware/micropython-esp32/XIAO-Sense-OV2640-wifi-ble-20230717.bin`, from
+  shariltumin/esp32-cam-micropython-2022) as the camera reference; note it is an
+  older MicroPython (2023) — port the OV2640 driver to v1.28 for the main image.
