@@ -11,7 +11,8 @@ focus. Update statuses as work lands.
 
 ## 1. Display performance (XIAO Round Display, GC9A01 240×240)
 
-**Status:** 3 of 5 workshop phases' worth of wins already landed in MicroPython.
+**Status:** Done (v1). MicroPython-adapted: big-endian framebuffer (no byte-swap),
+80 MHz SPI, dirty-pixel incremental rendering, native (viper) fill.
 
 Seeed's Animation Workshop found these phases (C/LVGL/ESP-IDF). Mapped to our
 MicroPython reality:
@@ -25,7 +26,7 @@ MicroPython reality:
 | P5 internal SRAM + 32-bit SWAR + SIMD | ~30 FPS | ❌ N/A (no Xtensa SIMD intrinsics from MicroPython) |
 
 **Our actual numbers** (benchmarked on-device @ 80 MHz): full frame 13 ms,
-menu band 5 ms, overlay 2 ms.
+menu band clear 4 ms (viper fill), idle face 25 fps, face full redraw 62 ms.
 
 Key techniques we adopted from the workshop:
 
@@ -112,6 +113,23 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
 
 ---
 
+## 6. Fleet pairing / onboarding
+
+**Status:** Planned. Per the Nirvana Fleet Intelligence plan, boards onboard via:
+
+- **IMPROV WiFi** provisioning (QR-code based, <https://www.improv-wifi.com/>) —
+  scan a QR, phone sends SSID/pass, board joins. We already have SoftAP + QR
+  provisioning (`wifi_provision.py`); adopt the IMPROV protocol for
+  compatibility with generic tools (ESP Web Tools, Home Assistant).
+- **ESP-NOW** zero-config pairing via a beacon device on this machine, or the
+  `portal-1` webserver for special cases — beacon broadcasts board identity and
+  a pairing token; backend `/api/esp/...` + `espnow_service` already exist.
+
+Xiaozhi is the base we're rebranding/customizing from — we're not far off;
+reuse its onboarding flow (AP + QR + web portal) and layer IMPROV on top.
+
+---
+
 ## Curated reference links (keep)
 
 Display/face:
@@ -126,6 +144,7 @@ Display/face:
 
 Board hardware:
 
+- <https://www.improv-wifi.com/>
 - <https://wiki.seeedstudio.com/xiao_esp32s3_pin_multiplexing/>
 - <https://wiki.seeedstudio.com/get_start_round_display/>
 - <https://wiki.seeedstudio.com/seeedstudio_round_display_usage/>
