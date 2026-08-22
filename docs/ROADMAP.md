@@ -130,14 +130,19 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
 **Status:** Planned. Per the Nirvana Fleet Intelligence plan, boards onboard via:
 
 - **IMPROV WiFi** provisioning (QR-code based, <https://www.improv-wifi.com/>) —
-  scan a QR, phone sends SSID/pass, board joins. **Landed (HTTP + menu):**
-  `wifi_provision.py` now serves the IMPROV-HTTP flow (`GET /redirect` 302,
+  scan a QR, phone sends SSID/pass, board joins. **Landed (HTTP + BLE + menu):**
+  `wifi_provision.py` serves the IMPROV-HTTP flow (`GET /redirect` 302,
   `POST /provison` + `/provision` JSON `{ssid,password}` → save → 303 + result
-  fragment), and the home menu gained a **"WiFi Setup"** item that re-runs the
-  SoftAP + QR + portal wizard for already-paired devices. Verified on-device:
-  JSON parser + portal routes load; full browser/BLE handshake needs a phone test.
-  **Remaining:** IMPROV **BLE GATT** service (`ubluetooth`, service UUID
-  `00467768-...`) for ESP Web Tools / Home Assistant, and the ESP-NOW beacon.
+  fragment); the home menu gained a **"WiFi Setup"** item that re-runs the
+  SoftAP + QR + portal wizard. **BLE GATT landed** (`firmware/nirvana-os/
+  improv_ble.py`): advertises the Improv service UUID + service data (0x4677),
+  registers State/Error/RPC-Command/RPC-Result/Capabilities characteristics,
+  and handles `identify` / `device info` / `send wifi settings` RPC commands
+  (checksum-verified). Verified on-device: 31-byte advertisement, GATT service
+  registered, RPC send-wifi parsing drives the save+reboot callback, ~105 KB
+  free RAM alongside SoftAP. Full phone/Home Assistant handshake still needs an
+  external BLE client test.
+  **Remaining:** the **ESP-NOW** beacon.
 - **ESP-NOW** zero-config pairing via a beacon device on this machine, or the
   `portal-1` webserver for special cases — beacon broadcasts board identity and
   a pairing token; backend `/api/esp/...` + `espnow_service` already exist.
