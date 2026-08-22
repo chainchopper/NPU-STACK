@@ -55,8 +55,19 @@ now enters an idle screensaver (`face.alive()`) after 8 s of no activity — it
 blinks, drifts its gaze, and talks when the mic level rises (emulator), then
 returns to the menu on tap.
 
-**Pending:** wire a real on-device mic level (PDM read), per-emotion gaze/brow
-polish, and physical IMU gaze tracking when hardware is added.
+**Pending:** per-emotion gaze/brow polish, and physical IMU gaze tracking when
+hardware is added.
+
+**Sensor wiring landed** (`firmware/nirvana-os/sensors.py`, local-only): unified
+`rtc()/battery_mv()/temp_c()/imu()/light()/camera()/mic()` mirroring the emulator
+API. Verified on-device: temp 44 °C, RTC present (unset → None), camera present,
+IMU/light absent. `face.alive()` now falls back to a breathing/talking pattern
+when mic level is 0 so the idle face stays animated.
+
+**On-device PDM mic is blocked** by stock MicroPython (no PDM-RX I2S mode —
+unmerged PR #14176). Real mic level needs a PDM-patched build or an I2S mic on
+free pins. Battery % on A0/D0 (GPIO1) conflicts with the CHSC6X touch reset (the
+pin must stay driven HIGH for touch to answer I2C) — see `docs/SENSORS.md`.
 
 References (fetch + adapt when we build this):
 
@@ -87,8 +98,9 @@ Adaptation plan for our MicroPython driver (no LVGL/SVG):
 - The xiaozhi voice server is already in `deploy/xiaozhi-server/` (MQTT+UDP) —
   audio relay plumbing exists; needs the I2S-out endpoint on-device.
 
-Open question: pin availability for I2S given camera (GPIO10-18,38-48), PDM mic
-(41/42), SD (3/7/8/9), display SPI (7/8/9/2/4/43), touch/RTC I2C (5/6), UART (43/44).
+Pin availability resolved — free GPIOs for I2S: 10–18, 33–37, 39, 40, 45–48
+(and 0 with strapping care). Recommended MAX98357A wiring: BCLK=GPIO11,
+LRC=GPIO12, DIN=GPIO13 + 3V3/GND. Full map in `docs/SENSORS.md`.
 
 ---
 
