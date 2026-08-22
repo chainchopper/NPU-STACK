@@ -142,10 +142,17 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
   registered, RPC send-wifi parsing drives the save+reboot callback, ~105 KB
   free RAM alongside SoftAP. Full phone/Home Assistant handshake still needs an
   external BLE client test.
-  **Remaining:** the **ESP-NOW** beacon.
 - **ESP-NOW** zero-config pairing via a beacon device on this machine, or the
-  `portal-1` webserver for special cases — beacon broadcasts board identity and
-  a pairing token; backend `/api/esp/...` + `espnow_service` already exist.
+  `portal-1` webserver for special cases. **Landed (receiver + beacon script):**
+  `firmware/nirvana-os/espnow_pair.py` (board side — activates ESP-NOW, adds the
+  broadcast peer, sets a fleet PMK, polls for `NPUPAIR1|{json}` offers and saves
+  WiFi+backend on match) and `espnow_beacon.py` (beacon side — broadcasts the
+  offer every 3s; flash onto the spare Matrix Portal S3 / any ESP32). Wired into
+  `provision()` alongside the SoftAP portal (`serve_portal` polls ESP-NOW each
+  accept timeout). Verified on-device: receiver activates + polls cleanly.
+  **Pending:** live end-to-end needs the beacon ESP32 free (COM36 was held by
+  another program); backend `/api/esp/...` + `espnow_service` still to wire for
+  portal-1-based pairing.
 
 Xiaozhi is the base we're rebranding/customizing from — we're not far off;
 reuse its onboarding flow (AP + QR + web portal) and layer IMPROV on top.
