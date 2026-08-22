@@ -167,6 +167,18 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
   ping/pong, master send). This is the transport for the Matrix Portal S3 +
   Waveshare round-display fleet apps below.
 
+### Multi-board fleet (Waveshare + Matrix Portal S3)
+
+- **Waveshare ESP32-S3-LCD-1.28** (non-touch round display) — **onboarded.** New
+  `board_profile = "waveshare-lcd128"`: GC9A01A pins SCK=10/MOSI=11/CS=9/DC=8/
+  RST=12/BL=40 (madctl 0x00), QMI8658 6-axis IMU on I2C SDA=GPIO6/SCL=GPIO7.
+  Verified on-device: display GC9A01 OK + QMI8658 detected @0x6B. Non-touch →
+  serial command mode (`n/p/s`, `help`). `scripts/raw_copy.py` is the CH343-safe
+  file-transfer path (mpremote's reset handshake breaks on that bridge).
+- **Matrix Portal S3** (product 5778) — ESP32-S3 + LIS3DH accel, CircuitPython
+  stock firmware. Restoring its factory demo ("digital sand"/marbles) needs UF2
+  boot mode (double-tap reset → MATRIXBOOT drive) or the CircuitPython toolchain.
+  Plan: default demo + ESP-NOW/API text/color/power/image control as an app.
 Xiaozhi is the base we're rebranding/customizing from — we're not far off;
 reuse its onboarding flow (AP + QR + web portal) and layer IMPROV on top.
 
