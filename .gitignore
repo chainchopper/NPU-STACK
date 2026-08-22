@@ -138,3 +138,6 @@ desktop/node_modules/
 fable5_cot_merged.jsonl
 qwen3.7_max_thinking.jsonl
 train_magneto_merged.jsonl
+
+# private training data / internal assets — NEVER pushed
+internal/
