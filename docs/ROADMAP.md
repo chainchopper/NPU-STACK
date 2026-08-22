@@ -45,6 +45,29 @@ Reference: <https://wiki.seeedstudio.com/round_display_animation_workshop/>
 
 ---
 
+## 1b. Memory / partitioning (XIAO ESP32-S3 Sense)
+
+**Finding:** the stock `ESP32_GENERIC_S3` MicroPython build targets **quad**
+PSRAM, but the XIAO Sense has **8 MB OCTAL (OPI) PSRAM** — so the octal PSRAM
+is never initialised and the whole heap runs in ~250 KB internal SRAM
+(verified: `idf_heap_info` shows no PSRAM region; `gc.mem_free()` ≈ 180 KB).
+Flash is fine (~6 MB LittleFS of 8 MB). Fix = custom build with
+`CONFIG_SPIRAM_MODE_OCT` + max caches + (optional) PDM-RX — scaffolded at
+`tools/micropython-xiao-s3/README.md`. Once the heap is in PSRAM the display
+framebuffer and assets stop competing with the tiny SRAM heap.
+
+**SD-card asset loading:** `firmware/nirvana-os/assets.py` — load/unload static
+assets (fonts/icons/app data) from `/sd/assets` on demand and `gc.collect()` on
+unload, so big static things don't sit in RAM. Pattern for larger fonts/sprites
+later.
+
+**Agent voice:** `backend/routers/nirvana_audio.py` (`POST /api/nirvana/say`)
+routes TTS through **Home Assistant** `tts.speak` (Piper/Google/Cloud) to any
+`media_player`/ESPHome speaker — **ElevenLabs is test-only**, not production.
+Needs `HA_BASE_URL` + `HA_TOKEN` in `.env`.
+
+---
+
 ## 2. Agent face / eyes ("always alive")
 
 **Status:** Done (v1). `face.py` (in `firmware/nirvana-os/`) renders a parametric
