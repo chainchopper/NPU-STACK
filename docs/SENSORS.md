@@ -102,4 +102,8 @@ rejected). Set it once via NTP (ESP32 has network) and it persists on the cell.
 
 `backend/emulator/shim.py` stubs the same `sensors` API (`rtc/mic/battery_mv/
 temp_c/light/imu/camera`) plus injectable `accel_xyz/gyro_xyz` for IMU-driven
-gaze work before hardware exists.
+gaze work before hardware exists. It also stubs `bluetooth` + `espnow`, so the
+provisioning modules (`improv_ble`, `espnow_pair`) run unchanged in the
+playground — inject an IMPROV RPC via `BLE:<hex>` and an offer via
+`ESPNOW:<mac>,<msg>` on the runner stdin (covered by
+`tests/test_emulator_provisioning.py`).

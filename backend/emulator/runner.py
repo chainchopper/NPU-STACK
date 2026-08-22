@@ -75,6 +75,22 @@ def main():
                                 shim.set_sensor(k, v)
                     except Exception:
                         pass
+                elif line.startswith("BLE:"):
+                    # Inject an IMPROV RPC command (hex-encoded bytes) into the
+                    # running app's BLE stub — simulates a phone writing GATT.
+                    _, _, hexdata = line.partition(":")
+                    try:
+                        shim.inject_ble_rpc(bytes.fromhex(hexdata))
+                    except Exception:
+                        pass
+                elif line.startswith("ESPNOW:"):
+                    # Inject an ESP-NOW frame: ESPNOW:<mac-hex>,<utf8-msg>
+                    _, _, payload = line.partition(":")
+                    mac, _, msg = payload.partition(",")
+                    try:
+                        shim.inject_espnow(bytes.fromhex(mac), msg.encode("utf-8"))
+                    except Exception:
+                        pass
         except Exception:
             pass
 

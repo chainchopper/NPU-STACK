@@ -636,6 +636,234 @@ class _SensorsModule:
         return dict(_sensor_value("camera", {}))
 
 
+# ── bluetooth / espnow stubs (IMPROV BLE + ESP-NOW pairing) ──────────
+_FLAG_READ = 0x0002
+_FLAG_WRITE = 0x0008
+_FLAG_NOTIFY = 0x0010
+_FLAG_INDICATE = 0x0020
+_FLAG_WRITE_NO_RESPONSE = 0x0004
+
+_last_ble = None
+_last_espnow = None
+
+
+class _UUID:
+    def __init__(self, v):
+        self.value = v
+
+    def __repr__(self):
+        return str(self.value)
+
+    def __hash__(self):
+        return hash(self.value)
+
+    def __eq__(self, other):
+        return isinstance(other, _UUID) and self.value == other.value
+
+
+class _BLE:
+    """Host stub of ubluetooth.BLE — enough for improv_ble.ImprovBLE to run."""
+
+    _IRQ_CENTRAL_CONNECT = 1
+    _IRQ_CENTRAL_DISCONNECT = 2
+    _IRQ_GATTS_WRITE = 3
+    _IRQ_GATTS_READ = 4
+
+    def __init__(self):
+        global _last_ble
+        self._active = False
+        self._gap_name = ""
+        self._adv = None
+        self._values = {}
+        self._char_uuid = {}
+        self._irq = None
+        self._n = 1
+        _last_ble = self
+
+    def active(self, v=None):
+        if v is None:
+            return self._active
+        self._active = bool(v)
+        return self._active
+
+    def config(self, *args, **kw):
+        if kw:
+            for k, v in kw.items():
+                setattr(self, "_" + k, v)
+            return None
+        if args:
+            return getattr(self, "_" + args[0], None)
+        return None
+
+    def gap_advertise(self, interval_us=None, adv_data=None, **kw):
+        self._adv = adv_data
+        return None
+
+    def gatts_register_services(self, services):
+        handles = []
+        for svc in services:
+            for char in svc[1]:
+                h = self._n
+                self._n += 1
+                self._values[h] = b""
+                if hasattr(char[0], "value"):
+                    self._char_uuid[h] = str(char[0].value)
+                handles.append(h)
+        return (tuple(handles),)
+
+    def gatts_write(self, handle, data):
+        self._values[handle] = bytes(data)
+        return len(data)
+
+    def gatts_read(self, handle):
+        return self._values.get(handle, b"")
+
+    def gatts_notify(self, conn, handle, data):
+        self._values[handle] = bytes(data)
+        return True
+
+    def gatts_indicate(self, conn, handle, data):
+        return self.gatts_notify(conn, handle, data)
+
+    def gatts_set_buffer(self, *a, **k):
+        return None
+
+    def irq(self, handler):
+        self._irq = handler
+
+    def _handle_with_suffix(self, suffix):
+        for h, u in self._char_uuid.items():
+            if u.endswith(suffix):
+                return h
+        return None
+
+    def inject_rpc(self, data):
+        """Simulate a BLE central writing to the RPC command characteristic.
+
+        Writes the value, then fires the GATTS_WRITE IRQ (conn=1) so the app's
+        handler parses it exactly as it would on-device.
+        """
+        h = self._handle_with_suffix("003")
+        if h is None:
+            return False
+        self._values[h] = bytes(data)
+        if self._irq:
+            self._irq(3, (1, h))
+        return True
+
+
+class _BluetoothModule:
+    FLAG_READ = _FLAG_READ
+    FLAG_WRITE = _FLAG_WRITE
+    FLAG_NOTIFY = _FLAG_NOTIFY
+    FLAG_INDICATE = _FLAG_INDICATE
+    FLAG_WRITE_NO_RESPONSE = _FLAG_WRITE_NO_RESPONSE
+
+    def UUID(self, v):
+        return _UUID(v)
+
+    def BLE(self):
+        return _BLE()
+
+
+class _ESPNow:
+    """Host stub of the espnow module — enough for espnow_pair to run."""
+
+    def __init__(self):
+        global _last_espnow
+        self._active = False
+        self._peers = set()
+        self._inbox = []
+        self._pmk = b""
+        self._irq = None
+        _last_espnow = self
+
+    def active(self, v=None):
+        if v is None:
+            return self._active
+        self._active = bool(v)
+        return self._active
+
+    def add_peer(self, mac):
+        self._peers.add(bytes(mac))
+        return None
+
+    def del_peer(self, mac):
+        self._peers.discard(bytes(mac))
+        return None
+
+    def peer_count(self):
+        return (len(self._peers), len(self._peers))
+
+    def get_peers(self):
+        return tuple(self._peers)
+
+    def get_peer(self, mac):
+        return bytes(mac)
+
+    def mod_peer(self, mac, *a, **k):
+        return None
+
+    def set_pmk(self, pmk):
+        self._pmk = bytes(pmk)
+        return None
+
+    def config(self, *a, **k):
+        return None
+
+    def stats(self):
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+    def send(self, mac, msg, sync=True):
+        return True
+
+    def any(self):
+        return len(self._inbox)
+
+    def recv(self, timeout=None):
+        return self._inbox.pop(0) if self._inbox else None
+
+    def recvinto(self, buf, timeout=None):
+        if not self._inbox:
+            return 0
+        _mac, msg = self._inbox.pop(0)
+        n = min(len(buf), len(msg))
+        buf[:n] = msg[:n]
+        return n
+
+    def irq(self, handler):
+        self._irq = handler
+
+    def irecv(self):
+        while self._inbox:
+            yield self._inbox.pop(0)
+
+    def inject(self, mac, msg):
+        self._inbox.append((bytes(mac), bytes(msg)))
+        if self._irq:
+            self._irq()
+        return True
+
+
+class _EspNowModule:
+    def ESPNow(self):
+        return _ESPNow()
+
+
+def inject_ble_rpc(data):
+    """Inject an IMPROV RPC command into the most recently created BLE stub."""
+    if _last_ble is not None:
+        return _last_ble.inject_rpc(data)
+    return False
+
+
+def inject_espnow(mac, msg):
+    """Inject an ESP-NOW frame into the most recently created ESPNow stub."""
+    if _last_espnow is not None:
+        return _last_espnow.inject(mac, msg)
+    return False
+
+
 # ── Install ─────────────────────────────────────────────────────────
 
 def install(frame_sink=None):
@@ -656,6 +884,8 @@ def install(frame_sink=None):
         "sd": _Sd(),
         "sensors": _SensorsModule(),
         "framebuf": FrameBuffer,
+        "bluetooth": _BluetoothModule(),
+        "espnow": _EspNowModule(),
     }
     for name, mod in shims.items():
         sys.modules[name] = mod
