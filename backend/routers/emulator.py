@@ -84,6 +84,7 @@ def examples():
             "id": app["id"],
             "name": app.get("name", app["id"]),
             "description": app.get("description", ""),
+            "thumb": app.get("thumb", ""),
             "code": code,
         })
     return {"apps": apps}

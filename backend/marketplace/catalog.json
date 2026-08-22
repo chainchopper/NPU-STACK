@@ -6,6 +6,7 @@
       "version": "1.0.0",
       "author": "NPU-STACK",
       "description": "Prints HELLO on the round display.",
+      "thumb": "/api/devices/apps/hello/thumb.png",
       "files": [
         {"path": "app.json", "url": "/api/devices/apps/hello/app.json"},
         {"path": "main.py", "url": "/api/devices/apps/hello/main.py"}
@@ -17,6 +18,7 @@
       "version": "1.0.0",
       "author": "NPU-STACK",
       "description": "Reads the PCF8563 RTC when the carrier is wired.",
+      "thumb": "/api/devices/apps/clock/thumb.png",
       "files": [
         {"path": "app.json", "url": "/api/devices/apps/clock/app.json"},
         {"path": "main.py", "url": "/api/devices/apps/clock/main.py"}
@@ -28,6 +30,7 @@
       "version": "1.0.0",
       "author": "NPU-STACK",
       "description": "Manifest-format example app.",
+      "thumb": "/api/devices/apps/demo/thumb.png",
       "files": [
         {"path": "app.json", "url": "/api/devices/apps/demo/app.json"},
         {"path": "main.py", "url": "/api/devices/apps/demo/main.py"}
@@ -39,6 +42,7 @@
       "version": "1.0.0",
       "author": "NPU-STACK",
       "description": "Animated agent face — full emotion gamut with blinking.",
+      "thumb": "/api/devices/apps/face/thumb.png",
       "files": [
         {"path": "app.json", "url": "/api/devices/apps/face/app.json"},
         {"path": "main.py", "url": "/api/devices/apps/face/main.py"}

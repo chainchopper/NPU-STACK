@@ -203,18 +203,6 @@ export default function DevicePlayground() {
                 {/* Left: editor + logs */}
                 <div style={{ flex: '1 1 420px', minWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <select
-                            value={selectedId}
-                            onChange={(e) => selectExample(e.target.value)}
-                            style={{
-                                background: '#1a202c', color: '#e2e8f0', border: '1px solid #2d3748',
-                                borderRadius: 6, padding: '6px 8px', fontSize: 13,
-                            }}
-                        >
-                            {examples.map((a) => (
-                                <option key={a.id} value={a.id}>{a.name}</option>
-                            ))}
-                        </select>
                         <button onClick={run} disabled={!code} style={btnStyle('#667eea')}>
                             <Play size={14} /> Run
                         </button>
@@ -227,6 +215,32 @@ export default function DevicePlayground() {
                         <span style={{ fontSize: 12, color: connected ? '#38a169' : '#718096' }}>
                             {connected ? '● connected' : '○ idle'}
                         </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {examples.map((a) => (
+                            <button
+                                key={a.id}
+                                onClick={() => selectExample(a.id)}
+                                title={a.description || a.name}
+                                style={{
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                                    background: selectedId === a.id ? '#1e2535' : '#0d1117',
+                                    border: `1px solid ${selectedId === a.id ? '#667eea' : '#2d3748'}`,
+                                    borderRadius: 10, padding: 8, cursor: 'pointer',
+                                    minWidth: 72,
+                                }}
+                            >
+                                <img
+                                    src={a.thumb || undefined}
+                                    alt={a.name}
+                                    style={{ width: 52, height: 52, borderRadius: '50%', background: '#000', objectFit: 'cover', border: '2px solid #0b0f19' }}
+                                />
+                                <span style={{ fontSize: 11, color: selectedId === a.id ? '#e2e8f0' : '#9ca3af', fontWeight: 600 }}>
+                                    {a.name}
+                                </span>
+                            </button>
+                        ))}
                     </div>
 
                     <textarea
