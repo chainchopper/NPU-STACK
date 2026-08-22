@@ -89,18 +89,22 @@ Adaptation plan for our MicroPython driver (no LVGL/SVG):
 
 ## 3. Audio output (voicebox / TTS relay feedback)
 
-**Status:** Planned. The XIAO ESP32-S3 Sense has a **PDM mic (input only)** and
-**no audio DAC**. To hear the agent's voice / TTS:
+**Status:** Firmware landed (audio.py); amp wiring is the only remaining step.
+The XIAO ESP32-S3 Sense has a **PDM mic (input only)** and **no audio DAC**. To
+hear the agent's voice / TTS:
 
-- Add an external **I2S DAC + class-D amp + speaker** (e.g., MAX98357A) — wire
-  I2S DOUT to a free XIAO pin. Note which pins the camera/mic/touch/SD already
-  use (see board pin map).
+- Add an external **I2S DAC + class-D amp + speaker** (e.g., MAX98357A).
+- `firmware/nirvana-os/audio.py` implements `init/tone/beep/play_wav/say` over
+  `machine.I2S` TX on BCLK=GPIO11, LRC=GPIO12, DIN=GPIO13. Verified on-device:
+  I2S TX initialises and `audio.tone(440, 20)` writes PCM cleanly (sound plays
+  once the amp is wired). Emulator stubs `machine.I2S` for playground testing.
 - The xiaozhi voice server is already in `deploy/xiaozhi-server/` (MQTT+UDP) —
-  audio relay plumbing exists; needs the I2S-out endpoint on-device.
+  audio relay plumbing exists; next is wiring TTS output (backend WAV) into
+  `audio.play_wav`/`say`.
 
 Pin availability resolved — free GPIOs for I2S: 10–18, 33–37, 39, 40, 45–48
-(and 0 with strapping care). Recommended MAX98357A wiring: BCLK=GPIO11,
-LRC=GPIO12, DIN=GPIO13 + 3V3/GND. Full map in `docs/SENSORS.md`.
+(and 0 with strapping care); note these are B2B/camera pads, not the D0–D10
+headers (all consumed by the carrier). Full map in `docs/SENSORS.md`.
 
 ---
 

@@ -91,6 +91,15 @@ Free pins for I2S (after everything above is claimed):
 - **Free GPIOs:** 0 (BOOT — usable, strapping), 10, 11, 12, 13, 14, 15, 16, 17, 18, 33, 34, 35, 36, 37, 39, 40, 45, 46, 47, 48.
 - **Recommended I2S wiring** (MAX98357A): BCLK → GPIO11, LRC → GPIO12, DIN → GPIO13, plus 3V3/GND. (GPIO0 is a strapping pin; avoid unless needed.)
 - Keep I2S off the used nets: camera (10–18, 38–48 on the Sense B2B), PDM (41/42), SD (3/7/8/9), display SPI (7/8/9/2/4/43), touch/RTC I2C (5/6), UART (43/44).
+- **Physical caveat:** every D0–D10 header pin is consumed by the carrier; the
+  three I2S pins above live on the **B2B camera connector** pads, so they're only
+  reachable if the camera expansion is removed (or via a breakout/second board).
+
+**Firmware landed** — `firmware/nirvana-os/audio.py` (`init/tone/beep/play_wav/
+say`). Verified on-device: `machine.I2S` TX on GPIO11/12/13 initialises and
+`audio.tone(440, 20)` writes PCM cleanly — sound will play once the amp is wired.
+Emulator parity: `machine.I2S` is stubbed in `backend/emulator/shim.py` (captures
+writes) so `audio.py` is testable in the playground.
 
 ## RTC notes
 

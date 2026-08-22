@@ -499,6 +499,38 @@ class _ADC:
         return self.read() * 805  # ~3.3V full-scale in microvolts
 
 
+class _I2S:
+    """Host stub of machine.I2S — captures writes so audio can be tested."""
+
+    TX = 0
+    RX = 1
+    MONO = 0
+    STEREO = 1
+
+    def __init__(self, bus, **kwargs):
+        self.bus = bus
+        self.writes = []
+
+    def write(self, data):
+        self.writes.append(bytes(data))
+        return len(data)
+
+    def readinto(self, buf):
+        return 0
+
+    def deinit(self):
+        pass
+
+    def init(self, *a, **k):
+        pass
+
+    def irq(self, *a, **k):
+        pass
+
+    def shift(self, *a, **k):
+        pass
+
+
 class _Machine:
     def __init__(self):
         self.Pin = _Pin
@@ -506,6 +538,7 @@ class _Machine:
         self.I2C = _I2C
         self.PWM = _PWM
         self.ADC = _ADC
+        self.I2S = _I2S
         self.freq = lambda f=None: 240_000_000
         self.unique_id = lambda: b"\xd8\x3b\xda\x89\x31\xe4"
 
