@@ -15,6 +15,8 @@ import {
   checkFLMModel,
   chatFLM,
 } from '../api/client';
+import AgentRuntimeSelector from '../components/AgentRuntimeSelector';
+import { useAgentRuntime } from '../context/AgentRuntimeContext';
 
 // ─── Nirvana slash commands ───────────────────────────────────────────────────
 const SLASH_COMMANDS = [
@@ -216,6 +218,7 @@ export default function ChatPlayground({
   defaultMode = 'agent',
   defaultContext = 'general',
 }) {
+  const { runtimeIdForRequests } = useAgentRuntime();
   // Mode: 'agent' uses /api/agent/chat, 'direct' uses /api/inference/generate-text
   const [mode, setMode] = useState(defaultMode);
   const [activeView, setActiveView] = useState(defaultView); // 'chat' | 'playground'
@@ -338,8 +341,9 @@ export default function ChatPlayground({
     : deviceTarget;
 
   const effectiveRuntime = runtimeTarget === 'auto'
-    ? (effectiveDevice === 'npu' && flmStatus?.available ? 'fastflowlm' : 'native')
+    ? (effectiveDevice === 'npu' && Boolean(flmStatus?.available ?? flmStatus?.installed) ? 'fastflowlm' : 'native')
     : runtimeTarget;
+  const flmAvailable = Boolean(flmStatus?.available ?? flmStatus?.installed);
 
   const modelSeemsCompatible = (model, target) => {
     const haystack = `${model?.name || ''} ${model?.framework || ''} ${(model?.tags || []).join(' ')} ${(model?.supported_devices || []).join(' ')}`.toLowerCase();
@@ -384,7 +388,7 @@ export default function ChatPlayground({
     setRuntimeNotice('Checking FastFlowLM model availability...');
     try {
       const check = await checkFLMModel(modelTag);
-      if (!check?.available) {
+      if (!(check?.available ?? check?.ok)) {
         throw new Error(`${modelTag} is not available locally. Pull it from FastFlowLM model catalog first.`);
       }
 
@@ -754,6 +758,7 @@ export default function ChatPlayground({
             context_hint: selectedContext,
             temperature,
             max_tokens: maxTokens,
+            ...(runtimeIdForRequests ? { runtime_id: runtimeIdForRequests } : {}),
           }),
         });
         data = await response.json();
@@ -1112,6 +1117,12 @@ export default function ChatPlayground({
             </div>
           </div>
 
+          {mode === 'agent' && (
+            <div style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: '#1a2035', border: '1px solid #2d3748' }}>
+              <AgentRuntimeSelector label="Agent runtime" compact />
+            </div>
+          )}
+
           {/* FastFlowLM surfaced entry point */}
           <div style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: 'linear-gradient(180deg, #1a2035 0%, #141927 100%)', border: '1px solid #2d3748' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#a0aec0', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1185,7 +1196,7 @@ export default function ChatPlayground({
               >
                 <option value="auto">Auto ({effectiveRuntime})</option>
                 <option value="native">Native Inference API</option>
-                <option value="fastflowlm" disabled={!flmStatus?.available}>FastFlowLM {!flmStatus?.available ? '(not installed)' : ''}</option>
+                <option value="fastflowlm" disabled={!flmAvailable}>FastFlowLM {!flmAvailable ? '(not installed)' : ''}</option>
               </select>
 
               <div style={{ fontSize: 10, color: '#90cdf4' }}>

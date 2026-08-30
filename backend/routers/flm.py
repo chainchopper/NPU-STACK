@@ -28,6 +28,7 @@ from services.flm_service import (
     get_server_status,
     proxy_chat,
     FLM_MODEL_CATALOG,
+    FLM_INSTALLER_URL,
 )
 
 logger = logging.getLogger("flm_router")
@@ -118,12 +119,11 @@ async def flm_pull(body: PullRequest):
     if not info["installed"]:
         raise HTTPException(
             503,
-            "FastFlowLM is not installed. Download from: "
-            "https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe"
+            "FastFlowLM is not installed. Download from: " + FLM_INSTALLER_URL
         )
 
     async def stream():
-        async for line in pull_model(body.tag):
+        async for line in pull_model(body.tag, force=body.force):
             yield f"data: {line}\n"
         yield "data: [DONE]\n\n"
 
@@ -137,8 +137,7 @@ async def flm_check(body: CheckRequest):
     if not info["installed"]:
         raise HTTPException(
             503,
-            "FastFlowLM is not installed. Download from: "
-            "https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe"
+            "FastFlowLM is not installed. Download from: " + FLM_INSTALLER_URL
         )
 
     result = check_model(body.tag)
@@ -154,8 +153,7 @@ async def flm_serve(body: ServeRequest):
     if not info["installed"]:
         raise HTTPException(
             503,
-            "FastFlowLM is not installed. Download from: "
-            "https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe"
+            "FastFlowLM is not installed. Download from: " + FLM_INSTALLER_URL
         )
 
     result = await start_server(body.model, body.port)

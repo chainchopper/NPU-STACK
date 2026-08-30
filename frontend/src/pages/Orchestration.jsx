@@ -9,8 +9,11 @@ import {
   getOrchestrationCapabilities,
   getSystemInfo,
 } from '../api/client';
+import AgentRuntimeSelector from '../components/AgentRuntimeSelector';
+import { useAgentRuntime } from '../context/AgentRuntimeContext';
 
 export default function Orchestration() {
+  const { selectedRuntime } = useAgentRuntime();
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -178,6 +181,27 @@ export default function Orchestration() {
           <div style={{ color: 'var(--accent-red)', fontSize: 13 }}>{error}</div>
         </div>
       )}
+
+      <div className="card" style={{ marginBottom: 16, border: '2px solid var(--accent-blue)' }}>
+        <div className="card-header">
+          <h3 className="card-title">Universal Agent Runtime</h3>
+        </div>
+        <AgentRuntimeSelector label="Selected runtime" />
+        {selectedRuntime && (
+          <div style={{ marginTop: 12, display: 'grid', gap: 5, fontSize: 12, color: 'var(--text-secondary)' }}>
+            <div><strong>Endpoint:</strong> {selectedRuntime.endpoint || 'built-in'}</div>
+            <div><strong>Source:</strong> {selectedRuntime.source || 'catalog'}</div>
+            <div><strong>Health:</strong> {selectedRuntime.health?.message || selectedRuntime.health?.code || selectedRuntime.status || 'unknown'}</div>
+            <div><strong>Capabilities:</strong> {Object.entries(selectedRuntime.capabilities || {})
+              .filter(([, enabled]) => enabled)
+              .map(([name]) => name)
+              .join(', ') || 'none reported'}</div>
+          </div>
+        )}
+        <div className="text-muted" style={{ fontSize: 11, marginTop: 10 }}>
+          Select and probe any compatible agent runtime for agent chat. Nirvana identity and local fallback settings below remain separate.
+        </div>
+      </div>
 
       {/* Runtime Recommendations */}
       {sysInfo && (

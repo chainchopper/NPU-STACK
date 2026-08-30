@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { apiUrl } from '../api/client';
 import { Bot, Send, X, Sparkles, Mic, MicOff, ChevronDown } from 'lucide-react';
+import AgentRuntimeSelector from './AgentRuntimeSelector';
+import { useAgentRuntime } from '../context/AgentRuntimeContext';
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const STORAGE_KEY_MIC = 'nirvana_selected_mic';
@@ -11,6 +13,7 @@ const STORAGE_KEY_MIC = 'nirvana_selected_mic';
  * Supports voice input via Web Speech API with selectable microphone.
  */
 export default function CompactAgentOverlay({ onClose }) {
+  const { runtimeIdForRequests } = useAgentRuntime();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
@@ -151,6 +154,7 @@ export default function CompactAgentOverlay({ onClose }) {
           messages: [userMsg],
           profile_id: 'orchestration-agent',
           runtime_mode: 'auto',
+          ...(runtimeIdForRequests ? { runtime_id: runtimeIdForRequests } : {}),
           use_fleet_tools: false,
           use_orchestration_context: false,
         }),
@@ -195,6 +199,9 @@ export default function CompactAgentOverlay({ onClose }) {
           <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: '#1a3a2a', color: '#4ade80' }}>
             Nirvana
           </span>
+        </div>
+        <div style={{ width: 150 }}>
+          <AgentRuntimeSelector label="Runtime" compact showActions={false} />
         </div>
         <button onClick={onClose} style={{
           background: 'none', border: 'none', color: 'var(--text-secondary)',

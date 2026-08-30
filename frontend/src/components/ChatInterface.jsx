@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Trash2, Settings, Copy, AlertCircle, ImagePlus, X } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
+import { useAgentRuntime } from '../context/AgentRuntimeContext';
 import '../styles/chat-interface.css';
 
 /**
@@ -15,7 +16,11 @@ export const ChatInterface = ({
   className = '',
 }) => {
   const draftKey = `npu-chat-draft-${model?.id || 'system'}-${enableFleetContext ? 'fleet' : 'default'}`;
-  const { messages, isLoading, error, sendMessage, clearChat, setMaxTokens, threadId } = useChat({ selectedModel: model });
+  const { runtimeIdForRequests, selectedRuntime } = useAgentRuntime();
+  const { messages, isLoading, error, sendMessage, clearChat, setMaxTokens, threadId } = useChat({
+    selectedModel: model,
+    runtimeId: runtimeIdForRequests,
+  });
   const [inputValue, setInputValue] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
@@ -183,7 +188,7 @@ export const ChatInterface = ({
             {model
               ? `Selected model: ${model.display_name || model.name} (${model.framework}/${model.format})`
               : enableFleetContext
-                ? '🚀 Fleet-aware agent'
+                ? `🚀 Fleet-aware agent · ${selectedRuntime?.display_name || 'Nirvana'}`
                 : 'System chat'}
           </p>
         </div>

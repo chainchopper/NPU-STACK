@@ -18,6 +18,9 @@ import {
   launchNirvana,
   chatWithNirvana,
 } from '../api/client';
+import RemoteAudioPanel from '../components/RemoteAudioPanel';
+import AgentRuntimeSelector from '../components/AgentRuntimeSelector';
+import { useAgentRuntime, DEFAULT_RUNTIME_ID } from '../context/AgentRuntimeContext';
 
 const DEFAULT_PROFILE = {
   name: '',
@@ -26,7 +29,8 @@ const DEFAULT_PROFILE = {
   use_fleet_tools: false,
   use_orchestration_context: true,
   preferred_model: '',
-  runtime_mode: 'auto',
+    runtime_id: '',
+    runtime_mode: 'auto',
 };
 
 const sessionTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -44,7 +48,8 @@ function toProfileDraft(profile) {
     use_fleet_tools: Boolean(profile.use_fleet_tools),
     use_orchestration_context: profile.use_orchestration_context !== false,
     preferred_model: profile.preferred_model || '',
-    runtime_mode: profile.runtime_mode || 'auto',
+      runtime_id: profile.runtime_id || '',
+      runtime_mode: profile.runtime_mode || 'auto',
   } : DEFAULT_PROFILE;
 }
 
@@ -163,6 +168,7 @@ function summarizeFleetAction(action) {
 }
 
 export default function Agents() {
+    const { runtimes, runtimeIdForRequests } = useAgentRuntime();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [chatting, setChatting] = useState(false);
@@ -188,6 +194,11 @@ export default function Agents() {
   const [fleetActionRunning, setFleetActionRunning] = useState(false);
   const [fleetActionResult, setFleetActionResult] = useState(null);
   const [autoSendFleetQuickActions, setAutoSendFleetQuickActions] = useState(false);
+  const [audioTarget, setAudioTarget] = useState({
+    speakResponse: false,
+    audioEndpointId: '',
+    audioGroupId: '',
+  });
 
   const [input, setInput] = useState('');
   const transcriptRef = useRef(null);
@@ -468,7 +479,12 @@ export default function Agents() {
     setError('');
     setNotice('');
     try {
-      const result = await updateAgentProfile(activeProfile.id, profileDraft);
+      const result = await updateAgentProfile(activeProfile.id, {
+        ...profileDraft,
+        runtime_id: profileDraft.runtime_id && profileDraft.runtime_id !== DEFAULT_RUNTIME_ID
+          ? profileDraft.runtime_id
+          : null,
+      });
       const updated = result?.profile;
       setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       setSessions((prev) => prev.map((session) => (
@@ -493,6 +509,7 @@ export default function Agents() {
       const result = await createAgentProfile({
         ...DEFAULT_PROFILE,
         name: baseName,
+          runtime_id: null,
       });
       const created = result?.profile;
       if (!created) return;
@@ -706,8 +723,14 @@ export default function Agents() {
         session_id: sessionId,
         use_fleet_tools: profileDraft.use_fleet_tools,
         use_orchestration_context: profileDraft.use_orchestration_context,
+        runtime_id: profileDraft.runtime_id === DEFAULT_RUNTIME_ID
+          ? undefined
+          : (profileDraft.runtime_id || runtimeIdForRequests),
         runtime_mode: profileDraft.runtime_mode,
         preferred_model: profileDraft.preferred_model,
+        speak_response: audioTarget.speakResponse,
+        audio_endpoint_id: audioTarget.audioEndpointId || undefined,
+        audio_group_id: audioTarget.audioGroupId || undefined,
       });
 
       const reply = res?.response || res?.choices?.[0]?.message?.content || 'No response from Nirvana.';
@@ -923,6 +946,25 @@ export default function Agents() {
               </div>
 
               <div className="form-group">
+                <label className="form-label">Agent Runtime Override</label>
+                <select
+                  className="form-select"
+                  value={profileDraft.runtime_id}
+                  onChange={(e) => setProfileDraft((prev) => ({ ...prev, runtime_id: e.target.value }))}
+                >
+                  <option value="">Use global runtime</option>
+                  {runtimes.map((runtime) => (
+                    <option key={runtime.runtime_id} value={runtime.runtime_id}>
+                      {runtime.display_name} · {runtime.status || 'unknown'}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  Choose a runtime only for this profile, or inherit the global selection.
+                </div>
+              </div>
+
+              <div className="form-group">
                 <label className="form-label">Optional Model Override</label>
                 <input
                   className="form-input"
@@ -940,6 +982,16 @@ export default function Agents() {
               </div>
             </>
           )}
+
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card-header">
+              <h3 className="card-title">Universal Agent Runtime</h3>
+            </div>
+            <AgentRuntimeSelector label="Global runtime" />
+            <div className="text-muted" style={{ fontSize: 11, marginTop: 8 }}>
+              Profiles can override this selection below. The built-in Nirvana runtime remains implicit for legacy behavior.
+            </div>
+          </div>
         </div>
 
         <div className="card">
@@ -1095,6 +1147,8 @@ export default function Agents() {
                     ))}
                   </select>
                 </div>
+
+                <RemoteAudioPanel onSelectionChange={setAudioTarget} />
 
                 {selectedFleetDevice && (
                   <div style={{ marginBottom: 12, padding: 12, borderRadius: 8, border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)' }}>

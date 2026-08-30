@@ -14,6 +14,8 @@ import json
 import shutil
 import threading
 import re
+import uuid
+import urllib.parse
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from pydantic import BaseModel
@@ -328,8 +330,46 @@ class ChatRequest(BaseModel):
     use_orchestration_context: Optional[bool] = None
     profile_id: Optional[str] = None
     session_id: Optional[str] = None
+    runtime_id: Optional[str] = None
     runtime_mode: Optional[str] = None
     preferred_model: Optional[str] = None
+    speak_response: bool = False
+    audio_endpoint_id: Optional[str] = None
+    audio_group_id: Optional[str] = None
+
+
+def _deliver_chat_audio(req: ChatRequest, response_text: str) -> Optional[Dict[str, Any]]:
+    """Speak a completed response through selected room endpoints, if enabled."""
+    if not req.speak_response:
+        return None
+    try:
+        from services.remote_audio import registry, utc_now
+
+        target_ids, selected_group_id = registry.resolve_targets(
+            endpoint_id=req.audio_endpoint_id or "",
+            group_id=req.audio_group_id or "",
+        )
+        message_id = f"audio-{uuid.uuid4().hex}"
+        results = registry.deliver_sync(
+            target_ids,
+            {
+                "type": "speak",
+                "message_id": message_id,
+                "text": response_text,
+                "source": "nirvana-chat",
+                "created_at": utc_now(),
+                "audio_format": "text",
+                "group_id": selected_group_id,
+            },
+        )
+        return {
+            "ok": any(item.get("status") == "delivered" for item in results),
+            "message_id": message_id,
+            "target_count": len(target_ids),
+            "results": results,
+        }
+    except Exception as exc:  # Audio failure should not discard a valid chat response.
+        return {"ok": False, "error": str(exc)[:300], "target_count": 0, "results": []}
 
 
 def _resolve_chat_profile(profile_id: Optional[str]) -> Dict[str, Any]:
@@ -364,6 +404,20 @@ def _effective_runtime_mode(req: ChatRequest, profile: Dict[str, Any]) -> str:
     if requested in {"local", "external"}:
         return requested
     return "auto"
+
+
+def _resolve_runtime_binding(req: ChatRequest, profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve the selected runtime while retaining legacy runtime_mode callers."""
+    from services.agent_runtime_registry import RuntimeRegistryError, resolve_runtime_id
+
+    try:
+        return resolve_runtime_id(
+            request_runtime_id=req.runtime_id,
+            profile_runtime_id=profile.get("runtime_id"),
+            legacy_runtime_mode=req.runtime_mode or profile.get("runtime_mode"),
+        )
+    except RuntimeRegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _effective_preferred_model(req: ChatRequest, profile: Dict[str, Any]) -> str:
@@ -673,6 +727,95 @@ def _external_runtime_chat(
     )
 
 
+def _selected_runtime_api_chat(
+    runtime: Dict[str, Any],
+    req: ChatRequest,
+    profile: Dict[str, Any],
+    fallback_prompt: str,
+) -> Dict[str, Any]:
+    """Chat with a selected OpenAI-compatible runtime without Nirvana branding."""
+    import requests as _req_lib
+
+    from services.agent_runtime_registry import runtime_endpoint
+
+    runtime_id = str(runtime.get("runtime_id") or "")
+    api_base = runtime_endpoint(runtime_id)
+    if not api_base:
+        raise RuntimeError(f"Runtime {runtime_id} has no chat endpoint")
+
+    model = _effective_preferred_model(req, profile)
+    if not model:
+        models = runtime.get("models") or []
+        model = str((models[0] or {}).get("id") or "") if models else ""
+    if not model:
+        model = "default"
+
+    messages = _chat_messages_with_bridge_prompt(req, profile, fallback_prompt)
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": req.temperature,
+        "max_tokens": req.max_tokens,
+    }
+    base_url = api_base.rstrip("/")
+    base_path = urllib.parse.urlsplit(base_url).path.rstrip("/").lower()
+    candidate_urls = [f"{base_url}/chat/completions"]
+    if not base_path.endswith("/v1"):
+        candidate_urls.append(f"{base_url}/v1/chat/completions")
+    credential_source = ((runtime.get("configuration") or {}).get("credential_source") or "")
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    if str(credential_source).startswith("env:"):
+        credential = os.getenv(str(credential_source)[4:])
+        if credential:
+            headers["Authorization"] = f"Bearer {credential}"
+    else:
+        from services.agent_runtime_registry import runtime_credential
+
+        credential = runtime_credential(runtime_id)
+        if credential:
+            headers["Authorization"] = f"Bearer {credential}"
+
+    data = None
+    final_url = candidate_urls[0]
+    last_error: Optional[Exception] = None
+    for url in candidate_urls:
+        try:
+            response = _req_lib.post(url, json=payload, headers=headers, timeout=120)
+            response.raise_for_status()
+            data = response.json()
+            final_url = url
+            break
+        except Exception as exc:  # noqa: PERF203
+            last_error = exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Runtime {runtime_id} request failed: {last_error}")
+
+    choice = ((data.get("choices") or [{}])[0] or {}).get("message") or {}
+    response_text = str(choice.get("content") or "")
+    return {
+        "response": response_text,
+        "tool_calls": choice.get("tool_calls") or [],
+        "reasoning": None,
+        "nirvana_runtime": {
+            "agent_name": "Nirvana",
+            "engine": runtime.get("adapter") or "openai-compatible",
+            "runtime_id": runtime_id,
+            "runtime_display_name": runtime.get("display_name"),
+            "model_file": model,
+            "model_loaded": True,
+            "uses_mock_responses": False,
+            "via": "selected-runtime-openai-compatible",
+            "api_base": api_base,
+            "request_url": final_url,
+            "profile_id": req.profile_id,
+            "profile_name": profile.get("name") if profile else None,
+            "runtime_mode": "selected",
+            "requested_model": model,
+        },
+        "usage": data.get("usage", {}),
+    }
+
+
 FLEET_ACTION_KEYWORDS = [
     "telemetry",
     "metrics",
@@ -839,6 +982,9 @@ def agent_chat(req: ChatRequest):
         if req.use_orchestration_context is not None
         else bool(profile.get("use_orchestration_context", True))
     )
+    runtime_binding = _resolve_runtime_binding(req, profile)
+    selected_runtime = runtime_binding["runtime"]
+    selected_runtime_id = str(selected_runtime.get("runtime_id") or "nirvana-default")
     runtime_mode = _effective_runtime_mode(req, profile)
     preferred_model = _effective_preferred_model(req, profile)
     from services.nirvana_service import (
@@ -872,18 +1018,30 @@ def agent_chat(req: ChatRequest):
     fallback_errors: List[str] = []
     recovered_session = False
 
-    if runtime_mode == "local":
+    if selected_runtime_id == "nirvana-default" and runtime_mode == "local":
         try:
             chat_result = _local_agent_chat(req, profile, compact_fallback_prompt, runtime_mode)
         except Exception as exc:
             raise HTTPException(502, f"Local Nirvana runtime failed: {exc}") from exc
-    elif runtime_mode == "external":
+    elif selected_runtime_id == "nirvana-default" and runtime_mode == "external":
         try:
             chat_result = _external_runtime_chat(req, profile, compact_fallback_prompt, runtime_mode)
         except HTTPException:
             raise
         except Exception as exc:
             raise HTTPException(502, f"External Nirvana runtime failed: {exc}") from exc
+    elif selected_runtime_id != "nirvana-default":
+        try:
+            chat_result = _selected_runtime_api_chat(
+                selected_runtime,
+                req,
+                profile,
+                compact_fallback_prompt,
+            )
+        except Exception as exc:
+            # Explicit runtime selection must fail loudly; do not silently route
+            # a user's chosen runtime to Nirvana.
+            raise HTTPException(502, f"Selected runtime {selected_runtime_id} failed: {exc}") from exc
     else:
         try:
             chat_result, upstream_session_id, status, recovery_notes, recovered_session = _upstream_bridge_chat_with_recovery(
@@ -930,6 +1088,7 @@ def agent_chat(req: ChatRequest):
     if fleet_action:
         fleet_prefix = _format_fleet_action_text(fleet_action)
         response_text = f"{fleet_prefix}\n\n{response_text}" if response_text else fleet_prefix
+    audio_delivery = _deliver_chat_audio(req, response_text)
     runtime_meta = {
         **(chat_result.get("nirvana_runtime") or {
             "agent_name": "Nirvana",
@@ -949,6 +1108,10 @@ def agent_chat(req: ChatRequest):
             "onboarding_completed": bool((((status or {}).get("summary") or {}).get("completed"))),
         }),
         "runtime_mode": (chat_result.get("nirvana_runtime") or {}).get("runtime_mode") or runtime_mode,
+        "runtime_id": selected_runtime_id,
+        "runtime_binding_source": runtime_binding.get("binding_source"),
+        "runtime_adapter": selected_runtime.get("adapter"),
+        "runtime_status": selected_runtime.get("status"),
         "profile_id": req.profile_id,
         "profile_name": profile.get("name") if profile else None,
         "nirvana_session_id": upstream_session_id or (chat_result.get("nirvana_runtime") or {}).get("nirvana_session_id"),
@@ -973,6 +1136,7 @@ def agent_chat(req: ChatRequest):
         "reasoning": None,
         "nirvana_runtime": runtime_meta,
         "fleet_action": fleet_action,
+        "audio_delivery": audio_delivery,
         "upstream": {
             "session_id": upstream_session_id or None,
             "status": chat_result.get("status") or chat_result.get("raw", {}).get("status"),

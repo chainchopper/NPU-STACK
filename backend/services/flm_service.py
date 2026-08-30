@@ -32,6 +32,9 @@ logger = logging.getLogger("flm_service")
 FLM_DEFAULT_PORT = 52625
 FLM_BASE_URL = f"http://127.0.0.1:{FLM_DEFAULT_PORT}"
 FLM_API_URL = f"{FLM_BASE_URL}/v1"
+FLM_RELEASE_REPOSITORY = "ROCm/FastFlowLM"
+FLM_INSTALLER_URL = "https://github.com/ROCm/FastFlowLM/releases/latest/download/flm-setup.msi"
+FLM_MINIMUM_NPU_DRIVER = "32.0.203.311"
 
 # Managed server process (singleton)
 _server_process: Optional[asyncio.subprocess.Process] = None
@@ -151,7 +154,7 @@ async def get_latest_flm_version(cache_ttl_seconds: int = 900) -> Optional[str]:
     if (now - _latest_release_cache["checked_at"]) < cache_ttl_seconds:
         return _latest_release_cache.get("version")
 
-    url = "https://api.github.com/repos/FastFlowLM/FastFlowLM/releases/latest"
+    url = f"https://api.github.com/repos/{FLM_RELEASE_REPOSITORY}/releases/latest"
     version: Optional[str] = None
     try:
         async with httpx.AsyncClient(timeout=4) as client:
@@ -210,11 +213,15 @@ def list_models() -> List[Dict[str, str]]:
         return []
 
 
-async def pull_model(tag: str) -> AsyncGenerator[str, None]:
+async def pull_model(tag: str, *, force: bool = False) -> AsyncGenerator[str, None]:
     """Run `flm pull <tag>` and stream progress lines."""
     try:
+        command = ["flm", "pull"]
+        command.append(tag)
+        if force:
+            command.append("--force")
         process = await asyncio.create_subprocess_exec(
-            "flm", "pull", tag,
+            *command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -453,6 +460,10 @@ async def get_server_status() -> Dict[str, Any]:
 
     return {
         **info,
+        "release_repository": FLM_RELEASE_REPOSITORY,
+        "installer_url": FLM_INSTALLER_URL,
+        "minimum_npu_driver": FLM_MINIMUM_NPU_DRIVER,
+        "weights_must_redownload": True,
         "latest_version": latest_version,
         "update_available": update_available,
         "server_running": server_alive,
@@ -533,7 +544,11 @@ FLM_MODEL_CATALOG = [
     {"tag": "qwen2.5:3b", "family": "Qwen", "params": "3B", "type": "llm", "ctx": "131072"},
     {"tag": "qwen2.5:7b", "family": "Qwen", "params": "7B", "type": "llm", "ctx": "131072"},
     {"tag": "qwen3:4b", "family": "Qwen", "params": "4B", "type": "llm", "ctx": "131072"},
-    {"tag": "qwen3.5:4b", "family": "Qwen", "params": "4B", "type": "vlm", "ctx": "131072"},
+    {"tag": "qwen3.5:4b", "family": "Qwen 3.5", "params": "4B", "type": "vlm", "ctx": "256000", "release": "1.0.2"},
+    {"tag": "qwen3.5:0.8b", "family": "Qwen 3.5", "params": "0.8B", "type": "vlm", "ctx": "256000", "release": "1.0.2"},
+    {"tag": "qwen3.5:2b", "family": "Qwen 3.5", "params": "2B", "type": "vlm", "ctx": "256000", "release": "1.0.2"},
+    {"tag": "qwen3.5:9b", "family": "Qwen 3.5", "params": "9B", "type": "vlm", "ctx": "256000", "release": "1.0.2"},
+    {"tag": "qwen3.6-moe:35b-a3b", "family": "Qwen 3.6 MoE", "params": "35B / 3B active", "type": "vlm", "ctx": "256000", "release": "1.0.2"},
     {"tag": "gemma3:1b", "family": "Gemma", "params": "1B", "type": "llm", "ctx": "32768"},
     {"tag": "gemma3:4b", "family": "Gemma", "params": "4B", "type": "llm", "ctx": "131072"},
     {"tag": "phi-4-mini", "family": "Phi", "params": "3.8B", "type": "llm", "ctx": "131072"},

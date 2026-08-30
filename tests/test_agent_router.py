@@ -78,6 +78,7 @@ class AgentRouterTests(unittest.TestCase):
                     "profile_id": "orchestration-agent",
                     "session_id": "session-missing-is-ok",
                     "use_fleet_tools": True,
+                    "runtime_mode": "auto",
                 },
             )
 
@@ -129,6 +130,7 @@ class AgentRouterTests(unittest.TestCase):
                     "profile_id": "orchestration-agent",
                     "session_id": "session-fallback-test",
                     "use_fleet_tools": False,
+                    "runtime_mode": "auto",
                 },
             )
 

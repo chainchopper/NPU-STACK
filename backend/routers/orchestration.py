@@ -815,6 +815,7 @@ class AgentProfilePayload(BaseModel):
     use_fleet_tools: bool = False
     use_orchestration_context: bool = True
     preferred_model: str = ""
+    runtime_id: Optional[str] = None
     runtime_mode: Literal["auto", "local", "external"] = "auto"
 
 
@@ -848,6 +849,17 @@ def _find_agent_profile(state: Dict[str, Any], profile_id: str) -> Optional[Dict
 
 def _find_agent_session(state: Dict[str, Any], session_id: str) -> Optional[Dict[str, Any]]:
     return next((s for s in state.get("agent_sessions", []) if s.get("id") == session_id), None)
+
+
+def _validate_profile_runtime(runtime_id: Optional[str]) -> Optional[str]:
+    if not runtime_id:
+        return None
+    from services.agent_runtime_registry import get_runtime
+
+    runtime = get_runtime(runtime_id)
+    if not runtime:
+        raise HTTPException(status_code=400, detail=f"Unknown agent runtime: {runtime_id}")
+    return runtime_id
 
 
 def _sort_agent_sessions(state: Dict[str, Any]) -> None:
@@ -982,12 +994,22 @@ def get_orchestration_state():
     with _STATE_LOCK:
         state = _load_state()
     nirvana_runtime = _hermes_runtime_status(state["hermes"])
+    try:
+        from services.agent_runtime_registry import list_runtimes, selected_runtime_id
+
+        runtime_catalog = list_runtimes(probe=False)
+        selected_id = selected_runtime_id()
+    except Exception:
+        runtime_catalog = []
+        selected_id = "nirvana-default"
     return {
         **state,
         "capabilities": _capabilities_catalog(state),
         "nirvana_config": state["hermes"],
         "nirvana_runtime": nirvana_runtime,
         "hermes_runtime": nirvana_runtime,
+        "agent_runtimes": runtime_catalog,
+        "selected_runtime_id": selected_id,
     }
 
 
@@ -1148,6 +1170,7 @@ def list_agent_profiles():
 
 @router.post("/agent-profiles")
 def create_agent_profile(payload: AgentProfilePayload):
+    _validate_profile_runtime(payload.runtime_id)
     with _STATE_LOCK:
         state = _load_state()
         profile = {
@@ -1169,6 +1192,7 @@ def create_agent_profile(payload: AgentProfilePayload):
 
 @router.put("/agent-profiles/{profile_id}")
 def update_agent_profile(profile_id: str, payload: AgentProfilePayload):
+    _validate_profile_runtime(payload.runtime_id)
     with _STATE_LOCK:
         state = _load_state()
         profiles = state.get("agent_profiles", [])

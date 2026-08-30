@@ -31,6 +31,19 @@ DEFAULT_INSTANCE = {
 }
 
 
+def _normalize_base_url(value: str) -> str:
+    """Store LM Studio's server root, not an OpenAI ``/v1`` subpath."""
+    normalized = str(value or "").strip().rstrip("/")
+    for suffix in ("/api/v1", "/v1"):
+        if normalized.lower().endswith(suffix):
+            normalized = normalized[: -len(suffix)].rstrip("/")
+            break
+    return normalized
+
+
+DEFAULT_INSTANCE["base_url"] = _normalize_base_url(DEFAULT_INSTANCE["base_url"])
+
+
 # ── Instance registry ────────────────────────────────────────────────
 
 def _load_instances() -> List[dict]:
@@ -49,7 +62,19 @@ def _save_instances(instances: List[dict]) -> None:
 def _instances() -> List[dict]:
     """Registered instances; the env 'local' instance is always first."""
     stored = [i for i in _load_instances() if i.get("id") != "local"]
-    return [dict(DEFAULT_INSTANCE)] + stored
+    return [dict(DEFAULT_INSTANCE)] + [
+        {**instance, "base_url": _normalize_base_url(instance.get("base_url", ""))}
+        for instance in stored
+    ]
+
+
+def _public_instance(instance: dict) -> dict:
+    """Return instance metadata without exposing persisted credentials."""
+    return {
+        key: value
+        for key, value in instance.items()
+        if key != "api_key"
+    } | {"api_key_configured": bool(instance.get("api_key"))}
 
 
 def _client(instance: dict) -> httpx.AsyncClient:
@@ -101,7 +126,8 @@ class ChatRequest(BaseModel):
 @router.get("/instances")
 async def list_instances():
     """List linked LM Studio instances (lmlink)."""
-    return {"instances": _instances(), "count": len(_instances())}
+    instances = _instances()
+    return {"instances": [_public_instance(instance) for instance in instances], "count": len(instances)}
 
 
 @router.post("/instances")
@@ -111,11 +137,11 @@ async def add_instance(req: InstanceCreate):
     instances.append({
         "id": req.id,
         "name": req.name or req.id,
-        "base_url": req.base_url.rstrip("/"),
+        "base_url": _normalize_base_url(req.base_url),
         "api_key": req.api_key or "",
     })
     _save_instances(instances)
-    return {"status": "linked", "instances": _instances()}
+    return {"status": "linked", "instances": [_public_instance(instance) for instance in _instances()]}
 
 
 @router.delete("/instances/{instance_id}")
@@ -125,7 +151,7 @@ async def remove_instance(instance_id: str):
         raise HTTPException(400, "The local instance cannot be removed")
     instances = [i for i in _load_instances() if i.get("id") != instance_id]
     _save_instances(instances)
-    return {"status": "unlinked", "instances": _instances()}
+    return {"status": "unlinked", "instances": [_public_instance(instance) for instance in _instances()]}
 
 
 @router.get("/models")

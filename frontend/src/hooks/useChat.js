@@ -3,6 +3,7 @@ import { API_BASE } from '../api/client';
 
 const CHAT_STORAGE_KEY = 'npu-chat-history';
 const MAX_STORED_MESSAGES = 200;
+const DEFAULT_RUNTIME_ID = 'nirvana-default';
 
 function loadHistory(modelId) {
   try {
@@ -23,7 +24,7 @@ function saveHistory(modelId, msgs) {
 /**
  * Hook for managing chat state — with localStorage persistence and non-truncated responses.
  */
-export function useChat({ selectedModel = null } = {}) {
+export function useChat({ selectedModel = null, runtimeId = undefined } = {}) {
   const modelKey = selectedModel?.id || 'default';
   const [messages, setMessages] = useState(() => loadHistory(modelKey));
   const [isLoading, setIsLoading] = useState(false);
@@ -88,6 +89,7 @@ export function useChat({ selectedModel = null } = {}) {
           temperature: 0.7,
           max_tokens: maxTokensRef.current,  // user-configurable (default 4096)
         };
+        if (!selectedModel && runtimeId && runtimeId !== DEFAULT_RUNTIME_ID) body.runtime_id = runtimeId;
 
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -140,7 +142,7 @@ export function useChat({ selectedModel = null } = {}) {
         setIsLoading(false);
       }
     },
-    [messages, selectedModel]
+    [messages, runtimeId, selectedModel]
   );
 
   const clearChat = useCallback(() => {

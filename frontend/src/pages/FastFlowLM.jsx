@@ -111,7 +111,7 @@ export default function FastFlowLM() {
         }
     };
 
-    const handlePull = async (tag) => {
+    const handlePull = async (tag, { force = false } = {}) => {
         if (pullingModel) return;
         setPullingModel(tag);
         setPullProgress(0);
@@ -119,7 +119,7 @@ export default function FastFlowLM() {
         setPullMessage('Preparing pull...');
         setPullIndeterminate(true);
         setNotice(null);
-        addLog(`Pull requested for ${tag}`);
+        addLog(`${force ? 'Weight refresh' : 'Pull'} requested for ${tag}`);
         try {
             await pullFLMModel(tag, (progress) => {
                 if (progress.status === 'downloading') {
@@ -135,7 +135,7 @@ export default function FastFlowLM() {
                     setPullPhase('finalize');
                     setPullMessage(progress.message || 'Download complete');
                     setPullIndeterminate(false);
-                    setNotice({ tone: 'success', title: 'Model pulled', message: `${tag} is now available in local library.` });
+                    setNotice({ tone: 'success', title: force ? 'Model weights refreshed' : 'Model pulled', message: `${tag} is now available in local library.` });
                     addLog(`Pull complete: ${tag}`);
                     setTimeout(() => {
                         setPullingModel(null);
@@ -153,7 +153,7 @@ export default function FastFlowLM() {
                     addLog(`Pull failed for ${tag}: ${message}`);
                     setPullingModel(null);
                 }
-            });
+            }, force);
         } catch (err) {
             const message = diagnoseBackendError(err, 'Model pull');
             setNotice({ tone: 'danger', title: 'Failed to pull model', message, details: err?.message || null });
@@ -386,6 +386,7 @@ export default function FastFlowLM() {
     );
 
     const isInstalled = (tag) => models.some(m => m.tag === tag);
+    const needsV102Weights = (model) => model?.release === '1.0.2' || /^qwen3\.5:|^qwen3\.6-moe:/.test(model?.tag || '');
     const servedReadiness = servingModel ? readinessByModel[servingModel] : null;
 
     if (loading && !models.length) {
@@ -478,6 +479,24 @@ export default function FastFlowLM() {
                 />
             </div>
 
+            <div className="mx-6 mt-3 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <div className="min-w-0 flex-1">
+                    <p className="font-semibold">FastFlowLM v1.0.2 runtime notes</p>
+                    <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                        Qwen3.5 and Qwen3.6-MoE weights must be re-downloaded after upgrading. AMD NPU driver {status.minimum_npu_driver || '32.0.203.311'} or newer is required.
+                    </p>
+                </div>
+                <a
+                    href={status.installer_url || 'https://github.com/ROCm/FastFlowLM/releases/latest/download/flm-setup.msi'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 rounded-lg border border-amber-300/30 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-300/10"
+                >
+                    {status.installed ? 'Release' : 'Install flm-setup.msi'}
+                </a>
+            </div>
+
             {/* Content Area */}
             <div className="flex-1 overflow-auto bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-slate-950">
                 {activeTab === 'library' ? (
@@ -536,6 +555,11 @@ export default function FastFlowLM() {
                                             </div>
                                             <h3 className="text-lg font-bold mb-1 truncate">{model.name}</h3>
                                             <p className="text-xs text-slate-500 mb-4 font-mono">{model.tag}</p>
+                                            {needsV102Weights(model) && (
+                                                <div className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-200">
+                                                    v1.0.2 weights required — re-download before serving.
+                                                </div>
+                                            )}
                                             {readinessByModel[model.tag] && (
                                                 <div className="flex flex-wrap gap-2 mb-3">
                                                     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${readinessByModel[model.tag].toolCalling === 'supported' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : readinessByModel[model.tag].toolCalling === 'unsupported' ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-slate-700 bg-slate-800/60 text-slate-300'}`} title={`Tool-calling status for ${model.tag}`}>
@@ -579,6 +603,16 @@ export default function FastFlowLM() {
                                                 >
                                                     <ShieldCheck className={`w-5 h-5 ${checkingModel === model.tag ? 'animate-pulse' : ''}`} />
                                                 </button>
+                                                {needsV102Weights(model) && (
+                                                    <button
+                                                        onClick={() => handlePull(model.tag, { force: true })}
+                                                        disabled={Boolean(pullingModel)}
+                                                        className="p-2 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-300 text-slate-500 rounded-lg border border-transparent hover:border-amber-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        title="Force re-download v1.0.2 weights"
+                                                    >
+                                                        <Download className={`w-5 h-5 ${pullingModel === model.tag ? 'animate-pulse' : ''}`} />
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -603,6 +637,7 @@ export default function FastFlowLM() {
                                                 <span className="px-2 py-0.5 bg-slate-800 rounded-full text-[10px] font-bold text-slate-400 uppercase tracking-tight">
                                                     {model.family}
                                                 </span>
+                                                {model.release && <span className="mt-1 block text-[10px] font-bold text-amber-300">FLM v{model.release}</span>}
                                                 <div className="text-xs mt-1 text-slate-500">{model.size || 'Auto-Scale'}</div>
                                             </div>
                                         </div>
