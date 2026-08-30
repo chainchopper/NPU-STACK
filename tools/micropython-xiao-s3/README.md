@@ -6,8 +6,42 @@ PSRAM is not initialised, `esp32.idf_heap_info()` shows no PSRAM region, and the
 whole MicroPython heap runs in ~250 KB of internal SRAM — the 8 MB PSRAM sits
 unused. (Verified: `gc.mem_free()` ≈ 180 KB, filesystem ≈ 6 MB of 8 MB flash.)
 
-Fix: build MicroPython with octal-PSRAM support so the GC heap (and the display
-framebuffer) live in PSRAM instead of the cramped internal SRAM.
+## Primary path: official SPIRAM_OCT build (no custom build needed)
+
+MicroPython ships a prebuilt octal-PSRAM variant of the exact version the board
+already runs:
+
+- `bin/ESP32_GENERIC_S3-SPIRAM_OCT-v1.28.0.bin` (1,758,064 bytes, sha256
+  `67C19AE123D84152019B57526ED5291DD0A2B4EDD87655C5F76B46C9A62FF5DD`,
+  source: micropython.org/resources/firmware, `ESP32_GENERIC_S3-SPIRAM_OCT`)
+- Verified: valid ESP32 image (magic `E9`), contains `SPIRAM_OCT`/`OPI`/`octal`
+  strings.
+
+Flash at `0x0` with esptool. This is a FULL firmware image (bootloader +
+partition table + app + LittleFS) — it WIPES the filesystem, so all of
+`firmware/nirvana-os/` must be re-pushed afterwards and `config.json` restored
+from `backend/data/backups/xiao-sense-config.json`.
+
+**Download-mode entry on this board is manual**: host-side esptool cannot toggle
+the XIAO into the bootloader over native USB (`Invalid head of packet`). Hold
+BOOT, tap RESET, release BOOT, then run esptool. The mandatory pre-flash step
+is a complete 8 MB `read-flash` backup — the repo flash helpers enforce this
+and refuse to continue if the backup cannot be read or is incomplete.
+
+After flashing, verify with:
+
+```python
+import esp32, gc
+esp32.idf_heap_info(esp32.HEAP_DATA)   # expect a multi-MB PSRAM region
+gc.mem_free()                          # expect ~4 MB+ (heap in PSRAM)
+```
+
+## Custom build (only if you need extras the official build lacks)
+
+Only needed for add-ons like PDM-RX (onboard mic, MicroPython PR #14176) or a
+full-8MB `vfs` partition bump. MicroPython v1.28 targets ESP-IDF v5 — the
+repo's IDF v6.0.2 toolchain is for xiaozhi/IDF firmware and will NOT build
+MicroPython v1.28; use a matching IDF v5 checkout.
 
 ## What to change (sdkconfig fragment)
 
