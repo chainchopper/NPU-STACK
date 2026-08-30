@@ -35,23 +35,40 @@ class _RecSPI:
     def write(self, data):
         data = bytes(data)
         if self.dc == 0:
-            # Command byte.
-            cmd = data[0]
-            self._pending = cmd
+            # Command byte; RAMWR opens a write cursor at the window origin.
+            self._pending = data[0]
+            if self._pending != 0x2C:
+                self._writing = False
             return len(data)
-        # dc == 1 -> data burst for the pending command.
+        # dc == 1 -> data burst for the pending command (or a RAMWR stream).
         cmd = self._pending
         self._pending = None
         if cmd == 0x2A:  # column address set
             self.col = ((data[0] << 8) | data[1], (data[2] << 8) | data[3])
+            self._writing = False
         elif cmd == 0x2B:  # row address set
             self.row = ((data[0] << 8) | data[1], (data[2] << 8) | data[3])
-        elif cmd == 0x2C:  # RAMWR pixel payload
-            x0 = self.col[0]
-            y0 = self.row[0]
-            idx = (y0 * 240 + x0) * 2
-            self.frame[idx:idx + len(data)] = data
-            self.pushes += 1
+            self._writing = False
+        elif cmd == 0x2C or getattr(self, "_writing", False):
+            # RAMWR payload: the panel cursor auto-increments and WRAPS at the
+            # window's right edge, dropping to the next row inside the window.
+            if cmd == 0x2C:
+                self._wx = self.col[0]
+                self._wy = self.row[0]
+                self.pushes += 1
+            off = 0
+            while off < len(data):
+                run = (self.col[1] - self._wx + 1) * 2
+                run = min(run, len(data) - off)
+                idx = (self._wy * 240 + self._wx) * 2
+                self.frame[idx:idx + run] = data[off:off + run]
+                off += run
+                if self._wx + run // 2 > self.col[1]:
+                    self._wx = self.col[0]
+                    self._wy += 1
+                else:
+                    self._wx += run // 2
+            self._writing = True
         return len(data)
 
 
@@ -134,6 +151,95 @@ class BandedDisplayTests(unittest.TestCase):
             for y in range(100, 108) for x in range(0, 240)
         )
         self.assertTrue(lit)
+
+    def test_blit_replays_across_bands(self):
+        lcd, spi = self._make()
+        lcd.fill(0)
+        # 4x4 white sprite straddling the band0/band1 boundary (rows 38..41).
+        data = b"\xff\xff" * 16
+        lcd.blit(10, 38, 4, 4, data)
+        lcd.show()
+        for y in range(38, 42):
+            for x in range(10, 14):
+                self.assertEqual(_px(spi.frame, x, y), 0xFFFF, (x, y))
+        self.assertEqual(_px(spi.frame, 9, 38), 0)   # untouched neighbour
+        self.assertEqual(_px(spi.frame, 14, 41), 0)
+
+    def test_blit_retain_false_streams_directly(self):
+        lcd, spi = self._make()
+        data = b"\xff\xff" * 16
+        # Non-retained blit streams straight to the panel (no scene, no band
+        # buffer), so the rect lands immediately...
+        lcd.blit(10, 38, 4, 4, data, retain=False)
+        self.assertEqual(spi.pushes, 1)
+        self.assertEqual(_px(spi.frame, 10, 38), 0xFFFF)
+        self.assertEqual(_px(spi.frame, 13, 41), 0xFFFF)
+        # ...and a later show() overwrites it (nothing retained).
+        lcd.fill(0)
+        lcd.show()
+        self.assertEqual(_px(spi.frame, 10, 38), 0)
+        self.assertEqual(_px(spi.frame, 13, 41), 0)
+
+
+class SpriteAssetTests(unittest.TestCase):
+    """assets.sprite() .spr parsing + cache budget (runs against host /sd)."""
+
+    @classmethod
+    def setUpClass(cls):
+        shim.install()
+
+    @classmethod
+    def tearDownClass(cls):
+        shim.uninstall()
+
+    def _write_spr(self, root, name, w, h, payload=None):
+        import builtins
+        path = os.path.join(root, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        header = bytes((w >> 8, w & 0xFF, h >> 8, h & 0xFF))
+        data = header + (payload if payload is not None else b"\x00\x11" * (w * h))
+        with builtins.open(path, "wb") as f:
+            f.write(data)
+
+    def test_sprite_roundtrip(self):
+        import tempfile
+        import assets
+        with tempfile.TemporaryDirectory() as td:
+            assets.ASSET_DIR = td
+            self._write_spr(td, "icons/app.spr", 28, 28)
+            spr = assets.sprite("icons/app.spr")
+            self.assertIsNotNone(spr)
+            w, h, data = spr
+            self.assertEqual((w, h), (28, 28))
+            self.assertEqual(len(data), 28 * 28 * 2)
+            # second read is cached (same object)
+            self.assertIs(assets.sprite("icons/app.spr")[2], data)
+            assets.clear()
+
+    def test_sprite_rejects_corrupt(self):
+        import tempfile
+        import assets
+        with tempfile.TemporaryDirectory() as td:
+            assets.ASSET_DIR = td
+            self._write_spr(td, "bad.spr", 28, 28, payload=b"\x00" * 10)
+            self.assertIsNone(assets.sprite("bad.spr"))
+            self.assertIsNone(assets.sprite("missing.spr"))
+            assets.clear()
+
+    def test_cache_budget_evicts_oldest(self):
+        import tempfile
+        import assets
+        with tempfile.TemporaryDirectory() as td:
+            assets.ASSET_DIR = td
+            big = 30 * 1024  # two of these exceed the 48KB budget
+            self._write_spr(td, "a.spr", 1, 1, payload=b"\x00" * big)
+            self._write_spr(td, "b.spr", 1, 1, payload=b"\x00" * big)
+            assets.load("a.spr")
+            assets.load("b.spr")
+            self.assertNotIn("a.spr", assets.cached())
+            self.assertIn("b.spr", assets.cached())
+            self.assertLessEqual(assets.total_bytes(), assets.CACHE_BUDGET)
+            assets.clear()
 
 
 if __name__ == "__main__":

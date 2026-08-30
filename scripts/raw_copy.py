@@ -124,11 +124,32 @@ def main():
         print("ERROR: could not enter raw REPL on", port)
         return 1
 
+    # Mount the SD card when any target path lives under /sd — otherwise writes
+    # silently land in a same-named directory on the internal flash.
+    if any((spec.rsplit(":", 1)[-1] if ":" in spec[1:] else "").startswith("/sd/") for spec in files):
+        out = exec_raw(s, "import sd\nprint('mount:', sd.mount())\n")
+        if b"True" not in out:
+            print("ERROR: SD mount failed; refusing to write /sd paths to flash")
+            return 1
+
     for spec in files:
-        if ":" in spec:
-            local, remote = spec.split(":", 1)
+        if ":" in spec[1:]:
+            # rsplit so Windows drive letters (J:\...) survive the split.
+            local, remote = spec.rsplit(":", 1)
         else:
             local, remote = spec, "/" + spec.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        # Create parent dirs (os.mkdir has no -p; walk the path).
+        if "/" in remote.strip("/"):
+            parts = remote.strip("/").split("/")[:-1]
+            mkdir = "import os\n"
+            acc = ""
+            for p in parts:
+                acc += "/" + p
+                mkdir += (
+                    "try: os.mkdir('%s')\n"
+                    "except OSError: pass\n" % acc
+                )
+            exec_raw(s, mkdir)
         with open(local, "rb") as f:
             data = f.read()
         out = write_file(s, remote, data)
