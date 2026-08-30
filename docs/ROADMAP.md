@@ -56,24 +56,42 @@ Flash is fine (~6 MB LittleFS of 8 MB). Fix = custom build with
 `tools/micropython-xiao-s3/README.md`. Once the heap is in PSRAM the display
 framebuffer and assets stop competing with the tiny SRAM heap.
 
-**SD-card asset loading:** `firmware/nirvana-os/assets.py` — load/unload static
-assets (fonts/icons/app data) from `/sd/assets` on demand and `gc.collect()` on
-unload, so big static things don't sit in RAM. Pattern for larger fonts/sprites
-later.
+**SD-card asset loading:** the separate Nirvana OS firmware product uses an
+`assets.py` module to load/unload static assets (fonts/icons/app data) from
+`/sd/assets` on demand and `gc.collect()` on unload, so big static things don't
+sit in RAM. NPU-STACK tracks the integration contract and release metadata, not
+the private firmware implementation.
 
 **Agent voice:** `backend/routers/nirvana_audio.py` (`POST /api/nirvana/say`)
 routes TTS through **Home Assistant** `tts.speak` (Piper/Google/Cloud) to any
 `media_player`/ESPHome speaker — **ElevenLabs is test-only**, not production.
 Needs `HA_BASE_URL` + `HA_TOKEN` in `.env`.
 
+**ESP flash safety audit:** all ESP write paths now require a successful,
+validated full-flash backup before writing. XIAO ESP32-S3/Sense and legacy ESP
+workflows are fixed at exactly **8 MiB**; incomplete, failed, or unavailable
+backups block the write, and `backup_first=false` cannot bypass the service
+guard. The ESP-IDF path still accepts an explicitly detected board size from
+the supported set (including 16 MiB), while defaulting to 8 MiB. Frontend
+manual-backup defaults were aligned with the XIAO hardware. Validation:
+`tests.test_esp_flash_safety` 22/22 and `tests.test_backend_smoke` 9/9,
+plus frontend Vitest 20/20 and a successful Vite production build.
+
+**Detection note:** `detect_current_firmware()` reports a generic 4 MiB
+metadata default when `esptool` identifies an ESP32; this is informational
+only and does not control backup or flash sizing. A future improvement is to
+parse the detected chip's actual flash size. Generated documentation snapshots
+may retain older 4 MiB wording until their source index is regenerated.
+
 ---
 
 ## 2. Agent face / eyes ("always alive")
 
-**Status:** Done (v1). `face.py` (in `firmware/nirvana-os/`) renders a parametric
-face with 11 emotions (neutral, happy, sad, angry, surprised, sleepy, wink, love,
-thinking, listening, talking) plus blink, gaze tracking and mouth openness. Runs
-on-device and in the emulator; registered as the `face` marketplace app. The menu
+**Status:** Done (v1). The Nirvana OS firmware product's `face.py` renders a
+parametric face with 11 emotions (neutral, happy, sad, angry, surprised, sleepy,
+wink, love, thinking, listening, talking) plus blink, gaze tracking and mouth
+openness. Runs on-device and in the emulator; registered as the `face`
+marketplace app. The menu
 now enters an idle screensaver (`face.alive()`) after 8 s of no activity — it
 blinks, drifts its gaze, and talks when the mic level rises (emulator), then
 returns to the menu on tap.
@@ -81,7 +99,7 @@ returns to the menu on tap.
 **Pending:** per-emotion gaze/brow polish, and physical IMU gaze tracking when
 hardware is added.
 
-**Sensor wiring landed** (`firmware/nirvana-os/sensors.py`, local-only): unified
+**Sensor wiring landed** (private firmware implementation, local-only): unified
 `rtc()/battery_mv()/temp_c()/imu()/light()/camera()/mic()` mirroring the emulator
 API. Verified on-device: temp 44 °C, RTC present (unset → None), camera present,
 IMU/light absent. `face.alive()` now falls back to a breathing/talking pattern
@@ -164,8 +182,9 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
   `wifi_provision.py` serves the IMPROV-HTTP flow (`GET /redirect` 302,
   `POST /provison` + `/provision` JSON `{ssid,password}` → save → 303 + result
   fragment); the home menu gained a **"WiFi Setup"** item that re-runs the
-  SoftAP + QR + portal wizard. **BLE GATT landed** (`firmware/nirvana-os/
-  improv_ble.py`): advertises the Improv service UUID + service data (0x4677),
+  SoftAP + QR + portal wizard. **BLE GATT landed** in the separate Nirvana OS
+  firmware product: its `improv_ble.py` advertises the Improv service UUID +
+  service data (0x4677),
   registers State/Error/RPC-Command/RPC-Result/Capabilities characteristics,
   and handles `identify` / `device info` / `send wifi settings` RPC commands
   (checksum-verified). Verified on-device: 31-byte advertisement, GATT service
@@ -174,16 +193,18 @@ Unsloth studio is absorbed under `temp_unsloth_studio_inspect/` (reference only)
   external BLE client test.
 - **ESP-NOW** zero-config pairing via a beacon device on this machine, or the
   `portal-1` webserver for special cases. **Landed (receiver + beacon script):**
-  `firmware/nirvana-os/espnow_pair.py` (board side — activates ESP-NOW, adds the
-  broadcast peer, sets a fleet PMK, polls for `NPUPAIR1|{json}` offers and saves
-  WiFi+backend on match) and `espnow_beacon.py` (beacon side — broadcasts the
+  the separate Nirvana OS firmware product's board-side pairing module (activates
+  ESP-NOW, adds the broadcast peer, sets a fleet PMK, polls for `NPUPAIR1|{json}`
+  offers and saves WiFi+backend on match) and `espnow_beacon.py` (beacon side —
+  broadcasts the
   offer every 3s; flash onto the spare Matrix Portal S3 / any ESP32). Wired into
   `provision()` alongside the SoftAP portal (`serve_portal` polls ESP-NOW each
   accept timeout). Verified on-device: receiver activates + polls cleanly.
   **Pending:** live end-to-end needs the beacon ESP32 free; backend
   `/api/esp/...` + `espnow_service` still to wire for portal-1-based pairing.
-- **ESP-NOW fleet messaging (master/slave)** — landed: `firmware/nirvana-os/
-  espnow_msg.py` (`Link` class) lets screen devices pass short commands without
+- **ESP-NOW fleet messaging (master/slave)** — landed in the separate Nirvana OS
+  firmware product: its `espnow_msg.py` (`Link` class) lets screen devices pass
+  short commands without
   a router. Frame = `NPUMSG1|{json}`; types `text` (s + optional RGB565 c),
   `color`, `power` (on/off), `ping`→`pong`, `img`. Role from `config.json`
   `espnow_role` = `master` (sends) / `slave` (applies to display via

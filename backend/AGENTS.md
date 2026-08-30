@@ -16,6 +16,8 @@ This is an active development boundary. All changes to API routes, services, or 
 - The `.env` file at the repo root provides API keys and config — DO NOT modify without approval
 - All routers are mounted in `main.py` in declaration order — native NPU-STACK routes first, then agent/orchestration routes
 - The Nirvana bridge is DeepSeek-first; local GGUF is recovery-only fallback
+- Universal runtime selection applies only to agent orchestration; direct native and FastFlowLM inference remain provider-specific
+- Runtime resolution precedence is request → profile → global selection → legacy mode → built-in Nirvana, with explicit runtime failures returned rather than silently falling back
 
 ## Router Map
 
@@ -32,6 +34,7 @@ This is an active development boundary. All changes to API routes, services, or 
 | `finetuning_router` | `routers/finetuning.py` | Fine-tuning job management |
 | `finetune_publish_router` | `routers/finetune_publish.py` | Publish fine-tuned models |
 | `agent_router` | `routers/agent.py` | Nirvana bridge — chat, start, status, runtime |
+| `agent_runtimes_router` | `routers/agent_runtimes.py` | Universal runtime catalog, discovery, registration, probing, capabilities, and selection |
 | `orchestration_router` | `routers/orchestration.py` | Orchestration profiles, sessions, state |
 | `nirvana_webui_router` | `routers/nirvana_webui.py` | Native Nirvana management — settings, sessions, skills, config read directly from shared state files |
 | `fleet_command_router` | `routers/fleet_command.py` | Fleet command dispatch |
@@ -54,12 +57,14 @@ This is an active development boundary. All changes to API routes, services, or 
 | `espnow_router` | `routers/espnow_router.py` | ESP-NOW firmware discovery, build commands, binary listing |
 | `webcam_router` | `routers/webcam.py` | Webcam testing |
 | `xiaozhi_websocket_router` | `routers/xiaozhi_websocket.py` | XiaoZhi voice WebSocket transport — hello/listen/abort/mcp/goodbye JSON + Opus binary (v1/v2/v3) |
+| `nirvana_audio_router` | `routers/nirvana_audio.py` | Home Assistant TTS adapter plus room-wide browser audio endpoints, rooms, and delivery |
 
 ## Key Services
 
 | Service | File | Purpose |
 | --- | --- | --- |
 | `nirvana_service` | `services/nirvana_service.py` | Nirvana runtime: isolated Python, WebUI launch, bridge health, sync chat proxy |
+| `agent_runtime_registry` | `services/agent_runtime_registry.py` | Normalized runtime identity, bounded discovery, safe endpoint validation, persistence, probing, and selection |
 | `gguf_service` | `services/gguf_service.py` | Local GGUF model loading and inference (recovery fallback) |
 | `docs_index_service` | `services/docs_index_service.py` | Embedding-based documentation search |
 | `fleet_orchestrator` | `services/fleet_orchestrator.py` | Fleet device orchestration logic |
@@ -84,6 +89,8 @@ This is an active development boundary. All changes to API routes, services, or 
 | `unsloth_service` | `services/unsloth_service.py` | Unsloth fine-tuning integration |
 | `espnow_service` | `services/espnow_service.py` | ESP-NOW library discovery, examples, IDF commands, binaries |
 | `vitis_compiler` | `services/vitis_compiler.py` | Vitis AI compiler integration |
+| `remote_audio` | `services/remote_audio.py` | Live browser audio endpoint registry, heartbeat expiry, room persistence, and delivery accounting |
+| `managed_audio` | `services/managed_audio.py` | Encrypted Home Assistant profiles, adapter endpoint metadata, and hash-only audio pairing credentials |
 
 ## Work Guidance
 
@@ -96,9 +103,10 @@ This is an active development boundary. All changes to API routes, services, or 
 - `GET /api/devices/scan` probes connected USB serial ports for live MicroPython/Nirvana boards and registers them by stable unique id (`nirvana-<uid>`); the background auto-poll probes only ports not yet identified
 - `GET /api/health` doubles as the Nirvana board phone-home: when called with `device_id`/`ip`/`firmware`/`machine` query params it registers/refreshes the board in the edge registry
 - The Nirvana app marketplace is served from `backend/marketplace/` (catalog.json + apps/{id}/); device apps are installed on-device via `appstore.py` in the local-only firmware
-- `backend/emulator/` runs Nirvana OS app code in plain CPython with a virtual display; the runner uses a length-prefixed stdout protocol (`FRAME:<len>\n<bytes>`, `LOG:<text>`), consumed by `/api/emulator/ws`. The shim also emulates a virtual SD card (host dir `backend/data/emulator_sd`, `/sd` path-mapped in `os`/`builtins.open`, seeded from `backend/marketplace/apps`) and live-injectable sensors (RTC/mic/battery/temp/light/ADC/IMU/camera) via `shim.set_sensor()` from the WS `sensor` message.
+- `backend/emulator/` runs Nirvana OS app code in plain CPython with a virtual display; the runner uses a length-prefixed stdout protocol (`FRAME:<len>\n<bytes>`, `LOG:<text>`), consumed by `/api/emulator/ws`. The shim also emulates a virtual SD card (host dir `backend/data/emulator_sd`, `/sd` path-mapped in `os`/`builtins.open`, seeded from `backend/marketplace/apps`) and live-injectable sensors (RTC/mic/battery/temp/light/ADC/IMU/camera) via `shim.set_sensor()` from the WS `sensor` message. `shim.install()` patches `sys.modules`/`os`/`builtins.open` process-wide, so in-process callers (tests) must pair it with `shim.uninstall()` to restore host state
 - `GET /api/devices/flash-tools` reports which flash tools are on the host; `POST /api/devices/{id}/flash-arduino` compiles+uploads the AMB82 sketch via the repo-vendored arduino-cli + Realtek core (`tools/arduino/`, FQBN `realtek:AmebaPro2:Ameba_AMB82-MINI`, fully offline)
 - `GET /api/fleet/ota/nirvana-os/{version.json|file}` serves the Nirvana OS app layer as a flash-once OTA channel (whitelisted files from `firmware/nirvana-os/`)
+- ESP firmware flashing always takes and validates a full-flash backup first; XIAO ESP32-S3/Sense and legacy ESP paths require exactly 8 MB, while the ESP-IDF route defaults to 8 MB and accepts an explicitly supplied detected board size (for example, 16 MB). Backup failure or an incomplete backup blocks the flash with HTTP 412, and callers cannot bypass this with `backup_first=false`
 
 ## Verification
 
@@ -107,6 +115,7 @@ This is an active development boundary. All changes to API routes, services, or 
 - Import check: `.venv\Scripts\python.exe -c "from backend.main import app; print('ok')"`
 - Nirvana native health: `curl http://127.0.0.1:8010/api/nirvana/health`
 - MCP tools: `.venv\Scripts\python.exe -c "from backend.mcp_server import mcp; print(f'Tools: {len(mcp._tool_manager._tools)}')"` → 13
+- ESP flash safety: `python -m unittest tests.test_esp_flash_safety`
 
 ## Nirvana Native Endpoints (`/api/nirvana/*`)
 

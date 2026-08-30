@@ -14,4 +14,6 @@ Sample datasets and tutorials for NPU-STACK training workflows.
 - Scraped data
 - Model fine-tuning outputs
 
-See `internal/datasets/` for private training data (gitignored, never pushed).
+Private training data belongs in the separate private training project. A local
+working checkout may expose it under `internal/datasets/`, but that path is
+gitignored and must never be staged or pushed to public NPU-STACK.

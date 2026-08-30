@@ -31,6 +31,11 @@ and on-device probing (`board.detect()`, I2C scan, ADC reads).
 Camera (OV2640/OV3660/OV5640) rides a **dedicated SCCB I2C bus** (addr 0x30) on
 the Sense expansion board — it is **not** on the user SDA/SCL pins and is not
 visible to `i2c.scan()`.
+Nirvana's `camera_capture.py` lazily imports the optional MicroPython `camera`
+module, initializes JPEG capture in PSRAM, and records a successful non-empty
+frame separately from the board declaration. Stock `ESP32_GENERIC_S3` reports
+`module_unavailable`; a camera-capable custom build is required before capture
+can be validated.
 
 ## Sensor inventory
 
@@ -40,7 +45,7 @@ visible to `i2c.scan()`.
 | CHSC6X touch | carrier, I2C 0x2E | ✅ working | (via `touch`) |
 | PCF8563 RTC | carrier, I2C 0x51 | ✅ present, time unset until NTP/coin cell | `rtc()` → ISO or None |
 | microSD | carrier TF slot, CS=GPIO3 | ✅ mounted at `/sd` | (via `sd`) |
-| OV2640/OV3660 camera | Sense board, SCCB | ✅ present (driver pending) | `camera()` → `{present: True}` |
+| OV2640/OV3660 camera | Sense board, SCCB | ✅ hardware present; runtime/build dependent | `camera()` reports module, init, and capture evidence |
 | PDM mic | Sense board, GPIO41/42 | ⚠️ **blocked** (see below) | `mic()` → 0 |
 | Battery divider | carrier, A0/D0=GPIO1 | ⚠️ **conflicts with touch** (see below) | `battery_mv()` → best-effort |
 | Internal temp | ESP32-S3 die | ✅ working (~44 °C) | `temp_c()` |
@@ -95,8 +100,9 @@ Free pins for I2S (after everything above is claimed):
   three I2S pins above live on the **B2B camera connector** pads, so they're only
   reachable if the camera expansion is removed (or via a breakout/second board).
 
-**Firmware landed** — `firmware/nirvana-os/audio.py` (`init/tone/beep/play_wav/
-say`). Verified on-device: `machine.I2S` TX on GPIO11/12/13 initialises and
+**Firmware landed in the separate Nirvana OS product** — its `audio.py`
+(`init/tone/beep/play_wav/say`). Verified on-device there: `machine.I2S` TX on
+GPIO11/12/13 initialises and
 `audio.tone(440, 20)` writes PCM cleanly — sound will play once the amp is wired.
 Emulator parity: `machine.I2S` is stubbed in `backend/emulator/shim.py` (captures
 writes) so `audio.py` is testable in the playground.

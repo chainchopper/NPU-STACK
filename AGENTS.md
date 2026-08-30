@@ -97,6 +97,7 @@ Default section order:
 - Push to GitHub frequently — after every validated slice of work.
 - **Branch strategy**: `dev` is the primary development branch. `main` receives trickle-down merges from `dev` after audit. Never commit directly to `main` — always work in `dev` first. Sensitive/internal features stay in `dev` and are filtered before push to `main`.
 - **internal/ folder**: Private NPU-STACK assets (training data, scrapers, proposals, internal docs) live in `internal/`. This folder is **gitignored** — never push to GitHub. Use `git add -A` with caution; prefer `git add <specific files>` to avoid accidentally staging internal/.
+- **Repository boundaries**: NPU-STACK is the public application/orchestration product. Nirvana OS and internal device firmware are separate firmware-product sources, and private training data/model artifacts are maintained in a separate training project. NPU-STACK may publish board compatibility manifests, build/configuration integrations, and approved release references for XiaoZhi-compatible boards, but private firmware and training paths must never be staged or required as public build dependencies. See `docs/REPOSITORY_BOUNDARIES.md`.
 - **BACKUP BEFORE FLASH — MANDATORY**: Every device flash MUST be preceded by a full firmware backup. NO EXCEPTIONS. Use `GET /api/esp/fleet/backup` or the platform-specific backup method. If backup fails, STOP — do not proceed to flash. This is enforced in the flash endpoint (`backup_first=True`) but the agent must also enforce it at the planning/debugging level. The S3 Matrix game (accelerometer+gyroscope, running for years) was lost because this rule was violated. That never happens again.
 - **NEVER format, delete, or write to ANY drive without explicit user approval**. Some devices expose SD cards or CIRCUITPY drives as Windows drive letters. These may be system drives or contain irreplaceable data. Detection/reading is fine — writing and formatting is forbidden without confirmation.
 - Nirvana WebUI absorption: Phase 1 complete — proxy middleware (`backend/hermes_proxy.py`) forwards unmatched /api/* paths to absorbed WebUI at :8789. Frontend has /nirvana-chat route with iframe-embedded full WebUI. Agent icon opens Nirvana Chat directly. Phase 2 will mount vanilla JS modules directly.
@@ -135,7 +136,7 @@ Default section order:
 | `firmware/circuitpython-agent/` | CircuitPython agent for microcontrollers |
 | `firmware/esp32-agent/` | ESP32 fleet agent firmware |
 | `firmware/linux-agent/` | Linux edge device agent (systemd, OTA, polling) |
-| `firmware/nirvana-os/` | Branded MicroPython firmware (Nirvana OS) for ESP32-S3 — XIAO Sense |
+| `firmware/nirvana-os/` | Local/private Nirvana OS firmware working copy; separate product source, not public NPU-STACK release content |
 
 ### Infrastructure & Build
 
@@ -163,3 +164,12 @@ Default section order:
 | `NPU-STACK.code-workspace` | VS Code multi-root workspace definition |
 | `.env` | Environment variables (DO NOT MODIFY without approval) |
 | `README.md` | Project overview and quick-start |
+
+### VS Code Workspace Folders
+
+`NPU-STACK.code-workspace` keeps the application root alongside intentional standalone CMake projects:
+
+- `llama.cpp/` — standalone C/C++ inference project
+- `libraries/rocm-libraries/` — standalone ROCm libraries superbuild
+
+Nested CMake component directories are not separate workspace roots unless they become independently maintained projects.

@@ -4,6 +4,12 @@ Goal: make Nirvana a **self-hosted, full-suite voice-AI fleet platform** that is
 drop-in alternative to `xiaozhi.me` — same wire protocol, our own branding, our own
 backend services, and auto-installable firmware for MicroPython-capable boards.
 
+This document describes the NPU-STACK integration contract. Nirvana OS source
+and internal device firmware are maintained in a separate firmware product
+repository; private training material is maintained separately as well. NPU-STACK
+must consume approved firmware releases/manifests or public board adapters, not
+private firmware working paths. See [`REPOSITORY_BOUNDARIES.md`](REPOSITORY_BOUNDARIES.md).
+
 ## Current State (verified)
 
 - **Backend already speaks xiaozhi.** `backend/services/xiaozhi_server.py` +
@@ -52,6 +58,9 @@ flowchart LR
 ```
 
 ## Firmware Tiers
+
+Firmware tiers are release products coordinated by NPU-STACK, not an instruction
+to place every firmware implementation in this public repository.
 
 1. **Tier A — ESP-IDF (C/C++):** fork/configure `xiaozhi-esp32` with Nirvana
    branding, pointing at our backend endpoint. Built with ESP-IDF v6.0.2.
@@ -107,7 +116,8 @@ reference:
   (no AP/router needed) for a multi-node sensor+display mesh. Note: Grove Vision
   AI V2 is a WiseEye2 HX6538 (not an ESP32) — bridge it from the XIAO over I2C
   rather than flashing it directly; ESP-NOW runs XIAO↔XIAO.
-- **Camera on XIAO Sense:** use the prebuilt OV2640 MicroPython firmware
-  (`firmware/micropython-esp32/XIAO-Sense-OV2640-wifi-ble-20230717.bin`, from
-  shariltumin/esp32-cam-micropython-2022) as the camera reference; note it is an
-  older MicroPython (2023) — port the OV2640 driver to v1.28 for the main image.
+- **Camera on XIAO Sense:** use the prebuilt OV2640 MicroPython firmware from
+  the separately managed firmware/release workspace as the camera reference;
+  note it is an older MicroPython (2023) — port the OV2640 driver to v1.28 for
+  the main image. Do not treat a local binary or private firmware checkout as a
+  public NPU-STACK dependency.

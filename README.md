@@ -25,6 +25,19 @@
 
 NPU-STACK is an **open-source, full-stack AI toolkit** for developing, serving, and deploying machine learning models on every hardware accelerator — NPUs, TPUs, GPUs, and CPUs. It ships with an **OpenAI-compatible API**, making it a self-hosted alternative to LM Studio, Ollama, and OpenAI.
 
+### Product and repository boundaries
+
+NPU-STACK is the public application and orchestration product for the Nirvana
+ecosystem. Nirvana OS and internal device firmware are maintained as a separate
+firmware product repository, while private training data and unreleased model
+artifacts belong in a separate training project. NPU-STACK provides the public
+board-compatibility contracts, configuration/build integrations, fleet APIs, and
+management UI used to produce approved firmware for XiaoZhi-compatible boards;
+private firmware and training assets are never required to build this repo.
+
+See [`docs/REPOSITORY_BOUNDARIES.md`](docs/REPOSITORY_BOUNDARIES.md) for the
+publication and synchronization rules.
+
 ### ✨ Key Features
 
 | Feature | Description |

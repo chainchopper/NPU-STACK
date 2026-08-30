@@ -10,12 +10,13 @@ This is an active development boundary. All UI changes go here.
 
 ## Local Contracts
 
-- Dev server runs on port `5177` (Vite default)
+- Dev server runs on port `5180` (configured in `vite.config.js`)
 - Proxies `/api` → `http://127.0.0.1:8010` (NPU-STACK backend)
 - React Router for SPA navigation
 - Dark theme by default, light toggle available
 - Nirvana is the built-in orchestration agent — distinct from chat/playground/test interfaces
 - The Agents page (`Agents.jsx`) is the primary Nirvana control surface
+- Universal runtime selection is propagated only to agent orchestration; direct model and FastFlowLM requests keep their provider-specific paths
 
 ## Page Index
 
@@ -50,6 +51,7 @@ This is an active development boundary. All UI changes go here.
 | WebcamTest | `WebcamTest.jsx` | Webcam/camera testing |
 | ModelHub | `ModelHub.jsx` | Model discovery hub |
 | NirvanaChat | `NirvanaChat.jsx` | **Full Nirvana agent interface** — iframe-embedded WebUI with all features |
+| AudioOutput | `AudioOutput.jsx` | **Room audio endpoint** — browser/phone WebSocket registration, secure pairing, and Web Speech API playback |
 | NirvanaSettings | `NirvanaSettings.jsx` | **Native settings panel** — reads/writes /api/nirvana/settings directly |
 | NirvanaSessions | `NirvanaSessions.jsx` | **Native session browser** — lists and inspects Nirvana sessions |
 | NirvanaSkills | `NirvanaSkills.jsx` | **Native skills manager** — card grid + markdown content viewer |
@@ -77,6 +79,8 @@ This is an active development boundary. All UI changes go here.
 | `ActivityLogCard` | `components/ActivityLogCard.jsx` | Activity log card display |
 | `CapabilityPill` | `components/CapabilityPill.jsx` | Capability tag/badge |
 | `OperationNotice` | `components/OperationNotice.jsx` | Operation status notice banner |
+| `AgentRuntimeSelector` | `components/AgentRuntimeSelector.jsx` | Universal agent runtime discovery, probing, and selection |
+| `RemoteAudioPanel` | `components/RemoteAudioPanel.jsx` | Nirvana destination selection, saved rooms, managed Home Assistant profiles, and test speech |
 
 ## Verification
 
