@@ -24,6 +24,12 @@ class TestEmulatorProvisioning(unittest.TestCase):
     def setUpClass(cls):
         shim.install()
 
+    @classmethod
+    def tearDownClass(cls):
+        # The shim patches sys.modules/os/builtins process-wide; restore them
+        # so later tests in the same pytest session see real stdlib modules.
+        shim.uninstall()
+
     def test_improv_ble_send_wifi_rpc(self):
         import improv_ble
 

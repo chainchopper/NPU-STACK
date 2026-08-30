@@ -532,6 +532,9 @@ class FlashRequest(BaseModel):
     port: str
     target: str = "esp32"
     baud: str = "921600"
+    # XIAO ESP32-S3 Sense defaults to 8 MB; callers for another board must
+    # provide its detected full flash size explicitly.
+    flash_size_mb: int = 8
 
 @router.post("/idf/build")
 def idf_project_build(req: BuildRequest):
@@ -541,7 +544,16 @@ def idf_project_build(req: BuildRequest):
 @router.post("/idf/flash")
 def idf_project_flash(req: FlashRequest):
     """Flash a built ESP-IDF project to device using idf.py flash."""
-    return idf_flash(req.project_path, port=req.port, target=req.target, baud=req.baud)
+    result = idf_flash(
+        req.project_path,
+        port=req.port,
+        target=req.target,
+        baud=req.baud,
+        flash_size_mb=req.flash_size_mb,
+    )
+    if result.get("phase") == "backup":
+        raise HTTPException(412, result.get("error", "Firmware backup failed; flash blocked"))
+    return result
 
 @router.get("/idf/monitor")
 def idf_project_monitor(project_path: str, port: str, target: str = "esp32"):
@@ -798,9 +810,42 @@ def detect_chip(device: str):
         raise HTTPException(500, f"Timed out probing {device}")
 
 
+def _flash_size_bytes(size: str) -> int:
+    """Convert an esptool flash-size argument to bytes for validation."""
+    value = str(size).strip().upper()
+    multiplier = 1
+    for suffix, multiplier in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024), ("B", 1)):
+        if value.endswith(suffix):
+            value = value[:-len(suffix)].strip()
+            break
+    try:
+        size_bytes = int(value, 0) * multiplier
+    except (TypeError, ValueError, UnboundLocalError):
+        raise HTTPException(400, f"Invalid flash size: {size}")
+    if size_bytes <= 0:
+        raise HTTPException(400, f"Invalid flash size: {size}")
+    return size_bytes
+
+
+def _backup_is_valid(backup_result: Any, expected_size: int) -> bool:
+    """Require a successful backup whose on-disk image has the expected size."""
+    if not isinstance(backup_result, dict) or not backup_result.get("success"):
+        return False
+    backup_path = backup_result.get("backup_path")
+    if not backup_path:
+        return False
+    try:
+        return Path(backup_path).is_file() and Path(backup_path).stat().st_size == expected_size
+    except OSError:
+        return False
+
+
 @router.post("/flash/backup/{device:path}")
-def backup_firmware(device: str, size: str = "4MB"):
-    """Backup current firmware from device via esptool read_flash (REAL)."""
+def backup_firmware(device: str, size: str = "8MB"):
+    """Backup current firmware via esptool and verify the complete image."""
+    expected_size = _flash_size_bytes(size)
+    if expected_size != 8 * 1024 * 1024:
+        raise HTTPException(422, "ESP32 backups must cover the complete 8 MB flash")
     if not HAS_PYSERIAL:
         raise HTTPException(500, "pyserial not installed")
 
@@ -823,14 +868,26 @@ def backup_firmware(device: str, size: str = "4MB"):
                 "device": device,
                 "error": result.stderr.strip(),
                 "backup_path": None,
+                "expected_size": expected_size,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         backup_size = backup_path.stat().st_size if backup_path.exists() else 0
+        if backup_size != expected_size:
+            return {
+                "success": False,
+                "device": device,
+                "error": f"Incomplete backup: expected {expected_size} bytes, got {backup_size}",
+                "backup_path": None,
+                "backup_size": backup_size,
+                "expected_size": expected_size,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
         return {
             "success": True,
             "device": device,
             "backup_path": str(backup_path),
             "backup_size": backup_size,
+            "expected_size": expected_size,
             "backup_size_mb": round(backup_size / (1024 * 1024), 2),
             "output": result.stdout.strip(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -851,10 +908,12 @@ def flash_firmware(
 ):
     """Flash firmware to device (REAL esptool write_flash).
 
-    Set backup_first=true to auto-backup before flashing.
+    A complete 8 MB backup is always taken and validated before flashing.
     """
     if not HAS_PYSERIAL:
         raise HTTPException(500, "pyserial not installed")
+    if not backup_first:
+        raise HTTPException(412, "A complete firmware backup is mandatory before flashing")
 
     fw = Path(firmware_path)
     if not fw.exists():
@@ -863,12 +922,17 @@ def flash_firmware(
     result = {"device": device, "firmware": str(fw), "offset": offset, "backup": None}
 
     # Auto-backup before flash
-    if backup_first:
-        try:
-            backup_result = backup_firmware(device)
-            result["backup"] = backup_result
-        except Exception as e:
-            result["backup_warning"] = str(e)
+    try:
+        backup_result = backup_firmware(device)
+        result["backup"] = backup_result
+    except HTTPException as exc:
+        raise HTTPException(412, f"Firmware backup failed; flash blocked: {exc.detail}") from exc
+    except Exception as exc:
+        raise HTTPException(412, f"Firmware backup failed; flash blocked: {exc}") from exc
+
+    if not _backup_is_valid(backup_result, 8 * 1024 * 1024):
+        detail = backup_result.get("error", "backup was not successful or was incomplete")
+        raise HTTPException(412, f"Firmware backup failed; flash blocked: {detail}")
 
     esptool = get_esptool_cmd()
     try:
@@ -900,6 +964,14 @@ def flash_micropython_files(device: str, source_dir: str):
     src = Path(source_dir)
     if not src.exists() or not src.is_dir():
         raise HTTPException(404, f"Source directory not found: {source_dir}")
+
+    try:
+        backup_result = backup_firmware(device)
+    except HTTPException as exc:
+        raise HTTPException(412, f"Firmware backup failed; file deployment blocked: {exc.detail}") from exc
+    if not _backup_is_valid(backup_result, 8 * 1024 * 1024):
+        detail = backup_result.get("error", "backup was not successful or was incomplete")
+        raise HTTPException(412, f"Firmware backup failed; file deployment blocked: {detail}")
 
     py_files = list(src.glob("*.py")) + list(src.glob("*.json"))
     results = []

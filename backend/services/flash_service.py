@@ -71,7 +71,20 @@ def flash_uf2(bundle_dir: Path, drive: str = "D:") -> Dict[str, Any]:
         return {"success": True, "output": f"Copied to {drive}:"}
     except Exception as e: return {"success": False, "error": str(e)}
 
-def flash_esptool(bundle_dir: Path, port: str = "COM3") -> Dict[str, Any]:
+def _valid_esp_backup(result: Optional[Dict[str, Any]]) -> bool:
+    return any(
+        item.get("type") == "esp32_flash_dump"
+        and item.get("size_bytes") == 8 * 1024 * 1024
+        for item in (result or {}).get("backups", [])
+    )
+
+
+def flash_esptool(bundle_dir: Path, port: str = "COM3", backup_result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if not _valid_esp_backup(backup_result):
+        backup_result = backup_before_flash(f"esp-{port}", port, 8)
+        if not backup_result.get("success") or not _valid_esp_backup(backup_result):
+            return {"success": False, "error": "Flash blocked: complete 8 MB ESP32 backup was not validated", "backup": backup_result}
+
     try:
         for f in ["main.py","npu_config.json"]:
             srcf = bundle_dir / f
@@ -239,11 +252,19 @@ def detect_current_firmware(device_id: str, port: str = "") -> Dict[str, Any]:
     return info
 
 
-def backup_before_flash(device_id: str, port: str = "", flash_size_mb: int = 4) -> Dict[str, Any]:
+def backup_before_flash(device_id: str, port: str = "", flash_size_mb: int = 8) -> Dict[str, Any]:
     """Backup current firmware before flashing the NPU-STACK agent.
 
     Returns the backup path and metadata. Must be called BEFORE writing new firmware.
     """
+    if flash_size_mb != 8:
+        return {
+            "success": False,
+            "error": "ESP32 backups must cover the complete 8 MB flash",
+            "required_size_mb": 8,
+            "requested_size_mb": flash_size_mb,
+        }
+
     backup_dir = DATA_DIR / "firmware_backups" / device_id
     backup_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,17 +275,34 @@ def backup_before_flash(device_id: str, port: str = "", flash_size_mb: int = 4) 
     if port:
         try:
             out = backup_dir / f"{device_id}_backup_{ts}.bin"
-            size_hex = hex(flash_size_mb * 1024 * 1024)
+            size_hex = hex(8 * 1024 * 1024)
+            if out.exists():
+                out.unlink()
             r = subprocess.run(
                 ["esptool.py", "--port", port, "--baud", "460800", "read_flash", "0", size_hex, str(out)],
                 capture_output=True, text=True, timeout=120
             )
-            if r.returncode == 0 and out.exists():
+            expected_size = 8 * 1024 * 1024
+            if r.returncode == 0 and out.exists() and out.stat().st_size == expected_size:
                 results.append({
                     "type": "esp32_flash_dump",
                     "file": str(out),
                     "size_mb": round(out.stat().st_size / (1024 * 1024), 2),
+                    "size_bytes": out.stat().st_size,
                 })
+            elif r.returncode == 0 and out.exists():
+                results.append({
+                    "type": "esp32_flash_dump",
+                    "error": f"Incomplete backup: expected {expected_size} bytes, got {out.stat().st_size}",
+                    "file": str(out),
+                })
+            else:
+                results.append({
+                    "type": "esp32_flash_dump",
+                    "error": (r.stderr or "Backup command failed").strip()[-200:],
+                })
+        except SystemExit as e:
+            results.append({"type": "esp32_flash_dump", "error": f"esptool exited with status {e.code}"})
         except Exception as e:
             results.append({"type": "esp32_flash_dump", "error": str(e)})
 
@@ -290,6 +328,19 @@ def backup_before_flash(device_id: str, port: str = "", flash_size_mb: int = 4) 
                 })
             break
 
+    valid_flash_backup = any(
+        item.get("type") == "esp32_flash_dump"
+        and item.get("size_bytes") == 8 * 1024 * 1024
+        for item in results
+    )
+    if port and not valid_flash_backup:
+        return {
+            "success": False,
+            "error": "Complete 8 MB ESP32 backup was not validated",
+            "backups": results,
+            "backup_dir": str(backup_dir),
+        }
+
     if results:
         manifest = {"device_id": device_id, "backed_up_at": ts, "results": results}
         (backup_dir / f"manifest_{ts}.json").write_text(json.dumps(manifest, indent=2))
@@ -311,10 +362,34 @@ def firmware_flash_workflow(device_id: str, port: str = "", profile_id: str = "c
     detect = detect_current_firmware(device_id, port)
     steps.append({"step": "detect", "result": detect})
 
-    # Step 1: Backup if requested and firmware exists
-    if backup_first and detect.get("detected"):
-        backup = backup_before_flash(device_id, port)
+    is_esp_flash = profile_id == "micropython-esp32"
+
+    # ESP32 writes always require an exact full-flash backup; backup_first is
+    # retained for non-ESP platforms for API compatibility only.
+    if is_esp_flash:
+        if not port:
+            blocked = {"status": "failed", "error": "ESP32 firmware writes require a serial port for the mandatory 8 MB backup"}
+            steps.append({"step": "backup", **blocked})
+            return {"device_id": device_id, "success": False, "steps": steps, "next": blocked["error"]}
+        backup = backup_before_flash(device_id, port, 8)
         steps.append({"step": "backup", "result": backup})
+        if not backup.get("success"):
+            return {
+                "device_id": device_id,
+                "success": False,
+                "steps": steps,
+                "next": "Flash blocked until a complete 8 MB backup succeeds.",
+            }
+    elif backup_first and detect.get("detected"):
+        backup = backup_before_flash(device_id, port, 8)
+        steps.append({"step": "backup", "result": backup})
+        if not backup.get("success"):
+            return {
+                "device_id": device_id,
+                "success": False,
+                "steps": steps,
+                "next": "Check errors above.",
+            }
     else:
         steps.append({"step": "backup", "result": {"skipped": True, "reason": "Not detected or backup disabled"}})
 
@@ -331,7 +406,7 @@ def firmware_flash_workflow(device_id: str, port: str = "", profile_id: str = "c
             drive = detect.get("drive", "D:")
             flash_result = flash_uf2(bundle_dir, drive)
         elif flash_method == "serial":
-            flash_result = flash_esptool(bundle_dir, port or "COM3")
+            flash_result = flash_esptool(bundle_dir, port, backup_result=backup if is_esp_flash else None)
         else:
             flash_result = {"success": False, "error": f"Unsupported flash method: {flash_method}"}
         steps.append({"step": "flash", "result": flash_result})

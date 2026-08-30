@@ -63,7 +63,7 @@ class ESPDetectRequest(BaseModel):
 
 class ESPBackupRequest(BaseModel):
     port: str
-    flash_size_mb: int = 4
+    flash_size_mb: int = 8
     name: str = ""
 
 
@@ -92,6 +92,8 @@ class PrepareFirmwareRequest(BaseModel):
     command_center_url: Optional[str] = None
     agent_port: Optional[int] = 9200
     shared_secret: Optional[str] = None
+    include_audio_enrollment: bool = False
+    audio_endpoint_id: Optional[str] = None
 
 
 class InstallPreparedRequest(BaseModel):
@@ -226,13 +228,19 @@ def detect_device_chip(device_id: str):
 def backup_esp_firmware(req: ESPBackupRequest):
     """
     Read the full flash from an ESP device and save to disk.
-    Device must be in bootloader mode. This can take 30-60s for 4MB.
+    Device must be in bootloader mode. This can take 30-60s for 8MB.
     """
-    return esp_backup_firmware(
+    if req.flash_size_mb != 8:
+        raise HTTPException(422, "ESP32 backups must cover the complete 8 MB flash")
+
+    result = esp_backup_firmware(
         port=req.port,
         flash_size_mb=req.flash_size_mb,
         output_name=req.name,
     )
+    if result.get("status") == "failed":
+        raise HTTPException(412, result.get("error", "Complete 8 MB backup was not validated"))
+    return result
 
 
 @router.post("/esp/flash")
@@ -241,11 +249,15 @@ def flash_esp_firmware(req: ESPFlashRequest):
     Flash a firmware binary to an ESP device.
     Device must be in bootloader mode.
     """
-    return esp_flash_firmware(
+    result = esp_flash_firmware(
         port=req.port,
         firmware_path=req.firmware_path,
         flash_offset=req.flash_offset,
     )
+    if result.get("status") == "failed":
+        status_code = 412 if result.get("backup") else 400
+        raise HTTPException(status_code, result.get("error", "ESP flash failed"))
+    return result
 
 
 # ── RP2040 Operations (BEFORE /{device_id}) ──────────────────────

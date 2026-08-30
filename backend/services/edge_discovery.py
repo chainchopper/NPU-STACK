@@ -23,6 +23,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from backend.services import flash_service
+from .managed_audio import ENROLLMENT_CONTRACT, pairing
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ FIRMWARE_ASSETS_DIR = REPO_ROOT / "firmware"
 
 FIRMWARE_DIR = DATA_DIR / "firmware_backups"
 FIRMWARE_DIR.mkdir(parents=True, exist_ok=True)
+ESP_FULL_FLASH_BYTES = 8 * 1024 * 1024
 
 PREPARED_DIR = DATA_DIR / "firmware_prepared"
 PREPARED_DIR.mkdir(parents=True, exist_ok=True)
@@ -1795,11 +1797,20 @@ def esp_detect_chip(port: str) -> dict:
         return {"error": str(exc), "status": "failed"}
 
 
-def esp_backup_firmware(port: str, flash_size_mb: int = 4, output_name: str = "") -> dict:
+def esp_backup_firmware(port: str, flash_size_mb: int = 8, output_name: str = "") -> dict:
+    if flash_size_mb != 8:
+        return {
+            "error": "ESP32 backups must cover the complete 8 MB flash",
+            "status": "failed",
+            "port": port,
+            "requested_size_mb": flash_size_mb,
+            "required_size_mb": 8,
+        }
+
     try:
         import esptool
     except ImportError:
-        return {"error": "esptool not installed"}
+        return {"error": "esptool not installed", "status": "failed", "port": port}
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     port_clean = port.replace("/", "_").replace("\\", "_").replace(":", "")
@@ -1808,26 +1819,52 @@ def esp_backup_firmware(port: str, flash_size_mb: int = 4, output_name: str = ""
     size_hex = hex(flash_size_mb * 1024 * 1024)
 
     try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
         esptool.main(["--port", port, "--baud", "460800", "read_flash", "0", size_hex, filepath])
         size_bytes = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+        if size_bytes != flash_size_mb * 1024 * 1024:
+            return {
+                "error": f"Incomplete backup: expected {flash_size_mb * 1024 * 1024} bytes, got {size_bytes}",
+                "status": "failed",
+                "port": port,
+                "file": filepath if os.path.exists(filepath) else None,
+                "size_bytes": size_bytes,
+                "expected_size": flash_size_mb * 1024 * 1024,
+            }
         return {
             "status": "success",
             "file": filepath,
             "filename": filename,
             "size_bytes": size_bytes,
+            "expected_size": flash_size_mb * 1024 * 1024,
             "flash_size_mb": flash_size_mb,
             "port": port,
             "backed_up_at": _utcnow_iso(),
         }
     except Exception as exc:
         return {"error": str(exc), "status": "failed", "port": port}
+    except SystemExit as exc:
+        return {"error": f"esptool exited with status {exc.code}", "status": "failed", "port": port}
 
 
 def esp_flash_firmware(port: str, firmware_path: str, flash_offset: str = "0x0") -> dict:
+    backup = esp_backup_firmware(port, flash_size_mb=8)
+    if (
+        backup.get("status") != "success"
+        or backup.get("size_bytes") != ESP_FULL_FLASH_BYTES
+    ):
+        return {
+            "error": "Flash blocked: complete 8 MB firmware backup was not validated",
+            "status": "failed",
+            "port": port,
+            "backup": backup,
+        }
+
     try:
         import esptool
     except ImportError:
-        return {"error": "esptool not installed"}
+        return {"error": "esptool not installed", "status": "failed", "port": port}
 
     if not os.path.exists(firmware_path):
         return {"error": f"Firmware file not found: {firmware_path}"}
@@ -2199,6 +2236,45 @@ def _linux_bundle_files(bundle_dir: Path, device: dict, config: dict):
     )
 
 
+def _write_audio_enrollment_manifest(bundle_dir: Path, device: dict, config: dict) -> dict | None:
+    """Write only a scoped NPU-STACK credential when audio enrollment is opted in."""
+    if not config.get("include_audio_enrollment"):
+        return None
+
+    endpoint_id = str(config.get("audio_endpoint_id") or f"fleet-{device.get('board_id') or device.get('id')}").strip()
+    endpoint_type = "fleet"
+    token, credential = pairing.issue_credential(
+        endpoint_id=endpoint_id,
+        endpoint_type=endpoint_type,
+        capabilities=["speech", "stop"],
+        ttl_seconds=15 * 60,
+    )
+    hub_url = (config.get("command_center_url") or os.getenv("NPU_STACK_COMMAND_CENTER_URL", "")).rstrip("/")
+    manifest = {
+        "contract": ENROLLMENT_CONTRACT,
+        "endpoint_id": endpoint_id,
+        "endpoint_type": endpoint_type,
+        "hub_url": hub_url,
+        "audio_registry_url": f"{hub_url}/api/nirvana/audio" if hub_url else "/api/nirvana/audio",
+        "capabilities": credential["capabilities"],
+        "scope": ["audio:speak", "audio:stop"],
+        "issued_at": credential["created_at"],
+        "expires_at": credential["expires_at"],
+        "auth_token": token,
+    }
+    _write_json_file(bundle_dir / "audio-manifest.json", manifest)
+    return {"contract": ENROLLMENT_CONTRACT, "endpoint_id": endpoint_id, "expires_at": credential["expires_at"]}
+
+
+def _redact_bundle_config(config: dict) -> dict:
+    secret_names = {"wifi_password", "shared_secret", "token", "ha_token", "auth_token", "audio_enrollment_token"}
+    return {
+        key: value
+        for key, value in config.items()
+        if key.lower() not in secret_names and "password" not in key.lower() and "secret" not in key.lower()
+    }
+
+
 def prepare_firmware_bundle(device_id: str, profile_id: Optional[str] = None, config: Optional[dict] = None) -> dict:
     config = config or {}
     registry = load_registry()
@@ -2225,6 +2301,8 @@ def prepare_firmware_bundle(device_id: str, profile_id: Optional[str] = None, co
     else:
         return {"error": f"Unsupported profile '{selected_profile_id}'", "status": "failed"}
 
+    audio_enrollment = _write_audio_enrollment_manifest(bundle_dir, device, config)
+
     archive_path = PREPARED_DIR / f"{bundle_id}.zip"
     _zip_bundle(bundle_dir, archive_path)
 
@@ -2240,7 +2318,8 @@ def prepare_firmware_bundle(device_id: str, profile_id: Optional[str] = None, co
         "download_url": f"/api/devices/prepared/{bundle_id}/download",
         "installable": profile.get("live_install_supported") and device.get("connection") == "usb-mass-storage" and device.get("status") == "mounted",
         "instructions": _read_text_file(bundle_dir / "README.txt").splitlines(),
-        "config": {key: value for key, value in config.items() if value not in (None, "")},
+        "config": _redact_bundle_config({key: value for key, value in config.items() if value not in (None, "")}),
+        "audio_enrollment": audio_enrollment,
     }
     _write_json_file(_bundle_metadata_path(bundle_dir), metadata)
 

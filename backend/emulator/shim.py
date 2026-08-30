@@ -285,6 +285,7 @@ def get_sensors():
 
 def _map_path(path):
     """Map a device /sd/... path onto the host SD directory."""
+    path = os.fspath(path)
     if path == "/sd":
         return SD_ROOT
     if path.startswith("/sd/"):
@@ -595,6 +596,11 @@ class _TimeShim:
         self.time = _time.time
         self.monotonic = _time.monotonic
 
+    def __getattr__(self, name):
+        # stdlib fallback (struct_time, strftime, gmtime, ...) so anything the
+        # MicroPython surface does not override still hits the real module.
+        return getattr(_time, name)
+
     def sleep_ms(self, ms):
         _time.sleep(ms / 1000.0)
 
@@ -899,9 +905,20 @@ def inject_espnow(mac, msg):
 
 # ── Install ─────────────────────────────────────────────────────────
 
+_MISSING = object()
+_install_state = None
+
+# os attributes the shim patches or adds; snapshotted on first install so
+# uninstall() can restore the host process exactly.
+_OS_PATCHED_ATTRS = (
+    "uname", "mount", "umount", "listdir", "stat", "remove",
+    "rmdir", "mkdir", "rename", "ilistdir", "statvfs",
+)
+
+
 def install(frame_sink=None):
     """Install all shim modules into sys.modules."""
-    global _frame_sink
+    global _frame_sink, _install_state
     _frame_sink = frame_sink
 
     display = _DisplayModule()
@@ -920,6 +937,12 @@ def install(frame_sink=None):
         "bluetooth": _BluetoothModule(),
         "espnow": _EspNowModule(),
     }
+    if _install_state is None:
+        _install_state = {
+            "modules": {name: sys.modules.get(name, _MISSING) for name in shims},
+            "os_orig": {a: getattr(os, a) for a in _OS_PATCHED_ATTRS if hasattr(os, a)},
+            "open": builtins.open,
+        }
     for name, mod in shims.items():
         sys.modules[name] = mod
 
@@ -994,3 +1017,23 @@ def install(frame_sink=None):
     _SD_OPEN = _orig_open  # keep the real open for internal host-file use
 
     return display
+
+
+def uninstall():
+    """Undo install(): restore sys.modules, os, and builtins.open."""
+    global _install_state
+    state = _install_state
+    if state is None:
+        return
+    _install_state = None
+    for name, orig in state["modules"].items():
+        if orig is _MISSING:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = orig
+    for attr in _OS_PATCHED_ATTRS:
+        if attr in state["os_orig"]:
+            setattr(os, attr, state["os_orig"][attr])
+        elif hasattr(os, attr):
+            delattr(os, attr)
+    builtins.open = state["open"]
