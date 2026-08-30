@@ -39,6 +39,19 @@ if (!navigator.clipboard) {
     });
 }
 
+if (!window.localStorage) {
+    const values = new Map();
+    Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        value: {
+            clear: () => values.clear(),
+            getItem: (key) => values.get(key) || null,
+            setItem: (key, value) => values.set(key, String(value)),
+            removeItem: (key) => values.delete(key),
+        },
+    });
+}
+
 if (!window.HTMLElement.prototype.scrollIntoView) {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
 }

@@ -67,6 +67,7 @@ function jsonResponse(data, ok = true) {
         ok,
         status: ok ? 200 : 500,
         json: async () => data,
+        text: async () => JSON.stringify(data),
     });
 }
 
@@ -87,6 +88,15 @@ describe('Frontend page smoke coverage', () => {
         vi.clearAllMocks();
         localStorage.clear();
         fetch.mockReset();
+        fetch.mockResolvedValue({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            json: async () => ({}),
+            text: async () => '',
+        });
+        getStatus.mockResolvedValue({ models: 0, training_jobs: 0, running_jobs: 0, benchmarks: 0 });
+        getSystemInfo.mockResolvedValue(null);
         localStorage.setItem('npu-wizard-dismissed', 'true');
         HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
             canvas: {},

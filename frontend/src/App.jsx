@@ -1,7 +1,8 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, MessageSquare, ChevronDown, ChevronRight, Antenna, Smartphone } from 'lucide-react';
+import { LayoutDashboard, Box, GraduationCap, ArrowRightLeft, Gauge, Menu, X, Globe, Database, Server, Wrench, FolderSearch, Camera, Upload, Cpu, CloudUpload, Zap, MonitorSmartphone, Radio, FlaskConical, Sun, Moon, Microscope, Bot, Sparkles, BookOpen, SearchCheck, MessageSquare, ChevronDown, ChevronRight, Antenna, Smartphone, Volume2 } from 'lucide-react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { AgentRuntimeProvider } from './context/AgentRuntimeContext';
 import { API_BASE } from './api/client';
 const CompactAgentOverlay = lazy(() => import('./components/CompactAgentOverlay'));
 
@@ -39,6 +40,7 @@ const BoardDetail = lazy(() => import('./pages/BoardDetail'));
 const EspNowDeploy = lazy(() => import('./pages/EspNowDeploy'));
 const EspDevConsole = lazy(() => import('./pages/EspDevConsole'));
 const DevicePlayground = lazy(() => import('./pages/DevicePlayground'));
+const AudioOutput = lazy(() => import('./pages/AudioOutput'));
 
 const managementItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -64,6 +66,7 @@ const managementItems = [
 const nirvanaItems = [
     { path: '/nirvana-chat', icon: MessageSquare, label: 'Chat' },
     { path: '/agents', icon: Bot, label: 'Agents' },
+    { path: '/audio-output', icon: Volume2, label: 'Audio Output' },
     { path: '/orchestration', icon: Microscope, label: 'Orchestration' },
     { path: '/autoresearch', icon: SearchCheck, label: 'AutoResearch' },
     { path: '/documentation', icon: BookOpen, label: 'Documentation' },
@@ -246,6 +249,7 @@ function AppInner() {
                             <Route path="/chat-playground" element={<ChatPlayground />} />
                             <Route path="/orchestration" element={<Orchestration />} />
                             <Route path="/agents" element={<Agents />} />
+                            <Route path="/audio-output" element={<AudioOutput />} />
                             <Route path="/autoresearch" element={<AutoResearch />} />
                             <Route path="/documentation" element={<Documentation />} />
                             <Route path="/models" element={<Models />} />
@@ -297,7 +301,9 @@ function AppInner() {
 export default function App() {
     return (
         <ThemeProvider>
-            <AppInner />
+            <AgentRuntimeProvider>
+                <AppInner />
+            </AgentRuntimeProvider>
         </ThemeProvider>
     );
 }

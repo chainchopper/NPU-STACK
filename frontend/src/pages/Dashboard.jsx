@@ -559,7 +559,7 @@ function FastFlowLMCard({ sysInfo }) {
                             <Zap size={14} /> Open FastFlowLM
                         </a>
                         <a
-                            href="https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe"
+                            href="https://github.com/ROCm/FastFlowLM/releases/latest/download/flm-setup.msi"
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{

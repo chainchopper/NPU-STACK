@@ -58,6 +58,7 @@ NATIVE_PREFIXES: tuple[str, ...] = (
     "/api/openapi.json",
     "/api/health",
     "/api/status",
+    "/api/v1/sentinel",
     "/v1",
     "/ws",
 )

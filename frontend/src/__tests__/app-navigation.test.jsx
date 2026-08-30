@@ -19,6 +19,7 @@ vi.mock('../pages/GGUFStudio', () => ({ default: () => <div>GGUF Studio Page</di
 vi.mock('../pages/HubPublisher', () => ({ default: () => <div>HF Publisher Page</div> }));
 vi.mock('../pages/FastFlowLM', () => ({ default: () => <div>FastFlowLM Page</div> }));
 vi.mock('../pages/EdgeFleet', () => ({ default: () => <div>Edge Fleet Page</div> }));
+vi.mock('../pages/AudioOutput', () => ({ default: () => <div>Audio Output Page</div> }));
 
 import App from '../App';
 
@@ -38,5 +39,8 @@ describe('App navigation smoke', () => {
 
         await user.click(screen.getByRole('link', { name: /edge fleet/i }));
         expect(await screen.findByText('Edge Fleet Page')).toBeInTheDocument();
+
+        await user.click(screen.getByRole('link', { name: /audio output/i }));
+        expect(await screen.findByText('Audio Output Page')).toBeInTheDocument();
     });
 });

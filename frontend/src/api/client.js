@@ -408,11 +408,11 @@ export async function listFLMModels() {
     };
 }
 
-export async function pullFLMModel(tag, onProgress) {
+export async function pullFLMModel(tag, onProgress, force = false) {
     const res = await fetch(`${API_BASE}/flm/pull`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag }),
+        body: JSON.stringify({ tag, force }),
     });
 
     if (!res.ok) throw new Error('Pull failed');
@@ -617,7 +617,7 @@ export async function detectDeviceChip(deviceId) {
     });
 }
 
-export async function espBackup(port, flashSizeMb = 4) {
+export async function espBackup(port, flashSizeMb = 8) {
     return request('/devices/esp/backup', {
         method: 'POST',
         body: JSON.stringify({ port, flash_size_mb: flashSizeMb }),
@@ -713,6 +713,69 @@ export async function autoAddMcpServers(payload = {}) {
     return request('/orchestration/mcp/auto-add', {
         method: 'POST',
         body: JSON.stringify(payload),
+    });
+}
+
+// ─── Universal Agent Runtimes ─────────────────────────
+export async function listAgentRuntimes({ probe = false } = {}) {
+    const query = probe ? '?probe=true' : '';
+    return request(`/agent-runtimes${query}`);
+}
+
+export async function discoverAgentRuntimes({ probe = true } = {}) {
+    return request('/agent-runtimes/discover', {
+        method: 'POST',
+        body: JSON.stringify({ probe }),
+    });
+}
+
+export async function getAgentRuntime(runtimeId, { probe = false } = {}) {
+    const query = probe ? '?probe=true' : '';
+    return request(`/agent-runtimes/${encodeURIComponent(runtimeId)}${query}`);
+}
+
+export async function probeAgentRuntime(runtimeId) {
+    return request(`/agent-runtimes/${encodeURIComponent(runtimeId)}/probe`, {
+        method: 'POST',
+    });
+}
+
+export async function getAgentRuntimeCapabilities(runtimeId) {
+    return request(`/agent-runtimes/${encodeURIComponent(runtimeId)}/capabilities`);
+}
+
+export async function getAgentRuntimeAvailability(runtimeId, capability) {
+    return request(`/agent-runtimes/${encodeURIComponent(runtimeId)}/availability/${encodeURIComponent(capability)}`);
+}
+
+export async function registerAgentRuntime(payload) {
+    return request('/agent-runtimes/register', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateAgentRuntime(runtimeId, payload) {
+    return request(`/agent-runtimes/${encodeURIComponent(runtimeId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteAgentRuntime(runtimeId) {
+    return request(`/agent-runtimes/${encodeURIComponent(runtimeId)}`, {
+        method: 'DELETE',
+    });
+}
+
+export async function getCurrentAgentRuntimeSelection() {
+    return request('/agent-runtimes/selection/current');
+}
+
+export async function selectAgentRuntime(runtimeId, allowUnready = true) {
+    return request('/agent-runtimes/selection', {
+        method: 'PUT',
+        body: JSON.stringify({ runtime_id: runtimeId, allow_unready: allowUnready }),
     });
 }
 
@@ -812,6 +875,106 @@ export async function chatWithNirvana(payload) {
     return chatWithAgent(payload);
 }
 
+// ─── Nirvana Remote Audio ────────────────────────────
+export async function listAudioEndpoints({ online, endpointType } = {}) {
+    const params = new URLSearchParams();
+    if (online != null) params.set('online', String(online));
+    if (endpointType) params.set('endpoint_type', endpointType);
+    const query = params.toString();
+    return request(`/nirvana/audio/endpoints${query ? `?${query}` : ''}`);
+}
+
+export async function listAudioGroups() {
+    return request('/nirvana/audio/groups');
+}
+
+export async function listManagedAudioProfiles() {
+    return request('/nirvana/audio/home-assistant/profiles');
+}
+
+export async function createManagedAudioProfile(payload) {
+    return request('/nirvana/audio/home-assistant/profiles', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateManagedAudioProfile(profileId, payload) {
+    return request(`/nirvana/audio/home-assistant/profiles/${encodeURIComponent(profileId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteManagedAudioProfile(profileId) {
+    return request(`/nirvana/audio/home-assistant/profiles/${encodeURIComponent(profileId)}`, { method: 'DELETE' });
+}
+
+export async function listManagedAudioEntities(profileId) {
+    return request(`/nirvana/audio/home-assistant/profiles/${encodeURIComponent(profileId)}/entities`);
+}
+
+export async function testManagedAudioProfile(profileId, payload) {
+    return request(`/nirvana/audio/home-assistant/profiles/${encodeURIComponent(profileId)}/test`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function createAudioPairingChallenge(payload = {}) {
+    return request('/nirvana/audio/pairing/challenge', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function claimAudioPairing(payload) {
+    return request('/nirvana/audio/pairing/claim', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function revokeAudioPairing(endpointId) {
+    return request(`/nirvana/audio/pairing/${encodeURIComponent(endpointId)}/revoke`, { method: 'POST' });
+}
+
+export async function createAudioGroup(payload) {
+    return request('/nirvana/audio/groups', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function updateAudioGroup(groupId, payload) {
+    return request(`/nirvana/audio/groups/${encodeURIComponent(groupId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function deleteAudioGroup(groupId) {
+    return request(`/nirvana/audio/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+}
+
+export async function routeAudio(payload) {
+    return request('/nirvana/audio/speak', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function stopAudio(payload) {
+    return request('/nirvana/audio/stop', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+export function audioWebsocketUrl() {
+    return websocketUrl('/api/nirvana/audio/ws');
+}
+
 // ─── Docs Index (Unified Compatibility Docs) ─────────
 export async function getDocsIndexStatus() {
     return request('/docs-index/status');
@@ -885,7 +1048,7 @@ export async function detectDeviceFirmware(deviceId, port = '') {
     });
 }
 
-export async function backupDeviceFirmware(deviceId, port = '', flashSizeMb = 4) {
+export async function backupDeviceFirmware(deviceId, port = '', flashSizeMb = 8) {
     return request(`/fleet/command/device/${deviceId}/firmware/backup`, {
         method: 'POST',
         body: JSON.stringify({ port, flash_size_mb: flashSizeMb }),
