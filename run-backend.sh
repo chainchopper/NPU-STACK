@@ -20,4 +20,6 @@ fi
 
 cd "$SCRIPT_DIR"
 export NPU_STACK_BACKEND_PORT="$BACKEND_PORT"
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
 python -m uvicorn backend.main:app --host 127.0.0.1 --port "$BACKEND_PORT"

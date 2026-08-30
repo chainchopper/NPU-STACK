@@ -11,10 +11,10 @@ if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 echo  ============================================
 echo    NPU-STACK  ^|  Neural Processor Toolkit
 echo    Backend:  http://localhost:!BACKEND_PORT!
-echo    Frontend: http://localhost:5173
+echo    Frontend: http://localhost:5180
 echo    Nirvana:  http://localhost:8789
 echo    API Docs: http://localhost:!BACKEND_PORT!/api/docs
-echo    App Docs: http://localhost:5173/documentation
+echo    App Docs: http://localhost:5180/documentation
 echo    GitBook:  http://localhost:3001
 echo  ============================================
 echo.
@@ -34,12 +34,13 @@ if not exist "!ROOT!\frontend\node_modules" (
     cd /d "!ROOT!"
 )
 
-:: Start Backend in new window
-:: Note: call the activate script by full path, then cd to backend by full path
-start "NPU-STACK Backend" cmd /k ^
-set NPU_STACK_BACKEND_PORT=!BACKEND_PORT! ^& call "!ROOT!\.venv\Scripts\activate.bat" ^& cd /d "!ROOT!" ^& python -m uvicorn backend.main:app --host 127.0.0.1 --port !BACKEND_PORT!
+:: Start the supported root-based backend launcher in a new window.
+set "NPU_STACK_BACKEND_PORT=!BACKEND_PORT!"
+start "NPU-STACK Backend" "%ComSpec%" /d /k ""!ROOT!\run-backend.bat""
 
-timeout /t 3 /nobreak >nul
+:: Report the real readiness result instead of assuming a fixed startup delay.
+call :wait_for_backend
+if errorlevel 1 echo [WARN] Backend is not ready; inspect the NPU-STACK Backend window for the startup exception.
 
 :: Start shared GitBook host when Docker is available
 where docker >nul 2>nul
@@ -53,8 +54,7 @@ if not errorlevel 1 (
 timeout /t 2 /nobreak >nul
 
 :: Start Frontend in new window
-start "NPU-STACK Frontend" cmd /k ^
-cd /d "!ROOT!\frontend" ^& npm run dev
+start "NPU-STACK Frontend" "%ComSpec%" /d /k ""!ROOT!\run-frontend.bat""
 
 timeout /t 2 /nobreak >nul
 
@@ -69,3 +69,15 @@ echo   Both services launched in separate windows.
 echo   Close those windows to stop the services.
 echo.
 pause
+exit /b 0
+
+:wait_for_backend
+for /l %%N in (1,1,20) do (
+    curl.exe --fail --silent --max-time 2 "http://127.0.0.1:!BACKEND_PORT!/api/health" >nul 2>nul
+    if not errorlevel 1 (
+        echo   [OK] Backend ready at http://127.0.0.1:!BACKEND_PORT!
+        exit /b 0
+    )
+    timeout /t 1 /nobreak >nul
+)
+exit /b 1

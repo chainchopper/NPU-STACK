@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Starting NPU-STACK Frontend..."
-echo "UI: http://localhost:5173"
+echo "UI: http://localhost:5180"
 echo "Press Ctrl+C to stop."
 echo ""
 

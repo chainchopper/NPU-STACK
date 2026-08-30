@@ -40,6 +40,23 @@ make BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT
 # flash build-ESP32_GENERIC_S3-SPIRAM_OCT/firmware.bin at 0x0 with esptool
 ```
 
+Before any erase or firmware write, take a complete flash backup while the
+board is in download mode. The repository deployment helper enforces this
+check and refuses to continue if the backup cannot be read or is incomplete.
+The XIAO Sense has 8 MB flash, so do not use a 4 MB backup for this board.
+
+The repository also contains `firmware/micropython-esp32/XIAO-Sense-OV2640-wifi-ble-20230717.bin`.
+Static inspection identifies it as a Seeed XIAO OV2640 MicroPython image with
+the native `camera` module, but camera capture has not yet been verified on
+the connected board. Select it explicitly with
+`scripts/flash_nirvana_os.py --firmware ...` only after the mandatory complete
+backup and authorization for the firmware write.
+
+Application-only updates can use the running MicroPython connection and do not
+need download-mode access. Keep the existing device configuration when using
+that path; do not overwrite `config.json` unless the configuration change is
+intentional.
+
 ## Optional (same build)
 
 - **PDM-RX** (onboard mic): apply micropython PR #14176 before building.

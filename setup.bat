@@ -248,8 +248,8 @@ if exist "%ENV_FILE%" (
     >> "%ENV_FILE%" echo.
     >> "%ENV_FILE%" echo # --- Server ---
     >> "%ENV_FILE%" echo BACKEND_HOST=0.0.0.0
-    >> "%ENV_FILE%" echo BACKEND_PORT=8000
-    >> "%ENV_FILE%" echo FRONTEND_PORT=3000
+    >> "%ENV_FILE%" echo BACKEND_PORT=8010
+    >> "%ENV_FILE%" echo FRONTEND_PORT=5180
     >> "%ENV_FILE%" echo.
     >> "%ENV_FILE%" echo # --- Database ---
     >> "%ENV_FILE%" echo DATABASE_URL=sqlite:///data/npu_stack.db
@@ -273,7 +273,7 @@ if exist "%ENV_FILE%" (
     >> "%ENV_FILE%" echo NPU_DEVICE_NAME=NPU
     >> "%ENV_FILE%" echo.
     >> "%ENV_FILE%" echo # --- CORS ---
-    >> "%ENV_FILE%" echo CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000
+    >> "%ENV_FILE%" echo CORS_ORIGINS=http://localhost:5180,http://localhost:3000,http://127.0.0.1:5180,http://127.0.0.1:3000
     >> "%ENV_FILE%" echo.
     >> "%ENV_FILE%" echo # --- Logging ---
     >> "%ENV_FILE%" echo LOG_LEVEL=INFO
@@ -312,19 +312,26 @@ if exist "%ROOT%\run-backend.bat" (
 > "%ROOT%\run-backend.bat" echo @echo off
 >> "%ROOT%\run-backend.bat" echo setlocal EnableDelayedExpansion
 >> "%ROOT%\run-backend.bat" echo title NPU-STACK Backend
+>> "%ROOT%\run-backend.bat" echo if not defined NPU_STACK_BACKEND_PORT set "NPU_STACK_BACKEND_PORT=8010"
+>> "%ROOT%\run-backend.bat" echo set "BACKEND_PORT=!NPU_STACK_BACKEND_PORT!"
 >> "%ROOT%\run-backend.bat" echo set "ROOT=%%~dp0"
 >> "%ROOT%\run-backend.bat" echo if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 >> "%ROOT%\run-backend.bat" echo echo   Starting NPU-STACK Backend...
->> "%ROOT%\run-backend.bat" echo echo   API:  http://localhost:8000
->> "%ROOT%\run-backend.bat" echo echo   Docs: http://localhost:8000/docs
+>> "%ROOT%\run-backend.bat" echo echo   API:  http://localhost:!BACKEND_PORT!
+>> "%ROOT%\run-backend.bat" echo echo   Docs: http://localhost:!BACKEND_PORT!/api/docs
 >> "%ROOT%\run-backend.bat" echo echo   Press Ctrl+C to stop.
 >> "%ROOT%\run-backend.bat" echo echo.
->> "%ROOT%\run-backend.bat" echo if not exist "!ROOT!\.venv\Scripts\activate.bat" (echo [ERROR] .venv not found. Please run setup.bat first. ^& pause ^& exit /b 1)
+>> "%ROOT%\run-backend.bat" echo if not exist "!ROOT!\.venv\Scripts\python.exe" (echo [ERROR] .venv Python not found. Please run setup.bat first. ^& pause ^& exit /b 1)
 >> "%ROOT%\run-backend.bat" echo if exist "!ROOT!\llama.cpp\llama.dll" set "PATH=!ROOT!\llama.cpp;!PATH!"
->> "%ROOT%\run-backend.bat" echo call "!ROOT!\.venv\Scripts\activate.bat"
->> "%ROOT%\run-backend.bat" echo cd /d "!ROOT!\backend"
->> "%ROOT%\run-backend.bat" echo python main.py
+>> "%ROOT%\run-backend.bat" echo cd /d "!ROOT!"
+>> "%ROOT%\run-backend.bat" echo set "NPU_STACK_BACKEND_PORT=!BACKEND_PORT!"
+>> "%ROOT%\run-backend.bat" echo set "PYTHONIOENCODING=utf-8"
+>> "%ROOT%\run-backend.bat" echo set "PYTHONUTF8=1"
+>> "%ROOT%\run-backend.bat" echo "!ROOT!\.venv\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port !BACKEND_PORT!
+>> "%ROOT%\run-backend.bat" echo set "EXIT_CODE=!ERRORLEVEL!"
+>> "%ROOT%\run-backend.bat" echo if not "!EXIT_CODE!"=="0" echo [ERROR] Backend exited with code !EXIT_CODE!.
 >> "%ROOT%\run-backend.bat" echo pause
+>> "%ROOT%\run-backend.bat" echo exit /b !EXIT_CODE!
     echo   [OK] Created run-backend.bat
 )
 
@@ -338,7 +345,7 @@ if exist "%ROOT%\run-frontend.bat" (
 >> "%ROOT%\run-frontend.bat" echo set "ROOT=%%~dp0"
 >> "%ROOT%\run-frontend.bat" echo if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 >> "%ROOT%\run-frontend.bat" echo echo   Starting NPU-STACK Frontend...
->> "%ROOT%\run-frontend.bat" echo echo   UI: http://localhost:5173
+>> "%ROOT%\run-frontend.bat" echo echo   UI: http://localhost:5180
 >> "%ROOT%\run-frontend.bat" echo echo   Press Ctrl+C to stop.
 >> "%ROOT%\run-frontend.bat" echo echo.
 >> "%ROOT%\run-frontend.bat" echo if not exist "!ROOT!\frontend\node_modules" (
@@ -364,14 +371,14 @@ if exist "%ROOT%\run-all.bat" (
 >> "%ROOT%\run-all.bat" echo if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 >> "%ROOT%\run-all.bat" echo echo  ============================================
 >> "%ROOT%\run-all.bat" echo echo    NPU-STACK  ^|  Neural Processor Toolkit
->> "%ROOT%\run-all.bat" echo echo    Backend:  http://localhost:8000
->> "%ROOT%\run-all.bat" echo echo    Frontend: http://localhost:5173
->> "%ROOT%\run-all.bat" echo echo    API Docs: http://localhost:8000/docs
+>> "%ROOT%\run-all.bat" echo echo    Backend:  http://localhost:8010
+>> "%ROOT%\run-all.bat" echo echo    Frontend: http://localhost:5180
+>> "%ROOT%\run-all.bat" echo echo    API Docs: http://localhost:8010/api/docs
 >> "%ROOT%\run-all.bat" echo echo  ============================================
 >> "%ROOT%\run-all.bat" echo echo.
 >> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\.venv\Scripts\activate.bat" (echo [ERROR] .venv not found. Please run setup.bat first. ^& pause ^& exit /b 1)
 >> "%ROOT%\run-all.bat" echo if not exist "!ROOT!\frontend\node_modules" (cd /d "!ROOT!\frontend" ^& call npm install ^& cd /d "!ROOT!")
->> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k call "!ROOT!\.venv\Scripts\activate.bat" ^^^& cd /d "!ROOT!\backend" ^^^& python main.py
+>> "%ROOT%\run-all.bat" echo start "NPU-STACK Backend" cmd /k call "!ROOT!\run-backend.bat"
 >> "%ROOT%\run-all.bat" echo timeout /t 3 /nobreak ^>nul
 >> "%ROOT%\run-all.bat" echo start "NPU-STACK Frontend" cmd /k cd /d "!ROOT!\frontend" ^^^& npm run dev
 >> "%ROOT%\run-all.bat" echo echo.

@@ -6,7 +6,7 @@ set "ROOT=%~dp0"
 if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 
 echo   Starting NPU-STACK Frontend...
-echo   UI: http://localhost:5173
+echo   UI: http://localhost:5180
 echo   Press Ctrl+C to stop.
 echo.
 

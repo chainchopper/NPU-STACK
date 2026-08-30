@@ -147,8 +147,8 @@ else
 
 # --- Server ---
 BACKEND_HOST=0.0.0.0
-BACKEND_PORT=8000
-FRONTEND_PORT=3000
+BACKEND_PORT=8010
+FRONTEND_PORT=5180
 
 # --- Database ---
 DATABASE_URL=sqlite:///data/npu_stack.db
@@ -172,7 +172,7 @@ OPENVINO_LOG_LEVEL=WARNING
 NPU_DEVICE_NAME=NPU
 
 # --- CORS ---
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000
+CORS_ORIGINS=http://localhost:5180,http://localhost:3000,http://127.0.0.1:5180,http://127.0.0.1:3000
 
 # --- Logging ---
 LOG_LEVEL=INFO
