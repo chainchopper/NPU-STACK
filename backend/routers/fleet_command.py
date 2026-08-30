@@ -239,7 +239,12 @@ async def detect_device_firmware(device_id: str, port: str = ""):
     return detect_current_firmware(device_id, port)
 
 @router.post("/device/{device_id}/firmware/backup")
-async def backup_device_firmware(device_id: str, port: str = "", flash_size_mb: int = 4):
+async def backup_device_firmware(device_id: str, port: str = "", flash_size_mb: int = 8):
     """Backup current firmware from a device without flashing."""
     from services.flash_service import backup_before_flash
-    return backup_before_flash(device_id, port, flash_size_mb)
+    if flash_size_mb != 8:
+        raise HTTPException(422, "ESP32 backups must cover the complete 8 MB flash")
+    result = backup_before_flash(device_id, port, 8)
+    if port and not result.get("success"):
+        raise HTTPException(412, result.get("error", "Complete 8 MB backup was not validated"))
+    return result

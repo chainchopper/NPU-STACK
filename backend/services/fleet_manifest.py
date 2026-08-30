@@ -37,7 +37,7 @@ PLATFORMS = {
         "backup": {
             "tool": "esptool",
             "method": "read_flash",
-            "args": ["0", "4MB"],
+            "args": ["0", "8MB"],
         },
         "deploy": {
             "tool": "mpremote",
@@ -74,7 +74,7 @@ PLATFORMS = {
             "firmware_file": "ESP32_GENERIC_S3.bin",
             "offset": "0x0",
         },
-        "backup": {"tool": "esptool", "method": "read_flash", "args": ["0", "16MB"]},
+        "backup": {"tool": "esptool", "method": "read_flash", "args": ["0", "8MB"]},
         "deploy": {"tool": "mpremote", "method": "fs_cp", "args_template": "cp {src} :{target}"},
         "hardware": {"neopixel_count": 25, "neopixel_pin": 21, "flash_mb": 16, "psram_mb": 8},
     },
@@ -120,7 +120,7 @@ PLATFORMS = {
             "firmware_file": "ESP32_GENERIC_S3.bin",
             "offset": "0x0",
         },
-        "backup": {"tool": "esptool", "method": "read_flash", "args": ["0", "16MB"]},
+        "backup": {"tool": "esptool", "method": "read_flash", "args": ["0", "8MB"]},
         "deploy": {"tool": "mpremote", "method": "fs_cp", "args_template": "cp {src} :{target}"},
         "hardware": {"camera": "OV2640/OV3660", "display": "ST7789 240x240", "mic": True, "speaker": "I2S MAX98357"},
     },
@@ -295,16 +295,17 @@ def backup_device(device_id: str, platform: str, port: str = "", ip: str = "", d
         backup_file = backup_dir / "firmware_backup.bin"
         try:
             r = subprocess.run(
-                [sys.executable, "-m", "esptool", "--port", port, "read-flash", "0", "4MB", str(backup_file)],
+                [sys.executable, "-m", "esptool", "--port", port, "read-flash", "0", "8MB", str(backup_file)],
                 capture_output=True, text=True, timeout=120,
             )
-            if r.returncode == 0 and backup_file.exists():
+            if r.returncode == 0 and backup_file.exists() and backup_file.stat().st_size == 8 * 1024 * 1024:
                 # Also try to pull files if MicroPython is running
                 _try_mpremote_pull(port, backup_dir)
                 return {
                     "success": True,
                     "backup_path": str(backup_dir),
                     "backup_size_kb": round(backup_file.stat().st_size / 1024, 1),
+                    "backup_size_bytes": backup_file.stat().st_size,
                     "files": [f.name for f in backup_dir.iterdir()],
                 }
             return {"success": False, "error": r.stderr.strip()[-200:]}

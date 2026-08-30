@@ -66,6 +66,7 @@ function buildProvisioningDefaults() {
         mqtt_broker: typeof window !== 'undefined' ? window.location.hostname : '',
         command_center_url: inferBackendOrigin(),
         agent_port: 9200,
+        include_audio_enrollment: false,
     };
 }
 
@@ -372,6 +373,7 @@ export default function EdgeFleet() {
                 ...provisioningConfig,
                 profile_id: selectedProfile,
                 device_name: device.nickname || device.chip || device.id,
+                include_audio_enrollment: provisioningConfig.include_audio_enrollment,
             });
             setBundleSelectionByDevice((prev) => ({ ...prev, [device.id]: result.bundle_id }));
             addLog(`Prepared ${result.profile_name} bundle for ${device.nickname || device.chip || device.id}`);
@@ -421,7 +423,7 @@ export default function EdgeFleet() {
     const handleEspBackup = async (device) => {
         addLog(`Backing up firmware from ${device.port} (may take 30-60s)...`);
         try {
-            const data = await espBackup(device.port, device.flash_mb || 4);
+            const data = await espBackup(device.port, 8);
             addLog(data.error ? `Error: ${data.error}` : `✓ Backup saved: ${data.filename}`);
             fetchBackups();
         } catch (error) {
@@ -965,6 +967,14 @@ export default function EdgeFleet() {
                 <div style={{ marginTop: 10, color: 'var(--text-muted)', fontSize: 12 }}>
                     These values are injected when you prepare device bundles for ESP32, CircuitPython, and Linux edge targets.
                 </div>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, fontSize: 12 }}>
+                    <input
+                        type="checkbox"
+                        checked={provisioningConfig.include_audio_enrollment}
+                        onChange={(event) => setProvisioningConfig((prev) => ({ ...prev, include_audio_enrollment: event.target.checked }))}
+                    />
+                    Include one-time NPU-STACK audio enrollment (never exports the Home Assistant token)
+                </label>
             </div>
 
             {filtered.length === 0 ? (

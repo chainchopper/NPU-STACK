@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -25,6 +26,8 @@ BUNDLED_IDF_DIR = REPO_ROOT / "libraries" / "esp-idf"
 ESPRESSIF_DIR = Path.home() / ".espressif"
 ESP_IDF_JSON = ESPRESSIF_DIR / "esp_idf.json"
 IDF_PROJECTS_DIR = REPO_ROOT / "firmware" / "esp-idf-projects"
+ESP_FULL_FLASH_BYTES = 8 * 1024 * 1024
+SUPPORTED_IDF_FLASH_SIZE_MB = frozenset({2, 4, 8, 16, 32})
 
 
 # ── Detection ─────────────────────────────────────────────────────────────
@@ -248,11 +251,70 @@ def idf_build(
         return {"success": False, "error": str(e)}
 
 
+def backup_before_idf_flash(port: str, flash_size_mb: int = 8) -> Dict[str, Any]:
+    """Create and validate the mandatory full-flash backup for IDF writes."""
+    if not str(port or "").strip():
+        return {"success": False, "error": "ESP32 firmware writes require a serial port for the mandatory full-flash backup"}
+    if flash_size_mb not in SUPPORTED_IDF_FLASH_SIZE_MB:
+        supported = ", ".join(str(size) for size in sorted(SUPPORTED_IDF_FLASH_SIZE_MB))
+        return {"success": False, "error": f"Unsupported ESP flash size {flash_size_mb} MB; choose one of: {supported}"}
+
+    expected_size = flash_size_mb * 1024 * 1024
+
+    backup_dir = REPO_ROOT / "backend" / "data" / "firmware_backups" / "idf"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    safe_port = re.sub(r"[^A-Za-z0-9_.-]+", "_", port)
+    backup_path = backup_dir / f"{safe_port}-{flash_size_mb}MB-{time.strftime('%Y%m%d-%H%M%S')}-backup.bin"
+
+    try:
+        if backup_path.exists():
+            backup_path.unlink()
+        result = subprocess.run(
+            get_esptool_cmd() + [
+                "--port", port, "--baud", "460800", "read_flash", "0",
+                hex(expected_size), str(backup_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        backup_size = backup_path.stat().st_size if backup_path.exists() else 0
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "error": (result.stderr or "Backup command failed").strip(),
+                "expected_size": expected_size,
+                "backup_path": None,
+            }
+        if backup_size != expected_size:
+            return {
+                "success": False,
+                "error": f"Incomplete backup: expected {expected_size} bytes, got {backup_size}",
+                "expected_size": expected_size,
+                "backup_size": backup_size,
+                "backup_path": None,
+            }
+        return {
+            "success": True,
+            "backup_path": str(backup_path),
+            "backup_size": backup_size,
+            "expected_size": expected_size,
+            "output": (result.stdout or "").strip(),
+        }
+    except FileNotFoundError:
+        return {"success": False, "error": "esptool not found", "backup_path": None}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"Backup timed out for {port}", "backup_path": None}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "backup_path": None}
+
+
 def idf_flash(
     project_path: str,
     port: str,
     target: str = "esp32",
     baud: str = "921600",
+    flash_size_mb: int = 8,
 ) -> Dict[str, Any]:
     """Flash a built IDF project to device."""
     info = detect_idf_installation()
@@ -262,6 +324,21 @@ def idf_flash(
     proj = Path(project_path)
     if not proj.exists():
         return {"success": False, "error": f"Project not found: {project_path}"}
+
+    try:
+        backup = backup_before_idf_flash(port, flash_size_mb=flash_size_mb)
+    except Exception as exc:
+        backup = {"success": False, "error": str(exc), "backup_path": None}
+    if not backup.get("success"):
+        return {
+            "success": False,
+            "phase": "backup",
+            "project": str(proj),
+            "port": port,
+            "target": target,
+            "backup": backup,
+            "error": f"Flash blocked: {backup.get('error', 'complete full-flash backup was not validated')}",
+        }
 
     env = get_idf_env()
     idf_py_path = Path(info["active_path"]) / "tools" / "idf.py"
@@ -281,6 +358,7 @@ def idf_flash(
             "project": str(proj),
             "port": port,
             "target": target,
+            "backup": backup,
             "output": r.stdout.strip()[-3000:] if r.stdout else "",
             "error": r.stderr.strip()[-1000:] if r.stderr else None,
         }

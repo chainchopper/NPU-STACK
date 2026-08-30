@@ -861,21 +861,32 @@ def _execute_firmware(device: dict[str, Any], action_params: dict[str, Any]) -> 
     steps: list[dict[str, Any]] = []
     device_id = device["id"]
     firmware_path = action_params.get("firmware_path")
+    family = str(device.get("family", "")).lower()
+    chip = str(device.get("chip", "")).lower()
+    is_esp_device = "esp" in family or "esp" in chip
+    esp_write_requested = is_esp_device and bool(firmware_path or action_params.get("ota_url"))
 
-    if action_params.get("backup_before_update"):
-        if device.get("port") and str(device.get("family", "")).startswith("esp"):
-            backup = esp_backup_firmware(device["port"], flash_size_mb=int(device.get("flash_mb") or 4), output_name=device_id)
-            steps.append({"step": "backup", **backup})
-            if backup.get("status") == "failed":
-                return {"status": "failed", "steps": steps, "error": backup.get("error")}
-        else:
-            steps.append({"step": "backup", "status": "skipped", "reason": "Backup not supported for this device"})
+    if esp_write_requested:
+        if not device.get("port"):
+            blocked = {"status": "failed", "error": "ESP32 firmware writes require a serial port for the mandatory 8 MB backup"}
+            steps.append({"step": "backup", **blocked})
+            return {"status": "failed", "steps": steps, "error": blocked["error"]}
+        backup = esp_backup_firmware(device["port"], flash_size_mb=8, output_name=device_id)
+        steps.append({"step": "backup", **backup})
+        if backup.get("status") != "success" or backup.get("size_bytes") != 8 * 1024 * 1024:
+            return {
+                "status": "failed",
+                "steps": steps,
+                "error": backup.get("error", "Complete 8 MB ESP32 backup was not validated"),
+            }
+    elif action_params.get("backup_before_update"):
+        steps.append({"step": "backup", "status": "skipped", "reason": "Backup not supported for this device"})
 
     flash_result: dict[str, Any]
     if action_params.get("bundle_id"):
         flash_result = install_prepared_bundle(device_id, action_params["bundle_id"])
         steps.append({"step": "install_bundle", **flash_result})
-    elif firmware_path and device.get("port") and str(device.get("family", "")).startswith("esp"):
+    elif firmware_path and device.get("port") and is_esp_device:
         flash_result = esp_flash_firmware(device["port"], firmware_path, flash_offset=str(action_params.get("flash_offset") or "0x0"))
         steps.append({"step": "flash", **flash_result})
     elif firmware_path and (device.get("drive") or action_params.get("drive")) and str(device.get("family", "")).startswith("rp"):
