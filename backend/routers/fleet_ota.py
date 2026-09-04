@@ -123,6 +123,10 @@ _NIRVANA_OS_FILES = {
     "sdcard.py", "sd.py", "menu.py", "uQR.py", "wifi_provision.py",
     "net.py", "settings.py", "apps.py", "appstore.py", "control.py",
     "version.json", "config.example.json",
+    # Camera/mic/face chain + assets (added for the 0.4.1 multi-file OTA).
+    "camera_capture.py", "face.py", "sensors.py", "assets.py", "audio.py",
+    "app_registry.py", "mdns.py", "improv_ble.py", "ble_scan.py",
+    "espnow_msg.py", "espnow_pair.py", "espnow_beacon.py",
 }
 
 
