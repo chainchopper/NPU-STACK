@@ -164,6 +164,25 @@ menu/screen-provisioning when `caps["display"] and caps["touch"]`, else falls
 to serial command mode; `sd.py` mount failure returns False. A bare ESP32-S3
 with no expansion boots to serial REPL; a full Sense boots the face/menu.
 
+**WiFi OTA live (2026-09-04):** the no-button update path is working end to
+end. The backend's `fleet_ota` router already served `/api/fleet/ota/
+nirvana-os/{version.json,<file>}` from `firmware/nirvana-os/`; the gap was
+that the device's `check_ota` only pulled the single `manifest["file"]`
+(main.py), so face/menu/camera changes could never land. Fixed: manifest
+carries a `files` list, `check_ota` pulls all of them, and a new
+`apply_pending_ota` self-completes a multi-file update on first boot of the
+swapped main.py (the pre-0.4.1 path only ever fetched main.py). Device config
+`update_channel` was set to `http://192.168.1.232:8010/api/fleet/ota/
+nirvana-os` over the REPL. Verified: soft-reset → boot → `OTA: checking ...` →
+pulled 0.4.2 → `up to date (0.4.2)`, no buttons/cable. Backend `fleet_ota`
+whitelist extended to serve the camera/face/mic/asset modules. Gotchas:
+LittleFS config writes need an explicit `f.close()` or they don't flush
+(`json.dump(cfg, open(path,'w'))` leaks the handle); the backend reads
+`firmware/nirvana-os/` live, so bumping `version.json` is all a release needs.
+Full fix list: `firmware/nirvana-os/CHANGES.md` (0.4.2). Next: firmware-.bin
+OTA via `esp32.Partition` (C-layer updates without download mode), then the
+visual firmware-emulator UI.
+
 ---
 
 ## 2. Agent face / eyes ("always alive")
