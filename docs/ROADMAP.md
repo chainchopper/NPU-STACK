@@ -11,8 +11,20 @@ focus. Update statuses as work lands.
 
 ## 1. Display performance (XIAO Round Display, GC9A01 240×240)
 
-**Status:** Done (v1). MicroPython-adapted: big-endian framebuffer (no byte-swap),
-80 MHz SPI, dirty-pixel incremental rendering, native (viper) fill.
+**Status:** Done (v2). MicroPython-adapted: big-endian framebuffer (no byte-swap),
+80 MHz SPI, dirty-pixel incremental rendering, native (viper) fill, and — once
+octal PSRAM is live — a **full direct framebuffer** (no banded scene replay).
+
+**v2 fix (2026-09-04, OTA 0.4.3):** the banded renderer's scene replay was the
+real bottleneck — it recorded every draw op and re-ran all of them per 40-row
+band on each `show()`, so a full frame took **~35.8 s** on-device. With PSRAM
+live, `gc9a01` now allocates a full 240×240 RGB565 framebuffer (115,200 B) and
+draws directly; `show_region` pushes the region in one SPI burst. Measured
+on-device after OTA: full show **705 ms** (was 35.8 s), band region **122 ms**
+(was 40.9 s), face full draw **807 ms** (was 30.9 s). Banded scene-replay is
+kept as a fallback for stock builds (full framebuffer can't allocate there);
+`FORCE_BANDED` test hook + `tests/test_banded_display.py` cover both modes
+(12/12).
 
 Seeed's Animation Workshop found these phases (C/LVGL/ESP-IDF). Mapped to our
 MicroPython reality:
