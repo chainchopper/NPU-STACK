@@ -86,10 +86,14 @@ class BandedDisplayTests(unittest.TestCase):
     def tearDownClass(cls):
         shim.uninstall()
 
-    def _make(self):
+    def _make(self, banded=True):
         import gc9a01 as g
         from machine import Pin
         spi = _RecSPI()
+        # Force the banded path so these tests exercise the fallback renderer
+        # even on hosts where the full framebuffer would allocate. Direct-mode
+        # behaviour is covered separately in test_direct_mode_*.
+        g.FORCE_BANDED = banded
 
         # Patch gc9a01.Pin with a subclass whose DC line reports back to the SPI.
         class SpyPin(Pin):
@@ -101,6 +105,7 @@ class BandedDisplayTests(unittest.TestCase):
         g.Pin = SpyPin
         lcd = g.GC9A01(spi, cs=2, dc=4, bl=43)
         g.Pin = Pin
+        g.FORCE_BANDED = False
         return lcd, spi
 
     def test_no_full_framebuffer_allocated(self):
@@ -179,6 +184,31 @@ class BandedDisplayTests(unittest.TestCase):
         lcd.show()
         self.assertEqual(_px(spi.frame, 10, 38), 0)
         self.assertEqual(_px(spi.frame, 13, 41), 0)
+
+    # ── direct (full framebuffer) mode — the PSRAM-live fast path ────────
+    def test_direct_mode_full_framebuffer_single_push(self):
+        lcd, spi = self._make(banded=False)
+        self.assertTrue(lcd._direct)
+        self.assertEqual(len(lcd.buffer), 240 * 240 * 2)
+        lcd.fill(0xFFFF)
+        lcd.show()
+        # Direct mode pushes the whole frame in ONE SPI burst (no band replay).
+        self.assertEqual(spi.pushes, 1)
+        for (x, y) in [(0, 0), (120, 120), (239, 239), (10, 200)]:
+            self.assertEqual(_px(spi.frame, x, y), 0xFFFF, (x, y))
+
+    def test_direct_mode_region_push(self):
+        lcd, spi = self._make(banded=False)
+        lcd.fill(0)
+        lcd.fill_rect(0, 80, 240, 41, 0x07E0)  # green band rows 80..120
+        spi.pushes = 0
+        lcd.show_region(80, 120)
+        self.assertEqual(spi.pushes, 1)  # one region burst, not per-band
+        for y in range(80, 121):
+            for x in (0, 120, 239):
+                self.assertEqual(_px(spi.frame, x, y), 0x07E0, (x, y))
+        self.assertEqual(_px(spi.frame, 120, 79), 0)
+        self.assertEqual(_px(spi.frame, 120, 121), 0)
 
 
 class SpriteAssetTests(unittest.TestCase):
