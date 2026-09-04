@@ -83,6 +83,87 @@ only and does not control backup or flash sizing. A future improvement is to
 parse the detected chip's actual flash size. Generated documentation snapshots
 may retain older 4 MiB wording until their source index is regenerated.
 
+**Custom all-in-one firmware (2026-09-02):** built MicroPython v1.28 for a new
+board variant `ESP32_GENERIC_S3_XIAO_SENSE` = octal PSRAM + OV2640 camera
+(lemariva driver) + PDM-RX mic (PR #14176). Two hard-won build lessons:
+
+- **Octal PSRAM, QUAD flash.** Upstream `sdkconfig.spiram_oct` only sets
+  `CONFIG_SPIRAM_MODE_OCT` and assumes the board base enables `CONFIG_SPIRAM`;
+  the generic S3 base does not, so SPIRAM gets silently pruned and the build
+  boots with ~250 KB internal SRAM — every heap allocation fails
+  (`import camera` → `MemoryError`). The XIAO Sense has **octal PSRAM but a
+  QUAD (QIO) flash chip**; on ESP32-S3 the two share the MSPI bus but run
+  independent modes, so octal PSRAM does NOT require octal flash. (An earlier
+  attempt forced `CONFIG_ESPTOOLPY_OCT_FLASH`/`FLASHMODE_OPI` and the ROM
+  could no longer read the quad flash — chip dropped into download mode on
+  every boot.) Fix = board-local `sdkconfig.spiram_oct_xiao` enabling
+  `CONFIG_SPIRAM=y` + `SPIRAM_MODE_OCT` + `BOOT_INIT` + `USE_MALLOC` while
+  leaving flash at the base QIO. Verified in `build/sdkconfig`:
+  `SPIRAM=y`, `SPIRAM_MODE_OCT=y`, `ESP32S3_SPIRAM_SUPPORT=y`,
+  `FLASHMODE_QIO=y`, `OCT_FLASH` unset.
+- **Stale `build/sdkconfig` overrides new defaults.** kconfig loads the existing
+  sdkconfig as authoritative; editing a defaults file then rebuilding does NOT
+  apply it. Must delete `build/sdkconfig` to regenerate from defaults.
+- **Windows cmd 8191-char limit:** qstr preprocessing inlines ~500 sources +
+  hundreds of `-I` flags (>90 KB). Fixed with response files: `mkrules.cmake`
+  writes `qstr_pp_args.txt` (newline-separated for makeqstrdefs' keyword
+  parsing), `makeqstrdefs.py` writes a per-chunk space-separated gcc `.rsp`
+  with embedded `"` escaped as `\"` (so `-DFFCONF_H="..."` survives), and the
+  sed-based `qstrdefs.preprocessed.h` step is replaced by
+  `ports/esp32/preprocess_qstrdefs.py` (sed's `&`/`\0` get mangled by cmd).
+
+**Accidental remote download-mode latch (2026-09-02):** an esptool
+`--before default_reset --after hard_reset` sequence on the XIAO's native
+USB-CDC left the chip in `boot:0x22 (DOWNLOAD(USB/UART0))` "waiting for
+download" **without the BOOT button held** — a subsequent RTS-only reset did
+not clear it. Undesirable here, but as a technique (software-forced download
+mode) it could be valuable for headless OTA recovery / factory reflash without
+touching the tiny BOOT button. Parked for investigation: reproduce the exact
+DTR/RTS pulse order, then wrap it as a deliberate `enter_download_mode()` tool.
+
+**Native-USB DTR/RTS caveat (2026-09-03):** the XIAO Sense's flash/REPL port is
+the ESP32-S3's **native USB-Serial/JTAG**, not a UART bridge — so DTR/RTS are
+software signals to the chip, NOT wired to EN/GPIO0. esptool's
+`--before/--after` line toggles therefore do NOT reset or re-strap the chip on
+this port; only a physical power-cycle or the BOOT/RESET buttons change the
+boot mode. Repeatedly opening/closing the CDC port to "pulse" it wedges the
+USB-serial-JTAG download stub into a state where it stops emitting its banner
+and stops ACKing esptool sync (write timeout), recoverable only by a full
+power-cycle + clean BOOT-held entry. Lesson: on native-USB S3 boards, don't try
+to software-pulse your way out of download mode — power-cycle cleanly once.
+
+**USB-Serial-JTAG latched-strap bug (root cause of the 2026-09-03 "brick"):**
+Espressif IDFGH-12237. When download mode is entered on the native USB-Serial/
+JTAG port, the USB peripheral can only trigger a *core* reset, which does NOT
+re-sample the boot strapping pin — GPIO0 stays latched LOW even after BOOT is
+released, so every reset returns `boot:0x22 (DOWNLOAD)` "waiting for download".
+The recovery is the **EN/RESET button alone** (a real chip reset re-samples
+GPIO0 high). NOT a dead BOOT button, NOT a brick: the flashed image was valid
+(magic 0xE9, quad mode) throughout. Verified 2026-09-03: single RESET press
+brought the board from COM9/download back to COM10/app with the face running,
+PSRAM live (`free mem=8171120`), display/touch/RTC all OK on first boot.
+
+**Camera module enable (2026-09-03):** the lemariva driver gated its whole body
+behind `#if MODULE_CAMERA_ENABLED`, and the define had to reach BOTH the
+compiler and the makeqstrdefs qstr-collection pass or all of the module's
+`MP_QSTR_*` strings go uncollected (cryptic `MP_QSTR_framesize undeclared`).
+Fix: define it in the board `mpconfigboard.h`. Two more v1.28 porting gaps:
+the driver uses the removed `STATIC` macro (compat shim `#define STATIC
+static` added to modcamera.c), and `img_converters.h` pulls `jpeg_decoder.h`
+from the esp_jpeg managed component (added its include dir to the usermod
+cmake; linking `idf::esp32-camera` directly breaks the qstr pass's
+component-requirements resolution, so include-path only).
+
+**Universal-boot contract (confirmed 2026-09-03):** the firmware must boot
+clean with any subset of display/camera/mic/touch/SD present — like a Windows
+install, missing hardware degrades gracefully, never blocks. This is already
+the design: `board.detect()` wraps every probe in try/except and gates on
+capability; `camera_capture.py` is fully lazy (raises on absent module/
+hardware, `status()` never forces a capture); `main.py` only runs splash/
+menu/screen-provisioning when `caps["display"] and caps["touch"]`, else falls
+to serial command mode; `sd.py` mount failure returns False. A bare ESP32-S3
+with no expansion boots to serial REPL; a full Sense boots the face/menu.
+
 ---
 
 ## 2. Agent face / eyes ("always alive")
